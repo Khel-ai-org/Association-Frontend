@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { Play, Pause, RotateCcw, Settings, Maximize, ArrowRight, ChevronLeft, ArrowLeft, Minimize } from "lucide-react";
+import { SplitCanvasVideoPlayer } from "@/app/admin/components/player/SplitCanvasVideoPlayer";
 
 
 const CAMERA_MAPPING: Record<string, string> = {
@@ -607,6 +608,27 @@ console.log({
   isBusy,
   isCompleted,
 });
+
+// Prepare camera options for Split View dropdown comparison
+const cameraOptions = useMemo(() => {
+  const labels: Record<string, string> = {
+    cam_1: "FRONT (Cam 1)",
+    cam_2: "SIDE (Cam 2)",
+    cam_3: "BATSMAN (Cam 3)",
+    cam_4: "BOWLER (Cam 4)",
+    cam_5: "STUMP (Cam 5)",
+    cam_6: "ARIEL (Cam 6)",
+  };
+
+  return Object.entries(ballMap)
+    .map(([camKey, ballFile]) => ({
+      label: labels[camKey] || camKey.toUpperCase(),
+      url: ballFile?.downloadUrl || "",
+    }))
+    .filter((opt) => Boolean(opt.url));
+}, [ballMap]);
+
+
 // Helper to format time
 const formatTime = (time: number) => {
   const mins = Math.floor(time / 60);
@@ -715,110 +737,12 @@ const formatTime = (time: number) => {
 
   
 </div>
-<div ref={videoContainerRef}>
-          <div className="relative aspect-video bg-black rounded-2xl md:rounded-[32px] overflow-hidden shadow-2xl group">
-            <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" src={currentVideoUrl || undefined} crossOrigin="anonymous" playsInline muted loop preload="auto"/>
-            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-10" />
-            
-            {/* Top Overlay Labels */}
-            <div className="absolute top-4 left-4 md:top-8 md:left-8 z-20">
-              <div className="bg-black/20 backdrop-blur-md px-3 py-2 md:px-5 md:py-3 rounded-xl md:rounded-2xl border border-white/20 text-white">
-                <p className="text-[8px] md:text-[10px] uppercase tracking-widest opacity-60 font-bold mb-1">Ball {initialBall} Analytics</p>
-                <p className="text-sm md:text-xl font-bold">{outcome} Runs - {batsmanName}</p>
-              </div>
-            </div>
-
-            {/* Video Action Icons */}
-            <div className="absolute top-4 right-4 md:top-8 md:right-8 flex gap-2 md:gap-3 z-30 opacity-0 group-hover:opacity-100 transition-opacity settings-menu-container">
-                
-                {/* Speed Settings */}
-                <div className="relative">
-                    <button 
-                        onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                        className={`p-1.5 md:p-2 backdrop-blur-md rounded-lg border border-white/20 text-white transition-colors ${isSettingsOpen ? 'bg-white/20' : 'bg-white/10'}`}
-                    >
-                        <Settings className="w-4 h-4 md:w-5 md:h-5"/>
-                    </button>
-                    
-                    {isSettingsOpen && (
-  <div className="absolute top-12 right-0 bg-slate-900/90 backdrop-blur-md p-2 rounded-xl border border-white/10 shadow-2xl w-36 text-white z-50 animate-in fade-in zoom-in duration-200">
-    <div className="px-2 pt-1 pb-2">
-      <p className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-2">
-        Playback Speed
-      </p>
-      <div className="flex flex-col gap-0.5">
-        {[0.5, 0.75, 1, 1.25, 1.5].map((rate) => (
-          <button
-            key={rate}
-            onClick={() => handlePlaybackRate(rate)}
-            className={`group flex items-center justify-between text-xs px-2.5 py-2 rounded-lg transition-all duration-200 
-              ${
-                playbackRate === rate
-                  ? "bg-blue-500 text-white font-bold shadow-md"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
-              }`}
-          >
-            {rate.toFixed(2)}x
-            {playbackRate === rate && (
-              <div className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white]" />
-            )}
-          </button>
-        ))}
-      </div>
-    </div>
-  </div>
-)}
-                </div>
-                
-                {/* Fullscreen Toggle */}
-                <button onClick={toggleFullscreen} className="p-1.5 md:p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 text-white">
-                    {isFullscreen ? <Minimize className="w-4 h-4 md:w-5 md:h-5" /> : <Maximize className="w-4 h-4 md:w-5 md:h-5"/>}
-                </button>
-            </div>
-
-            {/* Center Controls */}
-            <div className="absolute inset-0 flex items-center justify-center gap-4 md:gap-10 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-               <button onClick={() => skipTime(-5)} className="w-10 h-10 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex flex-col items-center justify-center border border-white/20 text-white hover:bg-white/20">
-                 <span className="text-[8px] md:text-[10px] font-bold">-5F</span>
-               </button>
-
-               <button onClick={togglePlay} className="w-14 h-14 md:w-20 md:h-20 bg-black/30 rounded-full flex items-center justify-center shadow-2xl hover:scale-105 transition-transform">
-                 {isPlaying ? <Pause className="w-6 h-6 md:w-8 md:h-8 text-black fill-black" /> : <Play className="w-6 h-6 md:w-8 md:h-8 text-black fill-black ml-1" />}
-               </button>
-
-               <button onClick={() => skipTime(5)} className="w-10 h-10 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex flex-col items-center justify-center border border-white/20 text-white hover:bg-white/20">
-                 <span className="text-[8px] md:text-[10px] font-bold">+5F</span>
-               </button>
-            </div>
-
-            {/* Bottom Progress Bar */}
-            {/* Bottom Progress Bar */}
-<div className="absolute bottom-4 left-4 right-4 md:bottom-8 md:left-8 md:right-8 z-20">
-    <div className="flex items-center gap-3 text-white text-[8px] md:text-[10px] font-bold mb-2">
-        <span>{formatTime(currentTime)}</span>
-        
-        <div 
-          className="flex-1 h-[2px] md:h-[3px] bg-white/20 rounded-full overflow-hidden cursor-pointer"
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const percentage = x / rect.width;
-            if (videoRef.current) {
-              videoRef.current.currentTime = percentage * duration;
-            }
-          }}
-        >
-            <div 
-              className="h-full bg-white rounded-full transition-all duration-100" 
-              style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }} 
-            />
-        </div>
-        
-        <span>{formatTime(duration)}</span>
-    </div>
-</div>
-          </div>
-</div>
+<SplitCanvasVideoPlayer 
+  srcA={currentVideoUrl} 
+  subtitleA={`Ball ${initialBall} Analytics`}
+  titleA={`${activeView} VIEW (${outcome} Runs - ${batsmanName})`}
+  optionsB={cameraOptions}
+/>
           {/* Camera Previews */}
           <div className="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mt-6 md:mt-8">
             {Object.keys(CAMERA_MAPPING).map((view) => (

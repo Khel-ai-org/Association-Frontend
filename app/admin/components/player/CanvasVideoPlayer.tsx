@@ -1,0 +1,352 @@
+"use client";
+
+/**
+ * CanvasVideoPlayer
+ *
+ * React UI wrapper around PlayerEngine.
+ * Architecture is now identical to Ball-tracker-Z4:
+ *
+ *   src (S3 MP4 URL)
+ *     → GET /api/video/info          (ffprobe metadata)
+ *     → POST /api/video/preload      (background bulk extraction — like Python _start_extraction)
+ *     → GET /api/video/frame?index=N (JPEG served from disk — like /api/clips/{id}/frame/{N})
+ *     → FrameCache (LRU RAM, img.src = url — exact Z4 FrameSource)
+ *     → PlayerEngine (canvas render loop — exact Z4 Player)
+ *     → <canvas>
+ */
+
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { Play, Pause, Settings, Maximize, Minimize, ZoomIn, ZoomOut } from "lucide-react";
+import { PlayerEngine, PlayerState, SPEEDS } from "./PlayerEngine";
+
+// -------------------------------------------------------------------- //
+// Props                                                                 //
+// -------------------------------------------------------------------- //
+
+interface CanvasVideoPlayerProps {
+  src:       string | null;
+  fps?:      number;
+  title?:    string;
+  subtitle?: string;
+}
+
+// -------------------------------------------------------------------- //
+// Component                                                             //
+// -------------------------------------------------------------------- //
+
+export const CanvasVideoPlayer: React.FC<CanvasVideoPlayerProps> = ({
+  src,
+  fps = 25,
+  title,
+  subtitle,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef    = useRef<HTMLCanvasElement>(null);
+  const engineRef    = useRef<PlayerEngine | null>(null);
+
+  const [state, setState] = useState<PlayerState>({
+    frame: 0, frameCount: 0, currentTime: 0, duration: 0,
+    playing: false, speed: 1, direction: 1, fps,
+    timecode: "00:00.000", zoom: 1, cacheHitRate: 0,
+    preloadStatus: 'idle',
+  });
+
+  const [loading,      setLoading]      = useState(false);
+  const [loadError,    setLoadError]    = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // ================================================================== //
+  // Mount — create PlayerEngine once                                   //
+  // ================================================================== //
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const engine = new PlayerEngine(canvasRef.current);
+    engineRef.current = engine;
+
+    const offs = [
+      engine.on('transport', (st: PlayerState) => setState({ ...st })),
+      engine.on('tick',      (st: PlayerState) => setState({ ...st })),
+      engine.on('seek',      (st: PlayerState) => setState({ ...st })),
+      engine.on('clip',      (st: PlayerState) => setState({ ...st })),
+      engine.on('preload',   () => setState(prev => ({
+        ...prev,
+        preloadStatus: engine.preloadStatus,
+      }))),
+    ];
+
+    return () => {
+      offs.forEach(off => (off as Function)());
+      engine.destroy();
+      engineRef.current = null;
+    };
+  }, []);
+
+  // ================================================================== //
+  // Keyboard Shortcuts — Exact 1:1 match of Z4 reference (app.js)      //
+  // ================================================================== //
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+         target.tagName === 'TEXTAREA' ||
+         target.tagName === 'SELECT' ||
+         target.isContentEditable)
+      ) {
+        if (event.key === 'Escape') target.blur();
+        return;
+      }
+
+      const engine = engineRef.current;
+      if (!engine || !engine.isReady) return;
+
+      switch (event.key) {
+        case ' ':
+          event.preventDefault();
+          engine.toggle();
+          break;
+        case 'ArrowLeft':
+          event.preventDefault();
+          engine.step(event.shiftKey ? -5 : -1);
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          engine.step(event.shiftKey ? 5 : 1);
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          engine.nudgeSpeed(1);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          engine.nudgeSpeed(-1);
+          break;
+        case 'Home':
+          event.preventDefault();
+          engine.seek(0);
+          break;
+        case 'End':
+          event.preventDefault();
+          engine.seek(engine.lastFrame);
+          break;
+        case '+':
+        case '=':
+          engine.setZoom(engine.effectiveScale() * 1.25);
+          break;
+        case '-':
+          engine.setZoom(engine.effectiveScale() / 1.25);
+          break;
+        case '1':
+          engine.setZoom(1);
+          break;
+        case 'f':
+        case 'F':
+          engine.fitToWindow();
+          break;
+        case 'm':
+        case 'M':
+          engine.view.mirrorH = !engine.view.mirrorH;
+          engine.invalidate();
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // ================================================================== //
+  // Load new src                                                        //
+  // ================================================================== //
+
+  useEffect(() => {
+    if (!engineRef.current || !src) return;
+    let cancelled = false;
+
+    setLoading(true);
+    setLoadError(null);
+
+    engineRef.current.loadVideo(src)
+      .then(() => { if (!cancelled) setLoading(false); })
+      .catch((err: Error) => {
+        if (!cancelled) { setLoading(false); setLoadError(err.message); }
+      });
+
+    return () => { cancelled = true; };
+  }, [src]);
+
+  // ================================================================== //
+  // Controls                                                            //
+  // ================================================================== //
+
+  const togglePlay  = useCallback(() => engineRef.current?.toggle(), []);
+  const handleStep  = useCallback((n: number) => engineRef.current?.step(n), []);
+  const handleSpeed = useCallback((s: number) => {
+    engineRef.current?.setSpeed(s);
+    setShowSettings(false);
+  }, []);
+  const handleSeek  = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    engineRef.current?.seek(Number(e.target.value));
+  }, []);
+  const handleZoom  = useCallback((factor: number) => {
+    if (!engineRef.current) return;
+    engineRef.current.setZoom(engineRef.current.effectiveScale() * factor);
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  }, []);
+
+  // ================================================================== //
+  // Helpers                                                             //
+  // ================================================================== //
+
+  const fmtTime = (s: number) => {
+    const m = Math.floor(s / 60);
+    return `${String(m).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+  };
+
+  const isExtracting = state.preloadStatus === 'extracting';
+
+  // ================================================================== //
+  // Render                                                              //
+  // ================================================================== //
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative aspect-video bg-[#0b0e13] rounded-2xl md:rounded-[32px] overflow-hidden shadow-2xl group text-white"
+    >
+      {/* Canvas */}
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+
+      {/* ---- Loading (metadata probe) ---- */}
+      {loading && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-sm">
+          <div className="w-9 h-9 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+          <p className="text-xs font-semibold text-slate-300 tracking-wide">Loading video…</p>
+        </div>
+      )}
+
+      {/* ---- Error ---- */}
+      {loadError && !loading && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-black/85">
+          <p className="text-red-400 text-sm font-bold">Failed to load video</p>
+          <p className="text-slate-500 text-xs max-w-xs text-center">{loadError}</p>
+        </div>
+      )}
+
+      {/* ---- Extraction progress banner (like Z4 showing "extracting frames") ---- */}
+      {isExtracting && !loading && (
+        <div className="absolute top-0 left-0 right-0 z-40 flex items-center gap-2 px-4 py-2 bg-blue-600/20 backdrop-blur-md border-b border-blue-500/20">
+          <div className="w-3 h-3 border-2 border-blue-400/40 border-t-blue-400 rounded-full animate-spin flex-shrink-0" />
+          <p className="text-[10px] font-bold text-blue-300 tracking-wide">
+            Extracting frames into server cache — first-time only, subsequent loads are instant
+          </p>
+        </div>
+      )}
+
+      {/* ---- Top-left info badge ---- */}
+      {(title || subtitle) && (
+        <div className="absolute top-4 left-4 md:top-6 md:left-6 z-20 pointer-events-none">
+          <div className="bg-black/40 backdrop-blur-md px-3 py-2 rounded-xl border border-white/15">
+            {subtitle && <p className="text-[8px] md:text-[10px] uppercase tracking-widest opacity-60 font-bold mb-0.5">{subtitle}</p>}
+            {title    && <p className="text-sm md:text-lg font-bold leading-tight">{title}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* ---- Top-right tools ---- */}
+      <div className="absolute top-4 right-4 md:top-6 md:right-6 flex gap-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        <button onClick={() => handleZoom(1.25)} className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors" title="Zoom In">
+          <ZoomIn className="w-4 h-4" />
+        </button>
+        <button onClick={() => handleZoom(0.8)} className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors" title="Zoom Out">
+          <ZoomOut className="w-4 h-4" />
+        </button>
+
+        {/* Speed picker */}
+        <div className="relative">
+          <button
+            onClick={() => setShowSettings(v => !v)}
+            className={`p-2 backdrop-blur-md rounded-lg border border-white/20 transition-colors ${showSettings ? 'bg-white/25' : 'bg-white/10 hover:bg-white/20'}`}
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+          {showSettings && (
+            <div className="absolute top-11 right-0 w-36 bg-slate-900/95 backdrop-blur-md rounded-xl border border-white/10 shadow-2xl p-2 z-50">
+              <p className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest px-2 mb-2">Playback Speed</p>
+              <div className="flex flex-col gap-0.5">
+                {SPEEDS.map(rate => (
+                  <button
+                    key={rate}
+                    onClick={() => handleSpeed(rate)}
+                    className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg transition-colors ${state.speed === rate ? 'bg-blue-500 text-white font-bold' : 'text-slate-300 hover:bg-white/10'}`}
+                  >
+                    {rate}×
+                    {state.speed === rate && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button onClick={toggleFullscreen} className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors">
+          {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+        </button>
+      </div>
+
+      {/* ---- Center transport ---- */}
+      <div className="absolute inset-0 flex items-center justify-center gap-3 md:gap-6 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+        <button onClick={() => handleStep(-5)} className="pointer-events-auto w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+          <span className="text-[9px] font-extrabold">−5F</span>
+        </button>
+        <button onClick={() => handleStep(-1)} className="pointer-events-auto w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+          <span className="text-[9px] font-extrabold">−1F</span>
+        </button>
+        <button onClick={togglePlay} className="pointer-events-auto w-14 h-14 md:w-20 md:h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center shadow-2xl hover:scale-105 hover:bg-white/30 transition-all border border-white/30">
+          {state.playing
+            ? <Pause className="w-6 h-6 md:w-8 md:h-8 fill-white" />
+            : <Play  className="w-6 h-6 md:w-8 md:h-8 fill-white ml-1" />}
+        </button>
+        <button onClick={() => handleStep(1)} className="pointer-events-auto w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+          <span className="text-[9px] font-extrabold">+1F</span>
+        </button>
+        <button onClick={() => handleStep(5)} className="pointer-events-auto w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+          <span className="text-[9px] font-extrabold">+5F</span>
+        </button>
+      </div>
+
+      {/* ---- Bottom progress bar ---- */}
+      <div className="absolute bottom-0 left-0 right-0 z-20 px-4 md:px-8 pb-4 md:pb-6 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        <div className="bg-black/50 backdrop-blur-md rounded-xl md:rounded-2xl border border-white/10 p-3">
+          <div className="flex items-center justify-between text-[10px] md:text-xs font-mono font-bold mb-2">
+            <span className="text-slate-300">{state.timecode}</span>
+            <span className="text-blue-400">Frame {state.frame} / {Math.max(0, state.frameCount - 1)}</span>
+            <span className="text-slate-300">{fmtTime(state.duration)}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={Math.max(0, state.frameCount - 1)}
+            value={state.frame}
+            onChange={handleSeek}
+            className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-blue-500"
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
