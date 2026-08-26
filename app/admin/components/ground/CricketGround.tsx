@@ -47,8 +47,8 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
     const alphaRegex = /^[A-Za-z\s]+$/;
     const numberRegex = /^\d+$/;
 
-    if (!formData.name.trim() || !alphaRegex.test(formData.name)) newErrors.name = "For Valid name letters,spaces is required";
-    if (!formData.location.trim() || !alphaRegex.test(formData.location)) newErrors.location = "Valid location letters, spaces is required";
+    //if (!formData.name.trim() || !alphaRegex.test(formData.name)) newErrors.name = "For Valid name letters,spaces is required";
+    //if (!formData.location.trim() || !alphaRegex.test(formData.location)) newErrors.location = "Valid location letters, spaces is required";
     if (!formData.pitchType) newErrors.pitchType = "Pitch Type is required";
     if (!formData.straightBoundary || !numberRegex.test(formData.straightBoundary)) newErrors.straightBoundary = "Numbers only";
     if (!formData.sideBoundary || !numberRegex.test(formData.sideBoundary)) newErrors.sideBoundary = "Numbers only";

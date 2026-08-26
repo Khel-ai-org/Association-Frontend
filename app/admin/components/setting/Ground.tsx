@@ -51,11 +51,11 @@ const EditGroundModal = ({
     const alphaRegex = /^[A-Za-z\s]+$/;
     const numberRegex = /^\d+$/;
 
-    if (!formData.groundName.trim() || !alphaRegex.test(formData.groundName)) 
-      newErrors.groundName = "For Valid name letter, spaces is required";
+    //if (!formData.groundName.trim() || !alphaRegex.test(formData.groundName)) 
+     // newErrors.groundName = "For Valid name letter, spaces is required";
     
-    if (!formData.location.trim() || !alphaRegex.test(formData.location)) 
-      newErrors.location = "For Valid location letters, spaces is required";
+    //if (!formData.location.trim() || !alphaRegex.test(formData.location)) 
+     // newErrors.location = "For Valid location letters, spaces is required";
     
     if (!formData.pitchType) 
       newErrors.pitchType = "Pitch Type is required";
