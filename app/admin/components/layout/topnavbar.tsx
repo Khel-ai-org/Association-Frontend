@@ -138,6 +138,7 @@ const handleMarkAllRead = async () => {
     { name: "Home", path: "/admin/dashboard" },
     { name: "Tournament", path: "/admin/tournament" },
     { name: "Grounds", path: "/admin/ground" },
+    {name:"Players", path:"/admin/players"},
 
   ];
 

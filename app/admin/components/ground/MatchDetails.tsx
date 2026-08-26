@@ -62,12 +62,23 @@ const [appeals, setAppeals] = useState<AppealData | null>(null);
 const VARIATIONS = ['Inswinger', 'Outswinger', 'Seam Up', 'Cross Seam', 'Late in', 'Scrambled Seam', 'Late Out', 'Slower', 'Reverse Swing', 'Off Cutter', 'Leg Cutter', 'Back Off Hand', 'Knuckle', 'Split Finger', 'Beamer', 'Wide Yorker'];
 const SHOTS = ['Cover Drive', 'Drive', 'Punch', 'Insight-Out', 'Cut Shot', 'Square Cut', 'Late Cut', 'Upper Cut', 'Slash', 'Straight Drive', 'Defence', 'Flick', 'Outside Edge', 'Pull', 'Sweep', 'Paddle Sweep', 'Leg Glance', 'On Drive', 'Reverse Sweep', 'Switch Hit', 'Scoop', 'Ramp Shot', 'Pick Up Shot', 'Helicopter Shot', 'Inside Edge', 'Top Edge'];
 const SUSPECTS = ["chucking", "ball_tampering", "time_wasting", "dangerous_delivery", "beamer"];
+const RUNS = ['1', '2', '3','0'];
+const EXTRAS = ['Wide', 'No Ball', 'Leg Bye', 'Bye'];
 
   // 1. All available filter keys
 //const filterKeys = [ 'Boundaries', 'Yorker', 'Bouncer', 'Full', 'Half Volley', 'Good', 'Full Toss', 'Short', 'Inswinger', 'Outswinger', 'Seam Up', 'Cross Seam', 'Late in', 'Scrambled Seam', 'Late Out', 'Slower', 'Reverse Swing', 'Off Cutter', 'Leg Cutter', 'Back Off Hand', 'Knuckle', 'Split Finger', 'Beamer', 'Wide Yorker', 'Cover Drive', 'Drive', 'Punch', 'Insight-Out', 'Cut Shot', 'Square Cut', 'Late Cut', 'Upper Cut', 'Slash', 'Straight Drive', 'Defence', 'Flick', 'Outside Edge', 'Pull', 'Sweep', 'Paddle Sweep', 'Leg Glance', 'On Drive', 'Reverse Sweep', 'Switch Hit', 'Scoop', 'Ramp Shot', 'Pick Up Shot', 'Helicopter Shot', 'Inside Edge', 'Top Edge', 'Deep Cover', 'Long Off', 'Long On', 'Deep Mid Wicket', 'Deep Square Leg', 'Deep Fine Leg', 'Third Man', 'Deep Point', 'Suspect Actions', "chucking", "ball_tampering", "time_wasting", "dangerous_delivery", "beamer"];
 const filterKeys = [
-  ...LENGTHS, ...VARIATIONS, ...SHOTS, ...SUSPECTS, 
-  'Boundaries', 'Other Length', 'Other Variation', 'Other Shot', 'Other Suspect'
+  ...LENGTHS, 
+  ...VARIATIONS, 
+  ...SHOTS, 
+  ...SUSPECTS, 
+  ...RUNS,          // Added
+  ...EXTRAS,        // Added
+  'Boundaries', 
+  'Other Length', 
+  'Other Variation', 
+  'Other Shot', 
+  'Other Suspect'
 ];
 // 2. Define State
 // Change this line in your component:
@@ -316,147 +327,91 @@ const allBalls = useMemo(() => {
 }, [inningBalls, superoverBalls]);
 
 
-
-
 const filteredBalls = useMemo(() => {
   const activeFilters = Object.keys(filters).filter(key => filters[key]);
   const activeAppealFilters = Object.keys(appealFilters).filter(key => appealFilters[key]);
 
-  const search = celebrationSearch.trim().toLowerCase();
+  // Normalize search term
+  const celebSearch = celebrationSearch.trim().toLowerCase();
+  const playerSearch = searchTerm.trim().toLowerCase();
 
   return allBalls.filter(ball => {
+    
     // ------------------------
-    // Standard Filters
+    // Search Filters (Name + Celebration)
     // ------------------------
-    // ... inside filteredBalls filter loop
-const matchesStandard =
-  activeFilters.length === 0 ||
-  activeFilters.some(filterKey => {
-    if (filterKey === "Boundaries") return ball.is_boundary;
+    const matchesName = !playerSearch || 
+      ball.batsman_name?.toLowerCase().includes(playerSearch) || 
+      ball.bowler_name?.toLowerCase().includes(playerSearch);
+    
+    const celebrations = Array.isArray(ball.celebrations) ? ball.celebrations : (ball.celebrations ? [ball.celebrations] : []);
+    const matchesCelebration = !celebSearch || celebrations.some((c: string) => c.toLowerCase().includes(celebSearch));
 
-    const val = filterKey.toLowerCase();
+    // ------------------------
+    // Standard/Checkbox Filters
+    // ------------------------
+    const matchesStandard =
+      activeFilters.length === 0 ||
+      activeFilters.some(filterKey => {
+        // Run Filters
+        if (filterKey === "1") return ball.total_runs === 1;
+        if (filterKey === "2") return ball.total_runs === 2;
+        if (filterKey === "3") return ball.total_runs === 3;
+        if (filterKey === "0") return ball.total_runs === 0;
 
-    // Logic for "Other"
-    if (filterKey === "Other Length") {
-       return ball.balling_length && !LENGTHS.some(l => l.toLowerCase() === ball.balling_length.toLowerCase());
-    }
-    if (filterKey === "Other Variation") {
-       return ball.balling_variation && !VARIATIONS.some(v => v.toLowerCase() === ball.balling_variation.toLowerCase());
-    }
-    if (filterKey === "Other Shot") {
-       return ball.shot_type && !SHOTS.some(s => s.toLowerCase() === ball.shot_type.toLowerCase());
-    }
-    if (filterKey === "Other Suspect") {
-       return ball.suspect && !SUSPECTS.some(s => s.toLowerCase() === ball.suspect.toLowerCase());
-    }
+        // Extra Filters (Ensure these keys match your API response properties)
+        if (filterKey === "Wide") return ball.is_wide || ball.wide_runs > 0;
+        if (filterKey === "No Ball") return ball.is_no_ball;
+        if (filterKey === "Leg Bye") return ball.is_leg_bye;
+        if (filterKey === "Bye") return ball.is_bye;
+        
+        // Boundaries
+        if (filterKey === "Boundaries") return ball.is_boundary;
 
-    // Default Match
-    return (
-      ball.balling_length?.toLowerCase() === val ||
-      ball.balling_variation?.toLowerCase() === val ||
-      ball.shot_type?.toLowerCase() === val ||
-      ball.fielding_type?.toLowerCase() === val ||
-      ball.suspect?.toLowerCase() === val
-    );
-  });
+        // Logic for "Other"
+        if (filterKey === "Other Length") return ball.balling_length && !LENGTHS.some(l => l.toLowerCase() === ball.balling_length.toLowerCase());
+        if (filterKey === "Other Variation") return ball.balling_variation && !VARIATIONS.some(v => v.toLowerCase() === ball.balling_variation.toLowerCase());
+        if (filterKey === "Other Shot") return ball.shot_type && !SHOTS.some(s => s.toLowerCase() === ball.shot_type.toLowerCase());
+        if (filterKey === "Other Suspect") return ball.suspect && !SUSPECTS.some(s => s.toLowerCase() === ball.suspect.toLowerCase());
+
+        // Default Match
+        const val = filterKey.toLowerCase();
+        return (
+          ball.balling_length?.toLowerCase() === val ||
+          ball.balling_variation?.toLowerCase() === val ||
+          ball.shot_type?.toLowerCase() === val ||
+          ball.fielding_type?.toLowerCase() === val ||
+          ball.suspect?.toLowerCase() === val
+        );
+      });
 
     // ------------------------
     // Appeal Filters
     // ------------------------
-    
-//     const normalKey = ball.over_number;
-// const suffixKey = `${ball.over_number}${ball.is_wide ? "_WD" : ball.is_no_ball ? "_NB" : ""}`;
+    // (Your existing appeal logic remains here)
+    const appealKey = ball.is_superover 
+      ? `SO${ball.superover_number}_${ball.over_number}`
+      : `${ball.over_number}${ball.is_wide ? "_WD" : ball.is_no_ball ? "_NB" : ""}`;
 
+    let appeal = appealLookup[appealKey] || appealLookup[ball.over_number];
 
-// let appeal = appealLookup[suffixKey];
-
-// // Fallback to normal key if no appeal found
-// if (!appeal) {
-//   appeal = appealLookup[normalKey];
-// }
-// console.log("Ball:", ball.over_number);
-// console.log("Lookup:", appealLookup[ball.over_number]);
-// console.log("All Lookup:", appealLookup);
-//     const matchesAppeal =
-//       activeAppealFilters.length === 0 ||
-//       (appeal &&
-//         activeAppealFilters.some(filterKey => {
-//           if (["Stay", "Umpire's Call", "Overturned"].includes(filterKey)) {
-//             return appeal.status === filterKey;
-//           }
-
-//           const u1 = scorecard?.umpire1;
-//           const u2 = scorecard?.umpire2;
-//           const currentUmpire = appeal.metadata?.umpire;
-
-//           if (filterKey === "Umpire 1") return currentUmpire === u1;
-//           if (filterKey === "umpire 2") return currentUmpire === u2;
-
-//           return false;
-//         }));
-
-// Inside your filteredBalls useMemo loop:
-const appealKey = ball.is_superover 
-  ? `SO${ball.superover_number}_${ball.over_number}`
-  : `${ball.over_number}${ball.is_wide ? "_WD" : ball.is_no_ball ? "_NB" : ""}`;
-
-// Lookup the appeal
-let appeal = appealLookup[appealKey];
-
-// Fallback logic (Check plain over number if specific key fails)
-if (!appeal) {
-  appeal = appealLookup[ball.over_number];
-}
-
-// ------------------------
-// Matches Appeal Logic
-// ------------------------
-const matchesAppeal =
-  activeAppealFilters.length === 0 ||
-  (appeal &&
-    activeAppealFilters.some((filterKey) => {
-      // 1. Status Check
-      if (["Stay", "Umpire's Call", "Overturned"].includes(filterKey)) {
-        return appeal.status === filterKey;
-      }
-
-      // 2. Dynamic Umpire Name Check
-      const u1 = scorecard?.umpire1;
-      const u2 = scorecard?.umpire2;
-      const currentUmpire = appeal.metadata?.umpire;
-
-      if (filterKey === u1) return currentUmpire === u1;
-      if (filterKey === u2) return currentUmpire === u2;
-
-      return false;
-    }));
+    const matchesAppeal =
+      activeAppealFilters.length === 0 ||
+      (appeal &&
+        activeAppealFilters.some((filterKey) => {
+          if (["Stay", "Umpire's Call", "Overturned"].includes(filterKey)) return appeal.status === filterKey;
+          const u1 = scorecard?.umpire1;
+          const u2 = scorecard?.umpire2;
+          const currentUmpire = appeal.metadata?.umpire;
+          if (filterKey === u1) return currentUmpire === u1;
+          if (filterKey === u2) return currentUmpire === u2;
+          return false;
+        }));
 
     // ------------------------
-    // Celebration Search
+    // Final Calculation
     // ------------------------
-    const celebrations = Array.isArray(ball.celebrations)
-      ? ball.celebrations
-      : ball.celebrations
-      ? [ball.celebrations]
-      : [];
-
-    const matchesCelebration =
-      !search ||
-      celebrations.some((c: string) =>
-        c.toLowerCase().includes(search)
-      );
-
-    // ------------------------
-    // Final
-    // ------------------------
-    const matchesFilters =
-      activeFilters.length > 0 && activeAppealFilters.length > 0
-        ? matchesStandard && matchesAppeal
-        : activeFilters.length > 0
-        ? matchesStandard
-        : matchesAppeal;
-
-    return matchesFilters && matchesCelebration;
+    return matchesName && matchesCelebration && matchesStandard && matchesAppeal;
   });
 }, [
   inningBalls,
@@ -465,7 +420,157 @@ const matchesAppeal =
   appealLookup,
   scorecard,
   celebrationSearch,
+  searchTerm // Added as dependency
 ]);
+
+// const filteredBalls = useMemo(() => {
+//   const activeFilters = Object.keys(filters).filter(key => filters[key]);
+//   const activeAppealFilters = Object.keys(appealFilters).filter(key => appealFilters[key]);
+
+//   const search = celebrationSearch.trim().toLowerCase();
+
+//   return allBalls.filter(ball => {
+//     // ------------------------
+//     // Standard Filters
+//     // ------------------------
+//     // ... inside filteredBalls filter loop
+// const matchesStandard =
+//   activeFilters.length === 0 ||
+//   activeFilters.some(filterKey => {
+//     if (filterKey === "Boundaries") return ball.is_boundary;
+
+//     const val = filterKey.toLowerCase();
+
+//     // Logic for "Other"
+//     if (filterKey === "Other Length") {
+//        return ball.balling_length && !LENGTHS.some(l => l.toLowerCase() === ball.balling_length.toLowerCase());
+//     }
+//     if (filterKey === "Other Variation") {
+//        return ball.balling_variation && !VARIATIONS.some(v => v.toLowerCase() === ball.balling_variation.toLowerCase());
+//     }
+//     if (filterKey === "Other Shot") {
+//        return ball.shot_type && !SHOTS.some(s => s.toLowerCase() === ball.shot_type.toLowerCase());
+//     }
+//     if (filterKey === "Other Suspect") {
+//        return ball.suspect && !SUSPECTS.some(s => s.toLowerCase() === ball.suspect.toLowerCase());
+//     }
+
+//     // Default Match
+//     return (
+//       ball.balling_length?.toLowerCase() === val ||
+//       ball.balling_variation?.toLowerCase() === val ||
+//       ball.shot_type?.toLowerCase() === val ||
+//       ball.fielding_type?.toLowerCase() === val ||
+//       ball.suspect?.toLowerCase() === val
+//     );
+//   });
+
+//     // ------------------------
+//     // Appeal Filters
+//     // ------------------------
+    
+// //     const normalKey = ball.over_number;
+// // const suffixKey = `${ball.over_number}${ball.is_wide ? "_WD" : ball.is_no_ball ? "_NB" : ""}`;
+
+
+// // let appeal = appealLookup[suffixKey];
+
+// // // Fallback to normal key if no appeal found
+// // if (!appeal) {
+// //   appeal = appealLookup[normalKey];
+// // }
+// // console.log("Ball:", ball.over_number);
+// // console.log("Lookup:", appealLookup[ball.over_number]);
+// // console.log("All Lookup:", appealLookup);
+// //     const matchesAppeal =
+// //       activeAppealFilters.length === 0 ||
+// //       (appeal &&
+// //         activeAppealFilters.some(filterKey => {
+// //           if (["Stay", "Umpire's Call", "Overturned"].includes(filterKey)) {
+// //             return appeal.status === filterKey;
+// //           }
+
+// //           const u1 = scorecard?.umpire1;
+// //           const u2 = scorecard?.umpire2;
+// //           const currentUmpire = appeal.metadata?.umpire;
+
+// //           if (filterKey === "Umpire 1") return currentUmpire === u1;
+// //           if (filterKey === "umpire 2") return currentUmpire === u2;
+
+// //           return false;
+// //         }));
+
+// // Inside your filteredBalls useMemo loop:
+// const appealKey = ball.is_superover 
+//   ? `SO${ball.superover_number}_${ball.over_number}`
+//   : `${ball.over_number}${ball.is_wide ? "_WD" : ball.is_no_ball ? "_NB" : ""}`;
+
+// // Lookup the appeal
+// let appeal = appealLookup[appealKey];
+
+// // Fallback logic (Check plain over number if specific key fails)
+// if (!appeal) {
+//   appeal = appealLookup[ball.over_number];
+// }
+
+// // ------------------------
+// // Matches Appeal Logic
+// // ------------------------
+// const matchesAppeal =
+//   activeAppealFilters.length === 0 ||
+//   (appeal &&
+//     activeAppealFilters.some((filterKey) => {
+//       // 1. Status Check
+//       if (["Stay", "Umpire's Call", "Overturned"].includes(filterKey)) {
+//         return appeal.status === filterKey;
+//       }
+
+//       // 2. Dynamic Umpire Name Check
+//       const u1 = scorecard?.umpire1;
+//       const u2 = scorecard?.umpire2;
+//       const currentUmpire = appeal.metadata?.umpire;
+
+//       if (filterKey === u1) return currentUmpire === u1;
+//       if (filterKey === u2) return currentUmpire === u2;
+
+//       return false;
+//     }));
+
+//     // ------------------------
+//     // Celebration Search
+//     // ------------------------
+//     const celebrations = Array.isArray(ball.celebrations)
+//       ? ball.celebrations
+//       : ball.celebrations
+//       ? [ball.celebrations]
+//       : [];
+
+//     const matchesCelebration =
+//       !search ||
+//       celebrations.some((c: string) =>
+//         c.toLowerCase().includes(search)
+//       );
+
+//     // ------------------------
+//     // Final
+//     // ------------------------
+//     const matchesFilters =
+//       activeFilters.length > 0 && activeAppealFilters.length > 0
+//         ? matchesStandard && matchesAppeal
+//         : activeFilters.length > 0
+//         ? matchesStandard
+//         : matchesAppeal;
+
+//     return matchesFilters && matchesCelebration;
+//   });
+// }, [
+//   inningBalls,
+//   filters,
+//   appealFilters,
+//   appealLookup,
+//   scorecard,
+//   celebrationSearch,
+// ]);
 //   const ballTimeline = useMemo(() => {
 //   const map: Record<string, any[]> = {};
 
@@ -650,6 +755,27 @@ const renderFilterContent = () => (
         {item}
       </label>
     ))}
+
+    {/* --- NEW: Scoring & Extras Section --- */}
+    <div className="border-b border-slate-200 pb-2 mb-2">
+      <p className="text-slate-400 font-bold uppercase text-[10px] px-2 mb-2">Runs & Extras</p>
+      <div className="grid grid-cols-2 gap-2 px-2">
+        {/* Runs */}
+        {['1', '2', '3','0'].map(item => (
+          <label key={item} className="flex items-center gap-2 text-slate-700 text-sm">
+            <input type="checkbox" className="w-4 h-4 rounded border-slate-300 accent-violet-600" checked={!!draftFilters[item]} onChange={() => handleToggle(item)}/> 
+            {item}s
+          </label>
+        ))}
+        {/* Extras */}
+        {['Wide', 'No Ball', 'Leg Bye', 'Bye'].map(item => (
+          <label key={item} className="flex items-center gap-2 text-slate-700 text-sm">
+            <input type="checkbox" className="w-4 h-4 rounded border-slate-300 accent-violet-600" checked={!!draftFilters[item]} onChange={() => handleToggle(item)}/> 
+            {item}
+          </label>
+        ))}
+      </div>
+    </div>
 
     {/* --- Ball Type --- */}
     <div className="border-t border-slate-200 pt-1">
