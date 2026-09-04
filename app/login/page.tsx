@@ -38,59 +38,99 @@ import AuthLayout from "../components/auth/AuthLayout";
 import LoginForm from "../components/auth/LoginForm";
 import ProfileForm from "../components/auth/Profile";
 import OTPVerification from "../components/auth/OTPVerification";
+import PendingApproval from "../components/auth/PendingApproval";
 
-type AuthStep = "login" | "otp" | "profile";
+type AuthStep = "login" | "otp" | "profile" | "pending";
+
+// Whether a user (from a login/google-login/profile response) is approved to
+// use the dashboard. Business Admin has no role and no approval gate.
+// Admin is gated by isApprovedByBusinessAdmin; every other role is gated by
+// isApprovedByAssociation.
+function isApproved(user: any): boolean {
+  if (user.userType === "business_admin") return true;
+  if (user.role === "admin") return !!user.isApprovedByBusinessAdmin;
+  if (user.role) return !!user.isApprovedByAssociation;
+  return false; // role not chosen yet — not applicable, but never "approved"
+}
 
 export default function LoginPage() {
   const [step, setStep] = useState<AuthStep>("login");
-  const [userEmail, setUserEmail] = useState(""); 
+  const [userEmail, setUserEmail] = useState("");
+  const [pendingRole, setPendingRole] = useState<string | null>(null);
   const router = useRouter();
 
   const handleLoginSuccess = (user: any, email: string, isGoogle: boolean) => {
     setUserEmail(email);
-    
-    // Check if profile is complete (Assuming 'name' is the field to check)
-    const isProfileComplete = !!user.name;
+
+    // Profile setup is complete once a role has been chosen (not before —
+    // `name` alone doesn't tell us whether role + association linking happened).
+    const isProfileComplete = user.role != null;
+
+    const goToDashboardOrPending = () => {
+      if (isApproved(user)) {
+        router.push("/admin/dashboard");
+      } else {
+        setPendingRole(user.role ?? null);
+        setStep("pending");
+      }
+    };
 
     // SCENARIO 1: Google Login (Always skip OTP)
     if (isGoogle) {
       if (!isProfileComplete) {
         setStep("profile");
       } else {
-        router.push("/admin/dashboard");
+        goToDashboardOrPending();
       }
-    } 
+    }
     // SCENARIO 2: Email/Pass Login
     else {
       // If Email is NOT verified, force OTP
       if (user.isEmailVerified === false) {
         setStep("otp");
-      } 
+      }
       // If Email IS verified but profile not set
       else if (!isProfileComplete) {
         setStep("profile");
-      } 
+      }
       // All good
       else {
-        router.push("/admin/dashboard");
+        goToDashboardOrPending();
       }
     }
+  };
+
+  // Login itself can also come back with a 403 PENDING_* error (an
+  // already-profile-complete user logging back in while still awaiting
+  // approval) — LoginForm surfaces that here instead of alert()ing it.
+  const handleLoginPending = (role: string | null) => {
+    setPendingRole(role);
+    setStep("pending");
   };
 
   return (
     <AuthLayout>
       {step === "login" && (
-        <LoginForm onSuccess={handleLoginSuccess} />
+        <LoginForm onSuccess={handleLoginSuccess} onPendingApproval={handleLoginPending} />
       )}
       {step === "otp" && (
-        <OTPVerification 
-          email={userEmail} 
-          onSuccess={() => setStep("profile")} 
+        <OTPVerification
+          email={userEmail}
+          onSuccess={() => setStep("profile")}
           onBack={() => setStep("login")}
         />
       )}
       {step === "profile" && (
-        <ProfileForm onComplete={() => router.push("/admin/dashboard")} />
+        <ProfileForm
+          onComplete={() => router.push("/admin/dashboard")}
+          onPendingApproval={(role) => {
+            setPendingRole(role);
+            setStep("pending");
+          }}
+        />
+      )}
+      {step === "pending" && (
+        <PendingApproval role={pendingRole} onApproved={() => router.push("/admin/dashboard")} />
       )}
     </AuthLayout>
   );

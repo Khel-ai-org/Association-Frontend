@@ -5,23 +5,43 @@ import { Camera, Pencil, ChevronDown, Loader2, AlertCircle, CheckCircle2, XCircl
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 
-// Define the Enum as requested
-export enum AssociationRole {
+// RBAC role, chosen here during profile setup (not at registration). ADMIN
+// means "I'm registering my own Association" (approved by the Business
+// Admin); every other value joins an existing Association via its Admin's
+// email (approved by that Admin).
+export enum UserRole {
   ADMIN = "admin",
-  MANAGER = "manager",
-  STAFF = "staff",
+  OPERATOR = "operator",
+  REFEREE = "referee",
+  UMPIRE = "umpire",
+  SCORER = "scorer",
+  VIDEO_ANALYST = "video_analyst",
 }
+
+const ROLE_LABELS: Record<UserRole, string> = {
+  [UserRole.ADMIN]: "Admin",
+  [UserRole.OPERATOR]: "Operator",
+  [UserRole.REFEREE]: "Referee",
+  [UserRole.UMPIRE]: "Umpire",
+  [UserRole.SCORER]: "Scorer",
+  [UserRole.VIDEO_ANALYST]: "Video Analyst",
+};
 
 interface ProfileFormProps {
   onComplete: () => void;
+  // Called instead of onComplete when the submitted role/association is now
+  // waiting on approval (Business Admin for Admin, the Association's Admin
+  // for every other role).
+  onPendingApproval: (role: string | null) => void;
 }
 
-export default function ProfileForm({ onComplete }: ProfileFormProps) {
+export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFormProps) {
   // State for form data
   const [formData, setFormData] = useState({
     name: '',
     role: '',
     association: '',
+    associationAdminEmail: '',
     mobile: '',
     email: '',
     groundsManaged: 0
@@ -63,8 +83,9 @@ export default function ProfileForm({ onComplete }: ProfileFormProps) {
           console.log("Fetched", res);
           setFormData({
             name: res.name || '',
-            role: res.associationRole || '',
+            role: res.role || '',
             association: res.associationSettings?.cricketAssociationName || '',
+            associationAdminEmail: res.requestedAssociationAdminEmail || '',
             mobile: phone,
             email: res.email || '',
             groundsManaged: res.associationSettings?.numberOfGroundManaged || 0
@@ -98,6 +119,16 @@ export default function ProfileForm({ onComplete }: ProfileFormProps) {
 
     if (!formData.role) {
       newErrors.role = "Role is required";
+    }
+
+    // Anything other than Admin joins an existing Association — the Admin's
+    // email is how we resolve which one and who has to approve you.
+    if (formData.role && formData.role !== UserRole.ADMIN) {
+      if (!formData.associationAdminEmail.trim()) {
+        newErrors.associationAdminEmail = "Association Admin's email is required";
+      } else if (!emailRegex.test(formData.associationAdminEmail)) {
+        newErrors.associationAdminEmail = "Invalid format";
+      }
     }
 
     if (!formData.email.trim()) {
@@ -152,9 +183,14 @@ export default function ProfileForm({ onComplete }: ProfileFormProps) {
       data.append('name', formData.name);
       data.append('email', formData.email);
       data.append('phone', formData.mobile);
-      data.append('associationRole', formData.role);
-      data.append('cricketAssociationName', formData.association);
-      data.append('numberOfGroundManaged', formData.groundsManaged.toString());
+      data.append('role', formData.role);
+
+      if (formData.role === UserRole.ADMIN) {
+        data.append('cricketAssociationName', formData.association);
+        data.append('numberOfGroundManaged', formData.groundsManaged.toString());
+      } else {
+        data.append('associationAdminEmail', formData.associationAdminEmail);
+      }
 
       if (selectedFile) {
         data.append('profileImage', selectedFile);
@@ -169,9 +205,19 @@ export default function ProfileForm({ onComplete }: ProfileFormProps) {
       const result = await response.json();
 
       if (result.success) {
-        triggerToast("Profile updated successfully!", "success");
-        // Wait for user to see the success message before calling onComplete
-        setTimeout(() => onComplete(), 1500);
+        const savedUser = result.data;
+        const approved =
+          savedUser.role === UserRole.ADMIN
+            ? !!savedUser.isApprovedByBusinessAdmin
+            : !!savedUser.isApprovedByAssociation;
+
+        if (approved) {
+          triggerToast("Profile updated successfully!", "success");
+          // Wait for user to see the success message before calling onComplete
+          setTimeout(() => onComplete(), 1500);
+        } else {
+          onPendingApproval(savedUser.role);
+        }
       } else {
         triggerToast(result.message || "Update failed", "error");
       }
@@ -245,8 +291,8 @@ export default function ProfileForm({ onComplete }: ProfileFormProps) {
                   className={`input-style appearance-none bg-white text-xs ${errors.role ? 'border-red-500' : 'text-gray-400'}`}
                 >
                   <option value="">Select Role</option>
-                  {Object.values(AssociationRole).map(role => (
-                    <option key={role} value={role}>{role.toUpperCase()}</option>
+                  {Object.values(UserRole).map(role => (
+                    <option key={role} value={role}>{ROLE_LABELS[role]}</option>
                   ))}
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
@@ -255,14 +301,34 @@ export default function ProfileForm({ onComplete }: ProfileFormProps) {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Cricket Association</label>
-            <input type="text" name="association" value={formData.association} onChange={handleChange}
-              placeholder="Enter Association Name" 
-              className={`text-gray-500 input-style text-xs ${errors.association ? 'border-red-500' : ''}`} 
-            />
-             {errors.association && <p className="text-[10px] text-red-500">{errors.association}</p>}
-          </div>
+          {/* Admin is creating their own Association; every other role joins
+              an existing one via its Admin's email. */}
+          {formData.role === UserRole.ADMIN ? (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Cricket Association</label>
+              <input type="text" name="association" value={formData.association} onChange={handleChange}
+                placeholder="Enter Association Name"
+                className={`text-gray-500 input-style text-xs ${errors.association ? 'border-red-500' : ''}`}
+              />
+               {errors.association && <p className="text-[10px] text-red-500">{errors.association}</p>}
+            </div>
+          ) : formData.role ? (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Association Admin&apos;s Email</label>
+              <input type="email" name="associationAdminEmail" value={formData.associationAdminEmail} onChange={handleChange}
+                placeholder="Enter your Association Admin's email"
+                className={`text-gray-500 input-style text-xs ${errors.associationAdminEmail ? 'border-red-500 ring-1 ring-red-500/10' : ''}`}
+              />
+              {errors.associationAdminEmail && (
+                <p className="text-[10px] text-red-500 flex items-center gap-1">
+                  <AlertCircle size={10}/> {errors.associationAdminEmail}
+                </p>
+              )}
+              <p className="text-[10px] text-gray-400">
+                They&apos;ll need to approve you before you can access the dashboard.
+              </p>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
@@ -292,15 +358,17 @@ export default function ProfileForm({ onComplete }: ProfileFormProps) {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">No. of Grounds Managed</label>
-            <input type="number" name="groundsManaged" value={formData.groundsManaged} onChange={handleChange}
-              placeholder="Enter Ground's No." 
-              className="input-style text-gray-500 text-xs" 
-            />
-          </div>
+          {formData.role === UserRole.ADMIN && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">No. of Grounds Managed</label>
+              <input type="number" name="groundsManaged" value={formData.groundsManaged} onChange={handleChange}
+                placeholder="Enter Ground's No."
+                className="input-style text-gray-500 text-xs"
+              />
+            </div>
+          )}
 
-          <button type="submit" 
+          <button type="submit"
             disabled={isSubmitting} className="w-full bg-[#0D0D12] text-white font-semibold py-3.5 rounded-xl mt-4 hover:bg-black transition-all active:scale-[0.99] flex items-center justify-center">
             {isSubmitting ? <Loader2 className="animate-spin mr-2" size={18} /> : 'Confirm'}
           </button>
