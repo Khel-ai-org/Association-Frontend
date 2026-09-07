@@ -237,11 +237,13 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
 
       {/* PAGINATION SECTION (Matches Screenshot 2026-05-04 at 1.46.34 PM.png) */}
       
+       {/* PAGINATION SECTION (Matches Screenshot 2026-05-04 at 1.46.34 PM.png) */}
+      
         <div className="flex items-center justify-center    pt-6 gap-3">
           <button 
-            disabled={currentPage === 1}
+            disabled={currentPage === 1 || totalPages <= 1}
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md"
+            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ChevronLeft className="w-4 h-4 " /> Back
           </button>
@@ -263,9 +265,9 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
           </div>
 
           <button 
-            disabled={currentPage === totalPages}
+            disabled={currentPage === totalPages || totalPages <= 1}
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md "
+            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>

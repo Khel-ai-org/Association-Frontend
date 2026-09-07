@@ -26,11 +26,25 @@ export default function AdminDashboardLayout({
 
           // Check if userType is 'association'
           if (userData.userType === "association") {
-            setIsAuthorized(true);
+            // Role not chosen yet, or chosen but still awaiting approval
+            // (Business Admin approves Admins, the Association's own Admin
+            // approves every other role) — neither state gets the dashboard.
+            const approved =
+              userData.role === "admin"
+                ? !!userData.isApprovedByBusinessAdmin
+                : userData.role
+                ? !!userData.isApprovedByAssociation
+                : false;
+
+            if (approved) {
+              setIsAuthorized(true);
+            } else {
+              router.push("/login");
+            }
           } else {
             // If they are logged in but NOT an association (e.g 'player')
             console.error("Access denied: Invalid user type");
-            router.push("/unauthorized"); 
+            router.push("/unauthorized");
           }
         } else {
           // 401 Unauthorized or other error
