@@ -28,7 +28,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
 };
 
 interface ProfileFormProps {
-  onComplete: () => void;
+  onComplete: (role: string | null) => void;
   // Called instead of onComplete when the submitted role/association is now
   // waiting on approval (Business Admin for Admin, the Association's Admin
   // for every other role).
@@ -214,7 +214,7 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
         if (approved) {
           triggerToast("Profile updated successfully!", "success");
           // Wait for user to see the success message before calling onComplete
-          setTimeout(() => onComplete(), 1500);
+          setTimeout(() => onComplete(savedUser.role), 1500);
         } else {
           onPendingApproval(savedUser.role);
         }

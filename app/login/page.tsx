@@ -53,6 +53,18 @@ function isApproved(user: any): boolean {
   return false; // role not chosen yet — not applicable, but never "approved"
 }
 
+// A "scorer" goes to scoring-frontend's own dashboard (authenticated via this
+// app's session cookie against the same backend) instead of /admin/dashboard.
+// That's a different app/origin, so a hard navigation is used rather than
+// Next's client-side router.
+function goToDestination(router: ReturnType<typeof useRouter>, role: string | null) {
+  if (role === "scorer") {
+    window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard`;
+  } else {
+    router.push("/admin/dashboard");
+  }
+}
+
 export default function LoginPage() {
   const [step, setStep] = useState<AuthStep>("login");
   const [userEmail, setUserEmail] = useState("");
@@ -68,7 +80,7 @@ export default function LoginPage() {
 
     const goToDashboardOrPending = () => {
       if (isApproved(user)) {
-        router.push("/admin/dashboard");
+        goToDestination(router, user.role ?? null);
       } else {
         setPendingRole(user.role ?? null);
         setStep("pending");
@@ -122,7 +134,7 @@ export default function LoginPage() {
       )}
       {step === "profile" && (
         <ProfileForm
-          onComplete={() => router.push("/admin/dashboard")}
+          onComplete={(role) => goToDestination(router, role)}
           onPendingApproval={(role) => {
             setPendingRole(role);
             setStep("pending");
@@ -130,7 +142,7 @@ export default function LoginPage() {
         />
       )}
       {step === "pending" && (
-        <PendingApproval role={pendingRole} onApproved={() => router.push("/admin/dashboard")} />
+        <PendingApproval role={pendingRole} onApproved={() => goToDestination(router, pendingRole)} />
       )}
     </AuthLayout>
   );
