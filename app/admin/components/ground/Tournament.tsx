@@ -134,7 +134,7 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
               return (
                 <Link
                   key={t.id}
-                  href={`/admin/ground/${groundId}/tournaments/${t.id}`}
+                  href={`/admin/tournament/${t.id}/teams`}
                   className="flex flex-col border border-slate-100 transition-all rounded-xl bg-white overflow-hidden group hover:border-blue-400 hover:shadow-md active:scale-[0.98]"
                 >
                   <div className="relative aspect-[12/5] overflow-hidden">
