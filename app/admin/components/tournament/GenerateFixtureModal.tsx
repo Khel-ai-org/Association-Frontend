@@ -7,7 +7,9 @@ import { Team, Ground } from '../../types/tournament';
 interface GenerateFixtureModalProps {
   isOpen: boolean;
   onClose: () => void;
-  tournamentId: string;
+  // The scoring service's own tournament id — fixtures live there, not in
+  // the core backend, so this must be externalTournamentId, not the core id.
+  tournamentExternalId: string;
   teams: Team[];
   grounds: Ground[];
   isGroupMode: boolean;
@@ -20,7 +22,7 @@ const GROUP_LETTERS = 'ABCDEFGHIJ';
 export default function GenerateFixtureModal({
   isOpen,
   onClose,
-  tournamentId,
+  tournamentExternalId,
   teams,
   grounds,
   isGroupMode,
@@ -30,7 +32,6 @@ export default function GenerateFixtureModal({
   const [groupCount, setGroupCount] = useState(2);
   const [groupAssignments, setGroupAssignments] = useState<Record<string, string[]>>({});
   const [playoffTeams, setPlayoffTeams] = useState('2');
-  const [date, setDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -38,12 +39,6 @@ export default function GenerateFixtureModal({
     () => Array.from({ length: groupCount }, (_, i) => `Group ${GROUP_LETTERS[i] || i + 1}`),
     [groupCount]
   );
-
-  useEffect(() => {
-    if (isOpen) {
-      setDate(startDate ? startDate.slice(0, 10) : '');
-    }
-  }, [isOpen, startDate]);
 
   useEffect(() => {
     // Keep only the buckets that still exist when groupCount shrinks/grows
@@ -81,8 +76,8 @@ export default function GenerateFixtureModal({
       setError('Add teams before generating fixtures.');
       return;
     }
-    if (!date) {
-      setError('Select a tournament date.');
+    if (!tournamentExternalId) {
+      setError('This tournament is missing its scoring-service id — cannot generate fixtures yet.');
       return;
     }
 
@@ -100,14 +95,16 @@ export default function GenerateFixtureModal({
     setError('');
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentId}/fixtures`,
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentExternalId}/fixtures`,
         {
           method: 'POST',
           headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
           body: JSON.stringify({
             team_ids,
             group_configuration,
-            start_date: date,
+            // No visible Date/Venue fields in this modal (matching the
+            // reference app) — derived silently from the tournament itself.
+            start_date: startDate ? startDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
             venues: grounds.length ? grounds.map((g) => g.id) : null,
             no_of_teams_qualify_playoffs: parseInt(playoffTeams, 10),
           }),
@@ -233,39 +230,19 @@ export default function GenerateFixtureModal({
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {isGroupMode && (
-                <div>
-                  <label className="block text-sm font-semibold text-slate-500 mb-1.5">Teams Qualifying for Playoffs</label>
-                  <select
-                    value={playoffTeams}
-                    onChange={(e) => setPlayoffTeams(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none text-sm text-gray-700 bg-white"
-                  >
-                    <option value="2">2 Teams each Group</option>
-                    <option value="4">4 Teams each Group</option>
-                  </select>
-                </div>
-              )}
+            {isGroupMode && (
               <div>
-                <label className="block text-sm font-semibold text-slate-500 mb-1.5">Venue</label>
-                <input
-                  type="text"
-                  readOnly
-                  value={grounds.length ? grounds.map((g) => g.name).join(', ') : 'No ground linked to this tournament'}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 outline-none text-sm text-gray-600"
-                />
+                <label className="block text-sm font-semibold text-slate-500 mb-1.5">Teams Qualifying for Playoffs</label>
+                <select
+                  value={playoffTeams}
+                  onChange={(e) => setPlayoffTeams(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none text-sm text-gray-700 bg-white"
+                >
+                  <option value="2">2 Teams each Group</option>
+                  <option value="4">4 Teams each Group</option>
+                </select>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-500 mb-1.5">Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700"
-                />
-              </div>
-            </div>
+            )}
 
             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 

@@ -8,11 +8,13 @@ import { Team } from '../../types/tournament';
 interface AddTeamsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  tournamentId: string;
+  // The scoring service's own tournament id — teams live there, not in the
+  // core backend, so this must be externalTournamentId, not the core id.
+  tournamentExternalId: string;
   onTeamsAdded: () => void;
 }
 
-export default function AddTeamsModal({ isOpen, onClose, tournamentId, onTeamsAdded }: AddTeamsModalProps) {
+export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, onTeamsAdded }: AddTeamsModalProps) {
   const [manualRows, setManualRows] = useState<string[]>([]);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -118,12 +120,16 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentId, onTeamsAd
       setError('Add or select at least one team before submitting.');
       return;
     }
+    if (!tournamentExternalId) {
+      setError('This tournament is missing its scoring-service id — cannot add teams yet.');
+      return;
+    }
 
     setSubmitting(true);
     setError('');
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentId}/teams/bulk`,
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentExternalId}/teams/bulk`,
         {
           method: 'POST',
           headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },

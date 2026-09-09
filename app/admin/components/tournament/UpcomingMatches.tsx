@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock } from 'lucide-react';
-import { Fixture } from '../../types/tournament';
+import { Fixture, Ground } from '../../types/tournament';
 import ScheduleMatchModal from './ScheduleMatchModal';
 
 interface TournamentDetails {
@@ -13,8 +13,10 @@ interface TournamentDetails {
   location: string;
   startDate: string;
   endDate: string;
-  groundId?: string;
-  groundName?: string;
+  // Scoring service's own tournament id — fixtures/schedule calls must key
+  // off this, not the core tournamentId prop.
+  externalTournamentId?: string;
+  grounds?: Ground[];
 }
 
 interface Match {
@@ -38,11 +40,12 @@ interface Match {
   badgeColor?: string;
 }
 
-// Unified row shown in the table: either a scheduled match (backed by a core
-// admin match record) or a fixture still awaiting a date/ground.
+// Unified row shown in the table: either a fixture linked to a real live
+// match, a fixture still awaiting scheduling, or a legacy core match record
+// with no fixture behind it at all.
 interface MatchRow {
   key: string;
-  linkId: string | null; // core match id, used to navigate to match details
+  linkId: string | null; // navigate to match details using this id directly
   matchLabel: string;
   team1: string;
   team2: string;
@@ -50,10 +53,10 @@ interface MatchRow {
   time: string;
   statusLabel: string;
   badgeColor: string;
-  resultText?: string;
   type: string;
   searchText: string;
-  scheduled: boolean;
+  isLinked: boolean; // true = "Already Scheduled" (match + match_id present); false = needs "Schedule Match"
+  groundId?: string;
   fixture?: Fixture;
 }
 
@@ -186,14 +189,13 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   }, [tournamentId, selectedGroundId]);
 
   // --- Fetch scoring-API fixtures (new) ---
-  const fetchFixtures = async () => {
-    if (!tournamentId) {
-      setFixtures([]);
-      return;
-    }
+  // Fixtures live in the scoring service, keyed by the tournament's
+  // externalTournamentId — not the core tournamentId — so this can only run
+  // once the tournament header has loaded.
+  const fetchFixtures = async (externalId: string) => {
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentId}/matches`,
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${externalId}/matches`,
         {
           method: 'GET',
           headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
@@ -201,6 +203,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
       );
       if (response.ok) {
         const data = await response.json();
+        console.log("Fetched fixtures:", data);
         setFixtures(Array.isArray(data) ? data : data?.matches || []);
       }
     } catch (error) {
@@ -209,70 +212,88 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   };
 
   useEffect(() => {
-    fetchFixtures();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournamentId]);
+    if (tournament?.externalTournamentId) {
+      fetchFixtures(tournament.externalTournamentId);
+    } else {
+      setFixtures([]);
+    }
+  }, [tournament?.externalTournamentId]);
 
   const handleExport = () => {
     window.location.href = `${process.env.NEXT_PUBLIC_Backend_URL}/export/auth?tournamentId=${tournamentId}`;
   };
 
-  // --- Merge core-API matches with scoring-API fixtures by scoring_match_id ---
+  // 'semifinal_1' -> 'Semifinal 1', 'eliminator' -> 'Eliminator'
+  const formatMatchType = (type: string) =>
+    type
+      .split('_')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+
+  // --- Build rows directly from scoring-API fixtures ---
+  // A fixture is only "Already Scheduled" once BOTH `match` and `match_id`
+  // are populated (i.e. it's been linked to a real live/scoreable match) —
+  // navigate to match details using `match_id` directly, no lookup needed.
+  // Until then, `venue`/`scheduled_date` may already be set (round-robin at
+  // generation time), which is shown in its own Venue column, not the Action
+  // column — the Action column only reflects link status.
   const rows: MatchRow[] = useMemo(() => {
-    const matchByScoringId = new Map<string, Match>();
-    matches.forEach((m) => {
-      if (m.scoring_match_id) matchByScoringId.set(m.scoring_match_id, m);
-    });
+    const linkedMatchIds = new Set<string>();
 
-    const consumedCoreIds = new Set<string>();
     const fixtureRows: MatchRow[] = fixtures.map((fixture) => {
-      const coreMatch = matchByScoringId.get(fixture.id);
-      if (coreMatch) consumedCoreIds.add(coreMatch.id);
+      const isLinked = !!(fixture.match && fixture.match_id);
+      if (isLinked && fixture.match_id) linkedMatchIds.add(fixture.match_id);
 
-      const label = fixture.groupName
-        ? `Match ${fixture.matchNumber ?? '—'} (${fixture.groupName})`
-        : `Match ${fixture.matchNumber ?? '—'}`;
+      const label = fixture.group
+        ? `Match ${fixture.match_number} (${fixture.group.name})`
+        : fixture.match_type !== 'group'
+        ? `Match ${fixture.match_number} (${formatMatchType(fixture.match_type)})`
+        : `Match ${fixture.match_number}`;
 
-      if (coreMatch) {
-        return {
-          key: `fixture-${fixture.id}`,
-          linkId: coreMatch.id,
-          matchLabel: label,
-          team1: coreMatch.team1,
-          team2: coreMatch.team2,
-          date: coreMatch.date,
-          time: coreMatch.time,
-          statusLabel: coreMatch.statusLabel || 'Upcoming',
-          badgeColor: coreMatch.badgeColor || 'bg-green-500',
-          resultText: fixture.resultText,
-          type: coreMatch.statusLabel || 'Upcoming',
-          searchText: `${coreMatch.match_id} ${coreMatch.team1} ${coreMatch.team2}`,
-          scheduled: true,
-          fixture,
-        };
+      const team1 = fixture.home_team?.name || 'TBD';
+      const team2 = fixture.away_team?.name || 'TBD';
+
+      let statusLabel = 'Upcoming';
+      let badgeColor = 'bg-green-500';
+      let type = 'Upcoming';
+      if (isLinked) {
+        // Once linked, the nested live match's own `status` field is the
+        // real source of truth — not this fixture/schedule row's own status.
+        const liveStatus = fixture.match?.status;
+        if (liveStatus === 'live') {
+          statusLabel = 'Live';
+          badgeColor = 'bg-[#D11B1B]';
+          type = 'Live';
+        } else if (liveStatus === 'completed') {
+          statusLabel = 'Completed';
+          badgeColor = 'bg-emerald-600';
+          type = 'Finished';
+        } else if (typeof liveStatus === 'string' && liveStatus) {
+          statusLabel = formatMatchType(liveStatus);
+        }
       }
 
       return {
         key: `fixture-${fixture.id}`,
-        linkId: null,
+        linkId: isLinked ? fixture.match_id : null,
         matchLabel: label,
-        team1: fixture.team1?.name || 'TBD',
-        team2: fixture.team2?.name || 'TBD',
-        date: null,
-        time: 'TBD',
-        statusLabel: 'Upcoming',
-        badgeColor: 'bg-green-500',
-        resultText: fixture.resultText,
-        type: 'Upcoming',
-        searchText: `${fixture.matchNumber ?? ''} ${fixture.team1?.name || ''} ${fixture.team2?.name || ''}`,
-        scheduled: false,
+        team1,
+        team2,
+        date: fixture.scheduled_date,
+        time: fixture.scheduled_date ? new Date(fixture.scheduled_date).toLocaleDateString('en-GB') : 'TBD',
+        statusLabel,
+        badgeColor,
+        type,
+        searchText: `${fixture.match_number} ${team1} ${team2}`,
+        isLinked,
+        groundId: fixture.venue || undefined,
         fixture,
       };
     });
 
-    // Legacy core match records with no matching fixture — render exactly as before.
+    // Legacy core match records not linked to any fixture — render as before.
     const legacyRows: MatchRow[] = matches
-      .filter((m) => !consumedCoreIds.has(m.id) && !(m.scoring_match_id && matchByScoringId.has(m.scoring_match_id)))
+      .filter((m) => !(m.scoring_match_id && linkedMatchIds.has(m.scoring_match_id)))
       .map((m) => ({
         key: `match-${m.id}`,
         linkId: m.id,
@@ -285,7 +306,8 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         badgeColor: m.badgeColor || 'bg-green-500',
         type: m.statusLabel || 'Upcoming',
         searchText: `${m.match_id} ${m.team1} ${m.team2}`,
-        scheduled: true,
+        isLinked: true,
+        groundId: m.ground_id,
       }));
 
     return [...fixtureRows, ...legacyRows];
@@ -390,6 +412,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               <tr className="text-left text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
                 <th className="py-3 px-3 font-semibold">Match Details</th>
                 <th className="py-3 px-3 font-semibold">Matchup</th>
+                <th className="py-3 px-3 font-semibold">Venue</th>
                 <th className="py-3 px-3 font-semibold">Date/Time</th>
                 <th className="py-3 px-3 font-semibold">Status</th>
                 <th className="py-3 px-3 font-semibold">Action</th>
@@ -398,7 +421,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="py-16 text-center text-slate-400 animate-pulse">Loading matches...</td>
+                  <td colSpan={6} className="py-16 text-center text-slate-400 animate-pulse">Loading matches...</td>
                 </tr>
               ) : currentItems.length > 0 ? (
                 currentItems.map((row) => {
@@ -418,15 +441,20 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                           <span className="font-medium text-slate-700 text-xs">{row.team2}</span>
                         </div>
                       </td>
+                      <td className="py-4 px-3">
+                        <span className="text-slate-500 text-xs">
+                          {row.groundId ? tournament?.grounds?.find((g) => g.id === row.groundId)?.name || row.groundId : '—'}
+                        </span>
+                      </td>
                       <td className="py-4 px-3 text-slate-600">{row.time}</td>
                       <td className="py-4 px-3">
                         <span className={`text-white text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider ${row.badgeColor}`}>
-                          {row.resultText || row.statusLabel}
+                          {row.statusLabel}
                         </span>
                       </td>
                       <td className="py-4 px-3">
-                        {row.scheduled ? (
-                          <span className="text-slate-500 text-xs">{tournament?.location || '—'}</span>
+                        {row.isLinked ? (
+                          <span className="text-emerald-600 text-xs font-semibold">Already Scheduled</span>
                         ) : (
                           <button
                             onClick={(e) => {
@@ -457,7 +485,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="py-16 text-center text-slate-400 border-2 border-dashed border-slate-50 rounded-3xl">
+                  <td colSpan={6} className="py-16 text-center text-slate-400 border-2 border-dashed border-slate-50 rounded-3xl">
                     No {activeFilter.toLowerCase()} matches found.
                   </td>
                 </tr>
@@ -509,11 +537,11 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         onClose={() => setScheduleFixture(null)}
         fixture={scheduleFixture}
         tournamentId={tournamentId || ''}
-        tournamentGroundId={tournament?.groundId || ''}
-        tournamentGroundName={tournament?.groundName || tournament?.location || ''}
+        tournamentExternalId={tournament?.externalTournamentId || ''}
+        grounds={tournament?.grounds || []}
         onScheduled={() => {
           fetchMatches();
-          fetchFixtures();
+          if (tournament?.externalTournamentId) fetchFixtures(tournament.externalTournamentId);
         }}
       />
     </div>

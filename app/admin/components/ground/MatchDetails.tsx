@@ -70,7 +70,6 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const [isViewMore, setIsViewMore] = useState(false);
   const [activeInnings, setActiveInnings] = useState<'1st' | '2nd'>('1st');
-  const [matchData, setMatchData] = useState<any>(null);
   const [scorecard, setScorecard] = useState<any>(null);
   const [appeals, setAppeals] = useState<AppealData | null>(null);
   const [inningBalls, setInningBalls] = useState<any[]>([]);
@@ -158,10 +157,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const SCORING_API_BASE = process.env.NEXT_PUBLIC_SCORING_API_URL || "http://localhost:5500/api/v1";
 
   const fetchAppeals = async () => {
-    if (!matchData?.scoring_match_id) return;
+    if (!matchId) return;
     const innNum = activeInnings === '1st' ? 1 : 2;
     try {
-      const url = `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchData.scoring_match_id}/appeals?innings=${innNum}`;
+      const url = `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchId}/appeals?innings=${innNum}`;
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -182,20 +181,20 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   useEffect(() => {
     const getAppeals = async () => {
-      if (!matchData?.scoring_match_id) return;
+      if (!matchId) return;
       const data = await fetchAppeals();
       setAppeals(data);
     };
     getAppeals();
-  }, [matchData, activeInnings]);
+  }, [matchId, activeInnings]);
 
-  // Fetch CoC Cases when activeTab is referee and matchData is available
+  // Fetch CoC Cases when activeTab is referee
   useEffect(() => {
     const fetchCocCases = async () => {
-      if (activeTab === 'referee' && matchData?.scoring_match_id) {
+      if (activeTab === 'referee' && matchId) {
         setIsCocLoading(true);
         try {
-          const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/coc`, {
+          const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/coc`, {
             headers: { "ngrok-skip-browser-warning": "true" }
           });
           if (!res.ok) throw new Error("Failed to fetch CoC cases");
@@ -212,26 +211,24 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       }
     };
     fetchCocCases();
-  }, [activeTab, matchData, SCORING_API_BASE]);
+  }, [activeTab, matchId, SCORING_API_BASE]);
 
+  // `matchId` (from the URL) is already the scoring service's own match id —
+  // no need to resolve it via the core backend first, fetch the scorecard
+  // directly.
   useEffect(() => {
     const fetchInitialData = async () => {
+      if (!matchId) return;
       try {
         setLoading(true);
-        const mRes = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/matches/${matchId}`, { credentials: 'include' });
-        const associationData = await mRes.json();
-        setMatchData(associationData);
+        const sRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/scorecard`, {
+          headers: { "ngrok-skip-browser-warning": "true" }
+        });
 
-        if (associationData?.scoring_match_id) {
-          const sRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${associationData.scoring_match_id}/scorecard`, {
-            headers: { "ngrok-skip-browser-warning": "true" }
-          });
-          
-          if (sRes.ok) {
-            const scDataArray = await sRes.json();
-            if (Array.isArray(scDataArray) && scDataArray.length > 0) {
-              setScorecard(scDataArray[0]);
-            }
+        if (sRes.ok) {
+          const scDataArray = await sRes.json();
+          if (Array.isArray(scDataArray) && scDataArray.length > 0) {
+            setScorecard(scDataArray[0]);
           }
         }
       } catch (err) {
@@ -245,10 +242,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   useEffect(() => {
     const fetchBalls = async () => {
-      if (!matchData?.scoring_match_id) return;
+      if (!matchId) return;
       const innNum = activeInnings === '1st' ? 1 : 2;
       try {
-        const bRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/innings/${innNum}/balls`, {
+        const bRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/innings/${innNum}/balls`, {
           method: 'GET',
           headers: {
             "ngrok-skip-browser-warning": "true",
@@ -269,7 +266,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       }
     };
     fetchBalls();
-  }, [activeInnings, matchData, SCORING_API_BASE]);
+  }, [activeInnings, matchId, SCORING_API_BASE]);
 
   const topBatsmen = useMemo(() => {
     const targetInning = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
@@ -449,14 +446,16 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     return { label, bgColor };
   };
 
+  // Source of truth is the live match's own `status` field (e.g.
+  // 'in_progress'/'completed'), not a client-side date guess.
   const status = useMemo(() => {
-    if (!matchData?.date) return { text: "N/A", color: "bg-slate-400" };
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const mDate = new Date(matchData.date); mDate.setHours(0, 0, 0, 0);
-    if (mDate.getTime() === today.getTime()) return { text: "LIVE", color: "bg-red-600" };
-    if (mDate.getTime() > today.getTime()) return { text: "UPCOMING", color: "bg-blue-600" };
-    return { text: "FINISHED", color: "bg-green-500" };
-  }, [matchData]);
+    const liveStatus = scorecard?.status;
+    if (!liveStatus) return { text: "N/A", color: "bg-slate-400" };
+    if (liveStatus === 'in_progress' || liveStatus === 'live') return { text: "LIVE", color: "bg-red-600" };
+    if (liveStatus === 'completed') return { text: "FINISHED", color: "bg-green-500" };
+    if (liveStatus === 'scheduled' || liveStatus === 'upcoming') return { text: "UPCOMING", color: "bg-blue-600" };
+    return { text: liveStatus.toString().toUpperCase(), color: "bg-slate-400" };
+  }, [scorecard]);
 
   const currentInningsData = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
 
@@ -1199,7 +1198,7 @@ const calculatedOver = Math.floor(ballOver) + 1;
         isOpen={isAddCommentOpen} 
         onClose={() => setIsAddCommentOpen(false)} 
         ballInfo={selectedBallData} 
-        matchId={matchData?.scoring_match_id} 
+        matchId={matchId} 
         matchData={scorecard}
         onConfirm={(comment) => {
           // You can also refresh or append locally if needed
@@ -1210,7 +1209,7 @@ const calculatedOver = Math.floor(ballOver) + 1;
       <MrJudgementModal 
         isOpen={isMrJudgementOpen} 
         onClose={() => setIsMrJudgementOpen(false)} 
-        matchId={matchData?.scoring_match_id} 
+        matchId={matchId} 
         ballId={selectedBallData?.id} 
         onConfirm={(judgement) => {
           // You can also refresh or append locally if needed
@@ -1221,7 +1220,7 @@ const calculatedOver = Math.floor(ballOver) + 1;
       <RefereeActionModal 
         isOpen={isTakeActionOpen} 
         onClose={() => setIsTakeActionOpen(false)} 
-        matchId={matchData?.scoring_match_id}
+        matchId={matchId}
         ballInfo={selectedBallData} 
         matchData={scorecard}
         onSaveAction={(newAction) => {

@@ -40,11 +40,18 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
     }
   }, [tournamentId]);
 
-  const fetchTeams = useCallback(async () => {
+  useEffect(() => {
+    fetchTournament();
+  }, [fetchTournament]);
+
+  // Teams live in the scoring service, keyed by the tournament's
+  // externalTournamentId — not the core tournamentId — so this can only run
+  // once the tournament header has loaded.
+  const fetchTeams = useCallback(async (externalId: string) => {
     setLoadingTeams(true);
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentId}/teams`,
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${externalId}/teams`,
         {
           method: 'GET',
           headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
@@ -59,12 +66,16 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
     } finally {
       setLoadingTeams(false);
     }
-  }, [tournamentId]);
+  }, []);
 
   useEffect(() => {
-    fetchTournament();
-    fetchTeams();
-  }, [fetchTournament, fetchTeams]);
+    if (tournament?.externalTournamentId) {
+      fetchTeams(tournament.externalTournamentId);
+    } else if (tournament) {
+      // Tournament loaded but has no externalTournamentId — nothing to fetch.
+      setLoadingTeams(false);
+    }
+  }, [tournament, fetchTeams]);
 
   const calculateProgress = () => {
     if (!tournament || !tournament.startDate || !tournament.endDate) return 0;
@@ -233,17 +244,16 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
       <AddTeamsModal
         isOpen={isAddTeamsOpen}
         onClose={() => setIsAddTeamsOpen(false)}
-        tournamentId={tournamentId}
-        onTeamsAdded={fetchTeams}
+        tournamentExternalId={tournament?.externalTournamentId || ''}
+        onTeamsAdded={() => tournament?.externalTournamentId && fetchTeams(tournament.externalTournamentId)}
       />
 
       <GenerateFixtureModal
         isOpen={isGenerateFixtureOpen}
         onClose={() => setIsGenerateFixtureOpen(false)}
-        tournamentId={tournamentId}
+        tournamentExternalId={tournament?.externalTournamentId || ''}
         teams={teams}
-        groundId={tournament?.groundId || ''}
-        groundName={tournament?.groundName || tournament?.location || ''}
+        grounds={tournament?.grounds || []}
         isGroupMode={isGroupMode}
         startDate={tournament?.startDate}
         onGenerated={() => router.push(`/admin/tournament/${tournamentId}/matches`)}
