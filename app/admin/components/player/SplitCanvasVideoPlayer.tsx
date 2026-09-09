@@ -17,6 +17,8 @@ import {
   Columns, Square, Layers, RefreshCw, Link as LinkIcon, Unlink
 } from "lucide-react";
 import { PlayerEngine, PlayerState, SPEEDS } from "./PlayerEngine";
+import { MarkerMenu } from "./MarkerMenu";
+import { AnnotationTool, Point } from "./AnnotationLayer";
 
 export type CompareMode = "single" | "side";
 
@@ -93,6 +95,12 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+
+  // Marker & Annotation State
+  const [activeTool, setActiveTool]   = useState<AnnotationTool>('select');
+  const [activeColor, setActiveColor] = useState<string>('#ffcc33');
+  const [textInputPos, setTextInputPos] = useState<{ point: Point; engineTarget: 'A' | 'B' } | null>(null);
+  const [textInputVal, setTextInputVal] = useState<string>('');
 
   // ================================================================== //
   // Engine Initialization                                               //
@@ -265,6 +273,48 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
   }, [mode, isSyncLocked, frameOffsetB]);
 
   // ================================================================== //
+  // Mouse / Trackpad Wheel Scroll — Exact 1:1 match of Z4 annotate.js  //
+  // ================================================================== //
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+
+      const eA = engineARef.current;
+      const eB = engineBRef.current;
+      if (!eA || !eA.isReady) return;
+
+      // Ctrl / Cmd / Alt + Scroll → Zoom In / Out
+      if (event.ctrlKey || event.metaKey || event.altKey) {
+        const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+        eA.setZoom(eA.effectiveScale() * factor);
+        if (mode !== 'single' && eB?.isReady) {
+          eB.setZoom(eB.effectiveScale() * factor);
+        }
+        return;
+      }
+
+      // Plain wheel scroll steps frames — exact 1:1 match of Z4 annotate.js line 72-73
+      const step = event.shiftKey ? 5 : 1;
+      const deltaFrame = event.deltaY > 0 ? step : -step;
+
+      eA.pause();
+      eA.step(deltaFrame);
+
+      if (mode !== 'single' && isSyncLocked && eB?.isReady) {
+        eB.pause();
+        eB.seek(eA.frame + deltaFrame + frameOffsetB);
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [mode, isSyncLocked, frameOffsetB]);
+
+  // ================================================================== //
   // Controls                                                            //
   // ================================================================== //
 
@@ -322,6 +372,94 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
     if (mode === "single") setMode("side");
   };
 
+  const handleToolChange = (tool: AnnotationTool) => {
+    setActiveTool(tool);
+    engineARef.current?.annotations.setTool(tool);
+    engineBRef.current?.annotations.setTool(tool);
+  };
+
+  const handleColorChange = (color: string) => {
+    setActiveColor(color);
+    engineARef.current?.annotations.setColor(color);
+    engineBRef.current?.annotations.setColor(color);
+  };
+
+  const handleClearAll = () => {
+    engineARef.current?.annotations.clearAll();
+    engineBRef.current?.annotations.clearAll();
+  };
+
+  const handlePointerDownCanvas = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    targetEngine: 'A' | 'B'
+  ) => {
+    if (activeTool === 'select') return;
+
+    const engine = targetEngine === 'A' ? engineARef.current : engineBRef.current;
+    if (!engine) return;
+
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+
+    const normPt = engine.screenToNormalizedPoint(screenX, screenY);
+    const res = engine.annotations.onPointerDown(normPt);
+
+    if (res.requestTextInput && res.textPosition) {
+      setTextInputPos({ point: res.textPosition, engineTarget: targetEngine });
+      setTextInputVal('');
+    } else {
+      canvas.setPointerCapture(e.pointerId);
+    }
+  };
+
+  const handlePointerMoveCanvas = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    targetEngine: 'A' | 'B'
+  ) => {
+    if (activeTool === 'select') return;
+
+    const engine = targetEngine === 'A' ? engineARef.current : engineBRef.current;
+    if (!engine) return;
+
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const screenY = e.clientY - rect.top;
+
+    const normPt = engine.screenToNormalizedPoint(screenX, screenY);
+    engine.annotations.onPointerMove(normPt);
+  };
+
+  const handlePointerUpCanvas = (
+    e: React.PointerEvent<HTMLCanvasElement>,
+    targetEngine: 'A' | 'B'
+  ) => {
+    if (activeTool === 'select') return;
+
+    const engine = targetEngine === 'A' ? engineARef.current : engineBRef.current;
+    if (!engine) return;
+
+    engine.annotations.onPointerUp();
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const handleConfirmText = () => {
+    if (!textInputPos || !textInputVal.trim()) {
+      setTextInputPos(null);
+      return;
+    }
+
+    const engine = textInputPos.engineTarget === 'A' ? engineARef.current : engineBRef.current;
+    engine?.annotations.addText(textInputPos.point, textInputVal);
+
+    setTextInputPos(null);
+    setTextInputVal('');
+  };
+
   const fmtTime = (s: number) => {
     const m = Math.floor(s / 60);
     return `${String(m).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`;
@@ -375,6 +513,15 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
         {/* View Mode & Controls */}
         <div className="flex items-center gap-2 pointer-events-auto opacity-0 group-hover:opacity-100 transition-opacity">
+          {/* Marker Menu Dropdown (Line, Angle, Text, Brush, Clear All) */}
+          <MarkerMenu
+            activeTool={activeTool}
+            activeColor={activeColor}
+            onSelectTool={handleToolChange}
+            onSelectColor={handleColorChange}
+            onClearAll={handleClearAll}
+          />
+
           {/* Zoom controls */}
           <button onClick={() => engineARef.current?.setZoom(engineARef.current.effectiveScale() * 1.25)} className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors" title="Zoom In">
             <ZoomIn className="w-4 h-4" />
@@ -450,19 +597,6 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
             </select>
           )}
 
-          {/* Sync Lock Toggle (Commented out: Always enabled by default) */}
-          {/*
-          {mode !== "single" && (
-            <button
-              onClick={() => setIsSyncLocked(v => !v)}
-              className={`p-2 backdrop-blur-md rounded-lg border border-white/20 transition-colors ${isSyncLocked ? 'bg-blue-600 text-white' : 'bg-white/10 hover:bg-white/20 text-slate-400'}`}
-              title={isSyncLocked ? "Synced (Both Videos Move Together)" : "Unsynced"}
-            >
-              {isSyncLocked ? <LinkIcon className="w-4 h-4" /> : <Unlink className="w-4 h-4" />}
-            </button>
-          )}
-          */}
-
           {/* Fullscreen */}
           <button onClick={toggleFullscreen} className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors">
             {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
@@ -474,7 +608,13 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
       <div className="relative flex-1 w-full h-full flex overflow-hidden">
         {/* Canvas A */}
         <div className={`relative h-full transition-all duration-300 ${mode === 'side' ? 'w-1/2 border-r border-white/10' : 'w-full'}`}>
-          <canvas ref={canvasARef} className="absolute inset-0 w-full h-full" />
+          <canvas
+            ref={canvasARef}
+            onPointerDown={(e) => handlePointerDownCanvas(e, 'A')}
+            onPointerMove={(e) => handlePointerMoveCanvas(e, 'A')}
+            onPointerUp={(e) => handlePointerUpCanvas(e, 'A')}
+            className={`absolute inset-0 w-full h-full ${activeTool !== 'select' ? 'cursor-crosshair' : ''}`}
+          />
           {loadingA && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70">
               <div className="w-7 h-7 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
@@ -486,7 +626,13 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         {mode !== "single" && (
           <div className="relative h-full w-1/2 transition-all duration-300">
             {activeSrcB ? (
-              <canvas ref={canvasBRef} className="absolute inset-0 w-full h-full" />
+              <canvas
+                ref={canvasBRef}
+                onPointerDown={(e) => handlePointerDownCanvas(e, 'B')}
+                onPointerMove={(e) => handlePointerMoveCanvas(e, 'B')}
+                onPointerUp={(e) => handlePointerUpCanvas(e, 'B')}
+                className={`absolute inset-0 w-full h-full ${activeTool !== 'select' ? 'cursor-crosshair' : ''}`}
+              />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-4 text-center">
                 <p className="text-sm font-semibold text-slate-300 mb-1">No Secondary Camera Selected</p>
@@ -503,33 +649,69 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         )}
       </div>
 
+      {/* Text Prompt Popup Modal */}
+      {textInputPos && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs">
+          <div className="bg-slate-900 border border-white/20 p-4 rounded-xl shadow-2xl flex flex-col gap-3 w-80">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">Add Text Annotation</h4>
+            <input
+              type="text"
+              autoFocus
+              placeholder="Enter note text…"
+              value={textInputVal}
+              onChange={(e) => setTextInputVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleConfirmText();
+                if (e.key === 'Escape') setTextInputPos(null);
+              }}
+              className="bg-black/60 border border-white/20 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+            />
+            <div className="flex justify-end gap-2 text-xs font-semibold">
+              <button
+                onClick={() => setTextInputPos(null)}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmText}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+              >
+                Add Text
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {/* Center Transport Controls (Only visible in Select/Pointer mode) */}
+      {activeTool === 'select' && (
+        <div className="absolute inset-0 flex items-center justify-center gap-3 md:gap-6 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+          <button onClick={() => handleStep(-5)} className="pointer-events-auto w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+            <span className="text-[9px] font-extrabold">−5F</span>
+          </button>
+          <button onClick={() => handleStep(-1)} className="pointer-events-auto w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+            <span className="text-[9px] font-extrabold">−1F</span>
+          </button>
+          <button onClick={togglePlay} className="pointer-events-auto w-14 h-14 md:w-20 md:h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center shadow-2xl hover:scale-105 hover:bg-white/30 transition-all border border-white/30">
+            {stateA.playing
+              ? <Pause className="w-6 h-6 md:w-8 md:h-8 fill-white" />
+              : <Play  className="w-6 h-6 md:w-8 md:h-8 fill-white ml-1" />}
+          </button>
+          <button onClick={() => handleStep(1)} className="pointer-events-auto w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+            <span className="text-[9px] font-extrabold">+1F</span>
+          </button>
+          <button onClick={() => handleStep(5)} className="pointer-events-auto w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
+            <span className="text-[9px] font-extrabold">+5F</span>
+          </button>
+        </div>
+      )}
 
-      {/* Center Transport Controls */}
-      <div className="absolute inset-0 flex items-center justify-center gap-3 md:gap-6 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-        <button onClick={() => handleStep(-5)} className="pointer-events-auto w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
-          <span className="text-[9px] font-extrabold">−5F</span>
-        </button>
-        <button onClick={() => handleStep(-1)} className="pointer-events-auto w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
-          <span className="text-[9px] font-extrabold">−1F</span>
-        </button>
-        <button onClick={togglePlay} className="pointer-events-auto w-14 h-14 md:w-20 md:h-20 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center shadow-2xl hover:scale-105 hover:bg-white/30 transition-all border border-white/30">
-          {stateA.playing
-            ? <Pause className="w-6 h-6 md:w-8 md:h-8 fill-white" />
-            : <Play  className="w-6 h-6 md:w-8 md:h-8 fill-white ml-1" />}
-        </button>
-        <button onClick={() => handleStep(1)} className="pointer-events-auto w-10 h-10 md:w-12 md:h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
-          <span className="text-[9px] font-extrabold">+1F</span>
-        </button>
-        <button onClick={() => handleStep(5)} className="pointer-events-auto w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
-          <span className="text-[9px] font-extrabold">+5F</span>
-        </button>
-      </div>
-
-      {/* Bottom Progress & Timeline Bar */}
+      {/* Bottom Progress & Timeline Bar with Compact Integrated Transport */}
       <div className="absolute bottom-0 left-0 right-0 z-20 px-4 md:px-8 pb-4 md:pb-6 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-        <div className="bg-black/60 backdrop-blur-md rounded-xl md:rounded-2xl border border-white/10 p-3">
-          <div className="flex items-center justify-between text-[10px] md:text-xs font-mono font-bold mb-2">
+        <div className="bg-black/75 backdrop-blur-md rounded-xl md:rounded-2xl border border-white/15 p-3 flex flex-col gap-2">
+          {/* Top Row: Timecode, Camera Frames, Duration */}
+          <div className="flex items-center justify-between text-[10px] md:text-xs font-mono font-bold">
             <span className="text-slate-300">{stateA.timecode}</span>
             <div className="flex items-center gap-3">
               <span className="text-blue-400">Cam A: Frame {stateA.frame} / {Math.max(0, stateA.frameCount - 1)}</span>
@@ -539,6 +721,8 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
             </div>
             <span className="text-slate-300">{fmtTime(stateA.duration)}</span>
           </div>
+
+          {/* Scrubber Range Input */}
           <input
             type="range"
             min={0}
@@ -547,6 +731,17 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
             onChange={handleSeek}
             className="w-full h-1.5 bg-white/20 rounded-full appearance-none cursor-pointer accent-blue-500"
           />
+
+          {/* Bottom Row: Compact Integrated Transport Buttons (always accessible) */}
+          <div className="flex items-center justify-center gap-2 pt-1 border-t border-white/10">
+            <button onClick={() => handleStep(-5)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] font-extrabold transition-colors">−5F</button>
+            <button onClick={() => handleStep(-1)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] font-extrabold transition-colors">−1F</button>
+            <button onClick={togglePlay} className="p-1.5 bg-blue-600 hover:bg-blue-500 rounded-full transition-colors mx-1">
+              {stateA.playing ? <Pause className="w-3.5 h-3.5 fill-white" /> : <Play className="w-3.5 h-3.5 fill-white ml-0.5" />}
+            </button>
+            <button onClick={() => handleStep(1)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] font-extrabold transition-colors">+1F</button>
+            <button onClick={() => handleStep(5)} className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded text-[10px] font-extrabold transition-colors">+5F</button>
+          </div>
         </div>
       </div>
     </div>

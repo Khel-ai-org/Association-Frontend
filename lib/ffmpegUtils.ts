@@ -21,13 +21,16 @@ import { existsSync, mkdirSync, readFileSync, chmodSync } from 'fs';
 // -------------------------------------------------------------------- //
 
 const ARCH = process.arch === 'arm64' ? 'arm64' : 'x64';
+const SYSTEM_FFMPEG = '/opt/homebrew/bin/ffmpeg';
+const STATIC_FFMPEG = join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg');
 
-const FFMPEG_BIN  = join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg');
+const FFMPEG_BIN = existsSync(SYSTEM_FFMPEG) ? SYSTEM_FFMPEG : STATIC_FFMPEG;
 const FFPROBE_BIN = join(process.cwd(), 'node_modules', 'ffprobe-static', 'bin', 'darwin', ARCH, 'ffprobe');
 
 if (existsSync(FFMPEG_BIN)) {
   try { chmodSync(FFMPEG_BIN, 0o755); } catch {}
   ffmpegLib.setFfmpegPath(FFMPEG_BIN);
+  console.log('[ffmpeg] using binary:', FFMPEG_BIN);
 } else {
   console.warn('[ffmpeg] binary not found at', FFMPEG_BIN, '— falling back to system ffmpeg');
 }
@@ -125,12 +128,15 @@ export function extractSingleFrame(
 
   return new Promise((resolve, reject) => {
     ffmpegLib(videoUrl)
-      .inputOptions(['-ss', String(timeSeconds)])   // fast seek before -i
+      .inputOptions([
+        '-ss', String(timeSeconds),
+        '-threads', '0',               // Use all available CPU cores
+      ])
       .outputOptions([
         '-vframes', '1',
         '-vcodec',  'mjpeg',
-        '-q:v',     '3',    // quality 1 (best) – 31 (worst)
-        '-an',              // strip audio
+        '-q:v',     '3',               // high quality MJPEG
+        '-an',                         // strip audio
       ])
       .output(outPath)
       .on('end', () => {
@@ -152,7 +158,7 @@ const _running = new Set<string>();
 
 export function startBulkExtraction(
   videoUrl: string,
-  fps:      number,
+  fps:      number = 25,
 ): { alreadyRunning: boolean } {
   const hash = videoHash(videoUrl);
   if (_running.has(hash)) return { alreadyRunning: true };
@@ -161,14 +167,24 @@ export function startBulkExtraction(
   const dir = frameDir(videoUrl);
 
   ffmpegLib(videoUrl)
+    .inputOptions([
+      '-threads', '0',                 // Maximize all CPU cores
+    ])
     .outputOptions([
-      `-vf fps=${fps}`,
-      '-vcodec', 'mjpeg',
-      '-q:v',    '3',
+      '-vsync',   '0',                 // Pass native frames directly (instant decode)
+      '-vcodec',  'mjpeg',
+      '-q:v',     '4',                 // Optimized JPEG compression for fast disk write
+      '-start_number', '0',
+      '-an',
     ])
     .output(join(dir, '%06d.jpg'))
-    .on('end',   () => _running.delete(hash))
-    .on('error', () => _running.delete(hash))
+    .on('end',   () => {
+      _running.delete(hash);
+    })
+    .on('error', (err) => {
+      console.error(`FFmpeg extraction error for ${hash}:`, err.message);
+      _running.delete(hash);
+    })
     .run();
 
   return { alreadyRunning: false };

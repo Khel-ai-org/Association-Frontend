@@ -15,6 +15,7 @@
  */
 
 import { FrameCache } from './FrameCache';
+import { AnnotationLayer } from './AnnotationLayer';
 
 export const SPEEDS = [0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 4];
 
@@ -87,6 +88,9 @@ export class PlayerEngine {
   // ---- frame cache (like Z4's FrameSource) ----
   public cache: FrameCache = new FrameCache();
 
+  // ---- annotation layer ----
+  public annotations: AnnotationLayer = new AnnotationLayer();
+
   // ---- video info ----
   public videoInfo: VideoInfo | null = null;
   private videoUrl: string = '';
@@ -120,6 +124,8 @@ export class PlayerEngine {
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx    = canvas.getContext('2d');
+
+    this.annotations.onChange = () => this.invalidate();
 
     this._resizeObserver = new ResizeObserver(() => this.resize());
     this._resizeObserver.observe(canvas.parentElement ?? canvas);
@@ -389,6 +395,16 @@ export class PlayerEngine {
     return m;
   }
 
+  screenToNormalizedPoint(screenX: number, screenY: number): { x: number; y: number } {
+    const { rawW, rawH } = this.imageSize();
+    const inv = this._transform().inverse();
+    const pt = new DOMPoint(screenX, screenY).matrixTransform(inv);
+    return {
+      x: Math.max(0, Math.min(1, pt.x / (rawW || 1))),
+      y: Math.max(0, Math.min(1, pt.y / (rawH || 1))),
+    };
+  }
+
   invalidate() { this._needsRender = true; }
 
   // ================================================================== //
@@ -487,6 +503,9 @@ export class PlayerEngine {
       ctx.drawImage(img, 0, 0, rawW, rawH);
       ctx.restore();
     }
+
+    // ---- Render Annotation Overlay Layer ----
+    this.annotations.render(ctx, rawW, rawH, (n: number) => n / scale);
 
     ctx.restore();
     this.emit('render', this.frame);
