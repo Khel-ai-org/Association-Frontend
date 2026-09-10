@@ -7,7 +7,7 @@
  * across resolution changes, pan, and zoom.
  */
 
-export type AnnotationTool = 'select' | 'line' | 'angle' | 'text' | 'brush';
+export type AnnotationTool = 'select' | 'line' | 'angle' | 'text' | 'brush' | 'eraser';
 
 export interface Point {
   x: number; // Normalized 0.0 - 1.0 (x / width)
@@ -48,6 +48,17 @@ export class AnnotationLayer {
     this.currentColor = color;
   }
 
+  getShapes(): Shape[] {
+    return [...this.shapes];
+  }
+
+  setShapes(shapes: Shape[]) {
+    this.shapes = [...shapes];
+    this.activeDrawing = null;
+    this.pendingAnglePoints = [];
+    if (this.onChange) this.onChange();
+  }
+
   clearAll() {
     this.shapes = [];
     this.activeDrawing = null;
@@ -59,6 +70,11 @@ export class AnnotationLayer {
 
   onPointerDown(point: Point): { requestTextInput?: boolean; textPosition?: Point } {
     if (this.currentTool === 'select') return {};
+
+    if (this.currentTool === 'eraser') {
+      this.eraseShapesNear(point);
+      return {};
+    }
 
     if (this.currentTool === 'text') {
       return { requestTextInput: true, textPosition: point };
@@ -102,14 +118,44 @@ export class AnnotationLayer {
   }
 
   onPointerMove(point: Point) {
+    if (this.currentTool === 'eraser') {
+      this.eraseShapesNear(point);
+      return;
+    }
+
     if (!this.activeDrawing) return;
 
     if (this.currentTool === 'line') {
       this.activeDrawing.points[1] = point;
+      if (this.onChange) this.onChange();
     } else if (this.currentTool === 'brush') {
-      this.activeDrawing.points.push(point);
+      const lastPt = this.activeDrawing.points[this.activeDrawing.points.length - 1];
+      const dx = point.x - lastPt.x;
+      const dy = point.y - lastPt.y;
+      if (dx * dx + dy * dy > 0.000004) {
+        this.activeDrawing.points.push(point);
+        if (this.onChange) this.onChange();
+      }
     } else if (this.currentTool === 'angle') {
       this.activeDrawing.points = [...this.pendingAnglePoints, point];
+      if (this.onChange) this.onChange();
+    }
+  }
+
+  private eraseShapesNear(point: Point) {
+    const threshold = 0.03; // Eraser radius
+    const initialLen = this.shapes.length;
+
+    this.shapes = this.shapes.filter(shape => {
+      return !shape.points.some(p => {
+        const dx = p.x - point.x;
+        const dy = p.y - point.y;
+        return Math.sqrt(dx * dx + dy * dy) < threshold;
+      });
+    });
+
+    if (this.shapes.length !== initialLen && this.onChange) {
+      this.onChange();
     }
   }
 

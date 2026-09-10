@@ -15,9 +15,10 @@ import { startBulkExtraction, isExtracting, frameExistsOnDisk } from '@/lib/ffmp
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
-  const body   = await req.json().catch(() => ({}));
-  const rawUrl = body.url as string | undefined;
-  const fps    = Number(body.fps ?? 25);
+  const body     = await req.json().catch(() => ({}));
+  const rawUrl   = body.url as string | undefined;
+  const fps      = Number(body.fps ?? 25);
+  const priority = Boolean(body.priority ?? true);
 
   if (!rawUrl) {
     return NextResponse.json({ error: 'url required' }, { status: 400 });
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'done', alreadyRunning: false });
   }
 
-  const { alreadyRunning } = startBulkExtraction(videoUrl, fps);
+  const { alreadyRunning } = startBulkExtraction(videoUrl, fps, priority);
 
   return NextResponse.json({
     status: alreadyRunning ? 'running' : 'started',

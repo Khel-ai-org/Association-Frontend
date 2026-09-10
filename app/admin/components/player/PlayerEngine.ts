@@ -116,6 +116,7 @@ export class PlayerEngine {
   private _acc:        number = 0;
   private _raf:        number | null = null;
   private _needsRender = true;
+  private _lastValidImg: HTMLImageElement | null = null;
   private _resizeObserver: ResizeObserver;
   public  cssWidth  = 0;
   public  cssHeight = 0;
@@ -159,11 +160,12 @@ export class PlayerEngine {
 
   async loadVideo(url: string): Promise<void> {
     this.pause();
-    this.isReady      = false;
-    this.frame        = 0;
-    this._acc         = 0;
-    this.videoUrl     = url;
+    this.isReady       = false;
+    this.frame         = 0;
+    this._acc          = 0;
+    this.videoUrl      = url;
     this.preloadStatus = 'idle';
+    this._lastValidImg = null;
     this.cache.clear();
 
     // ---- Step 1: probe metadata via ffprobe ----
@@ -472,13 +474,15 @@ export class PlayerEngine {
     if (!this.isReady) { ctx.restore(); return; }
 
     // ---- Synchronous peek from RAM cache (< 1ms) ----
-    // Exact Z4: const img = this.source?.peek(this.frame)
     const img = this.cache.peek(this.frame);
     if (!img) {
       // Async load if not cached yet (first-time or cache miss)
-      // Exact Z4: this.source?.load(this.frame).then(() => this.invalidate())
       this.cache.load(this.frame).then(() => this.invalidate()).catch(() => {});
+    } else {
+      this._lastValidImg = img;
     }
+
+    const renderImg = img || this._lastValidImg;
 
     // ---- Apply canvas transform (exact Z4 lines 466-470) ----
     const matrix = this._transform();
@@ -492,7 +496,7 @@ export class PlayerEngine {
     const scale = this.effectiveScale() || 1;
 
     // ---- Draw frame (exact Z4 lines 488-495) ----
-    if (img) {
+    if (renderImg) {
       ctx.save();
       ctx.filter = [
         `brightness(${this.filters.brightness})`,
@@ -500,7 +504,7 @@ export class PlayerEngine {
         `saturate(${this.filters.saturate})`,
       ].join(' ');
       ctx.imageSmoothingEnabled = scale < 2;  // exact Z4
-      ctx.drawImage(img, 0, 0, rawW, rawH);
+      ctx.drawImage(renderImg, 0, 0, rawW, rawH);
       ctx.restore();
     }
 

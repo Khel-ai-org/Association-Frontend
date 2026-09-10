@@ -74,7 +74,7 @@ export class FrameCache {
   // Exact Z4 frames.js load() logic (HTMLImageElement, img.src = url). //
   // ================================================================== //
 
-  load(index: number): Promise<HTMLImageElement | null> {
+  load(index: number, retries = 2): Promise<HTMLImageElement | null> {
     index = this.clamp(index);
 
     const cached = this.cache.get(index);
@@ -84,19 +84,28 @@ export class FrameCache {
     if (inflight) return inflight;
 
     const promise = new Promise<HTMLImageElement | null>((resolve) => {
-      const img      = new Image();
-      img.decoding   = 'async';    // exact Z4 setting
-      img.onload     = () => {
-        this.pending.delete(index);
-        this.cache.set(index, img);
-        this._evict();
-        resolve(img);
+      const fetchImage = (attempt: number) => {
+        const img = new Image();
+        img.decoding = 'async';
+        img.onload = () => {
+          this.pending.delete(index);
+          this.cache.set(index, img);
+          this._evict();
+          resolve(img);
+        };
+        img.onerror = () => {
+          if (attempt > 0) {
+            // Retry after short delay if extraction was still in-flight
+            setTimeout(() => fetchImage(attempt - 1), 150);
+          } else {
+            this.pending.delete(index);
+            resolve(null);
+          }
+        };
+        img.src = `${this.frameUrl(index)}&_t=${Date.now()}`;
       };
-      img.onerror    = () => {
-        this.pending.delete(index);
-        resolve(null);
-      };
-      img.src = this.frameUrl(index);  // ← This is the Z4 equivalent line
+
+      fetchImage(retries);
     });
 
     this.pending.set(index, promise);

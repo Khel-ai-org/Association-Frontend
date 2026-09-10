@@ -276,21 +276,44 @@ export const CanvasVideoPlayer: React.FC<CanvasVideoPlayerProps> = ({
     return () => container.removeEventListener('wheel', handleWheel);
   }, []);
 
+  // Per-Camera Saved Annotations Store Map<videoUrl, Shape[]>
+  const annotationsStoreRef = useRef<Map<string, any[]>>(new Map());
+  const prevSrcRef = useRef<string | null>(null);
+
   // ================================================================== //
-  // Load new src                                                        //
+  // Load new src with per-camera saved drawings                        //
   // ================================================================== //
 
   useEffect(() => {
     if (!engineRef.current || !src) return;
     let cancelled = false;
 
+    // Save previous camera annotations before loading new video
+    if (prevSrcRef.current && engineRef.current) {
+      annotationsStoreRef.current.set(
+        prevSrcRef.current,
+        engineRef.current.annotations.getShapes()
+      );
+    }
+    prevSrcRef.current = src;
+
     setLoading(true);
     setLoadError(null);
 
     engineRef.current.loadVideo(src)
-      .then(() => { if (!cancelled) setLoading(false); })
-      .catch((err: Error) => {
-        if (!cancelled) { setLoading(false); setLoadError(err.message); }
+      .then(() => {
+        if (!cancelled) {
+          setLoading(false);
+          // Restore saved annotations for this camera (or empty array if new)
+          const saved = annotationsStoreRef.current.get(src) || [];
+          engineRef.current?.annotations.setShapes(saved);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLoading(false);
+          setLoadError(err.message || "Failed to load video");
+        }
       });
 
     return () => { cancelled = true; };

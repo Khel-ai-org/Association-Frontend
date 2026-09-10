@@ -159,6 +159,7 @@ const _running = new Set<string>();
 export function startBulkExtraction(
   videoUrl: string,
   fps:      number = 25,
+  priority: boolean = false,
 ): { alreadyRunning: boolean } {
   const hash = videoHash(videoUrl);
   if (_running.has(hash)) return { alreadyRunning: true };

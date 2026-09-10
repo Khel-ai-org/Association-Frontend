@@ -7,6 +7,7 @@ import {
   Compass,
   Type,
   Paintbrush,
+  Eraser,
   Trash2,
   ChevronDown,
   Check
@@ -82,7 +83,7 @@ export const MarkerMenu: React.FC<MarkerMenuProps> = ({
           </p>
 
           <div className="flex flex-col gap-0.5 mb-2">
-            {/* Pointer / Select */}
+            {/* Select / Normal Pointer */}
             <button
               onClick={() => {
                 onSelectTool("select");
@@ -96,7 +97,7 @@ export const MarkerMenu: React.FC<MarkerMenuProps> = ({
             >
               <div className="flex items-center gap-2">
                 <Pencil className="w-3.5 h-3.5 opacity-60" />
-                <span>Pointer (Pan/Zoom)</span>
+                <span>Pointer (Select Mode)</span>
               </div>
               {activeTool === "select" && <Check className="w-3.5 h-3.5" />}
             </button>
@@ -158,23 +159,25 @@ export const MarkerMenu: React.FC<MarkerMenuProps> = ({
               {activeTool === "text" && <Check className="w-3.5 h-3.5" />}
             </button>
 
-            {/* Brush Tool */}
+
+
+            {/* Eraser Tool */}
             <button
               onClick={() => {
-                onSelectTool("brush");
+                onSelectTool("eraser");
                 setIsOpen(false);
               }}
               className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
-                activeTool === "brush"
+                activeTool === "eraser"
                   ? "bg-blue-600 text-white font-bold"
                   : "text-slate-300 hover:bg-white/10"
               }`}
             >
               <div className="flex items-center gap-2">
-                <Paintbrush className="w-3.5 h-3.5" />
-                <span>Brush</span>
+                <Eraser className="w-3.5 h-3.5" />
+                <span>Eraser</span>
               </div>
-              {activeTool === "brush" && <Check className="w-3.5 h-3.5" />}
+              {activeTool === "eraser" && <Check className="w-3.5 h-3.5" />}
             </button>
           </div>
 

@@ -96,6 +96,9 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Active Camera Focus Pane ('A' | 'B')
+  const [activePane, setActivePane] = useState<'A' | 'B'>('A');
+
   // Marker & Annotation State
   const [activeTool, setActiveTool]   = useState<AnnotationTool>('select');
   const [activeColor, setActiveColor] = useState<string>('#ffcc33');
@@ -180,23 +183,58 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
     };
   }, [isSyncLocked, mode, frameOffsetB]);
 
-  // Handle Load Video A
+  // Per-Camera Saved Annotations Store Map<videoUrl, Shape[]>
+  const annotationsStoreRef = useRef<Map<string, any[]>>(new Map());
+  const prevSrcARef = useRef<string | null>(null);
+  const prevSrcBRef = useRef<string | null>(null);
+
+  // Handle Load Video A with per-camera saved drawings
   useEffect(() => {
     if (!engineARef.current || !srcA) return;
+
+    // Save previous camera A annotations before loading new video
+    if (prevSrcARef.current && engineARef.current) {
+      annotationsStoreRef.current.set(
+        prevSrcARef.current,
+        engineARef.current.annotations.getShapes()
+      );
+    }
+    prevSrcARef.current = srcA;
+
     setLoadingA(true);
     setErrorA(null);
     engineARef.current.loadVideo(srcA)
-      .then(() => setLoadingA(false))
+      .then(() => {
+        setLoadingA(false);
+        // Restore saved annotations for this camera (or empty array if new)
+        const saved = annotationsStoreRef.current.get(srcA) || [];
+        engineARef.current?.annotations.setShapes(saved);
+      })
       .catch((err) => { setLoadingA(false); setErrorA(err.message); });
   }, [srcA]);
 
-  // Handle Load Video B
+  // Handle Load Video B with per-camera saved drawings
   useEffect(() => {
     if (!engineBRef.current || !activeSrcB) return;
+
+    // Save previous camera B annotations before loading new video
+    if (prevSrcBRef.current && engineBRef.current) {
+      annotationsStoreRef.current.set(
+        prevSrcBRef.current,
+        engineBRef.current.annotations.getShapes()
+      );
+    }
+    prevSrcBRef.current = activeSrcB;
+
     setLoadingB(true);
     setErrorB(null);
     engineBRef.current.loadVideo(activeSrcB)
-      .then(() => setLoadingB(false))
+      .then(() => {
+        setLoadingB(false);
+        // Restore saved annotations for this camera (or empty array if new)
+        const saved = annotationsStoreRef.current.get(activeSrcB) || [];
+        engineBRef.current?.annotations.setShapes(saved);
+      })
       .catch((err) => { setLoadingB(false); setErrorB(err.message); });
   }, [activeSrcB]);
 
@@ -287,12 +325,12 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
       const eB = engineBRef.current;
       if (!eA || !eA.isReady) return;
 
-      // Ctrl / Cmd / Alt + Scroll → Zoom In / Out
+      // Ctrl / Cmd / Alt + Scroll → Zoom In / Out on active focus camera
       if (event.ctrlKey || event.metaKey || event.altKey) {
         const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-        eA.setZoom(eA.effectiveScale() * factor);
-        if (mode !== 'single' && eB?.isReady) {
-          eB.setZoom(eB.effectiveScale() * factor);
+        const targetEngine = (mode !== 'single' && activePane === 'B') ? eB : eA;
+        if (targetEngine?.isReady) {
+          targetEngine.setZoom(targetEngine.effectiveScale() * factor);
         }
         return;
       }
@@ -312,7 +350,7 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => container.removeEventListener('wheel', handleWheel);
-  }, [mode, isSyncLocked, frameOffsetB]);
+  }, [mode, isSyncLocked, frameOffsetB, activePane]);
 
   // ================================================================== //
   // Controls                                                            //
@@ -522,11 +560,25 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
             onClearAll={handleClearAll}
           />
 
-          {/* Zoom controls */}
-          <button onClick={() => engineARef.current?.setZoom(engineARef.current.effectiveScale() * 1.25)} className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors" title="Zoom In">
+          {/* Zoom controls (Targeting only the active selected camera A or B) */}
+          <button
+            onClick={() => {
+              const target = (mode !== 'single' && activePane === 'B') ? engineBRef.current : engineARef.current;
+              if (target) target.setZoom((target.effectiveScale() || 1) * 1.25);
+            }}
+            className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors"
+            title={`Zoom In (${mode !== 'single' ? (activePane === 'A' ? 'Cam A' : 'Cam B') : 'Active Video'})`}
+          >
             <ZoomIn className="w-4 h-4" />
           </button>
-          <button onClick={() => engineARef.current?.setZoom(engineARef.current.effectiveScale() / 1.25)} className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors" title="Zoom Out">
+          <button
+            onClick={() => {
+              const target = (mode !== 'single' && activePane === 'B') ? engineBRef.current : engineARef.current;
+              if (target) target.setZoom((target.effectiveScale() || 1) / 1.25);
+            }}
+            className="p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 hover:bg-white/20 transition-colors"
+            title={`Zoom Out (${mode !== 'single' ? (activePane === 'A' ? 'Cam A' : 'Cam B') : 'Active Video'})`}
+          >
             <ZoomOut className="w-4 h-4" />
           </button>
 
@@ -610,7 +662,10 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         <div className={`relative h-full transition-all duration-300 ${mode === 'side' ? 'w-1/2 border-r border-white/10' : 'w-full'}`}>
           <canvas
             ref={canvasARef}
-            onPointerDown={(e) => handlePointerDownCanvas(e, 'A')}
+            onPointerDown={(e) => {
+              setActivePane('A');
+              handlePointerDownCanvas(e, 'A');
+            }}
             onPointerMove={(e) => handlePointerMoveCanvas(e, 'A')}
             onPointerUp={(e) => handlePointerUpCanvas(e, 'A')}
             className={`absolute inset-0 w-full h-full ${activeTool !== 'select' ? 'cursor-crosshair' : ''}`}
@@ -628,7 +683,10 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
             {activeSrcB ? (
               <canvas
                 ref={canvasBRef}
-                onPointerDown={(e) => handlePointerDownCanvas(e, 'B')}
+                onPointerDown={(e) => {
+                  setActivePane('B');
+                  handlePointerDownCanvas(e, 'B');
+                }}
                 onPointerMove={(e) => handlePointerMoveCanvas(e, 'B')}
                 onPointerUp={(e) => handlePointerUpCanvas(e, 'B')}
                 className={`absolute inset-0 w-full h-full ${activeTool !== 'select' ? 'cursor-crosshair' : ''}`}
@@ -713,10 +771,53 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
           {/* Top Row: Timecode, Camera Frames, Duration */}
           <div className="flex items-center justify-between text-[10px] md:text-xs font-mono font-bold">
             <span className="text-slate-300">{stateA.timecode}</span>
-            <div className="flex items-center gap-3">
-              <span className="text-blue-400">Cam A: Frame {stateA.frame} / {Math.max(0, stateA.frameCount - 1)}</span>
+            <div className="flex items-center gap-4">
+              {/* Cam A Inline Editable Frame */}
+              <div className="flex items-center gap-1 text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20 hover:border-blue-400/50 transition-colors">
+                <span className="text-[10px] uppercase font-bold text-blue-300/80 tracking-wider">Cam A</span>
+                <span className="text-blue-400/60 text-[10px]">#</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={Math.max(0, stateA.frameCount - 1)}
+                  value={stateA.frame}
+                  onChange={(e) => {
+                    const valA = Math.max(0, Number(e.target.value) || 0);
+                    engineARef.current?.seek(valA);
+                    if (engineBRef.current && isSyncLocked) {
+                      setFrameOffsetB(engineBRef.current.frame - valA);
+                    }
+                  }}
+                  className="w-12 bg-transparent text-center text-xs font-mono font-bold text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none focus:bg-white/10 rounded"
+                  title="Click to edit Cam A frame"
+                />
+                <span className="text-slate-400 text-[10px]">/ {Math.max(0, stateA.frameCount - 1)}</span>
+              </div>
+
+              {/* Cam B Inline Editable Frame */}
               {mode !== "single" && activeSrcB && (
-                <span className="text-purple-400">Cam B: Frame {stateB.frame} / {Math.max(0, stateB.frameCount - 1)}</span>
+                <div className="flex items-center gap-1 text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-full border border-purple-500/20 hover:border-purple-400/50 transition-colors">
+                  <span className="text-[10px] uppercase font-bold text-purple-300/80 tracking-wider">Cam B</span>
+                  <span className="text-purple-400/60 text-[10px]">#</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={Math.max(0, stateB.frameCount - 1)}
+                    value={stateB.frame}
+                    onChange={(e) => {
+                      const valB = Math.max(0, Number(e.target.value) || 0);
+                      if (engineBRef.current) {
+                        if (isSyncLocked && engineARef.current) {
+                          setFrameOffsetB(valB - engineARef.current.frame);
+                        }
+                        engineBRef.current.seek(valB);
+                      }
+                    }}
+                    className="w-12 bg-transparent text-center text-xs font-mono font-bold text-white focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none focus:bg-white/10 rounded"
+                    title="Click to edit Cam B frame"
+                  />
+                  <span className="text-slate-400 text-[10px]">/ {Math.max(0, stateB.frameCount - 1)}</span>
+                </div>
               )}
             </div>
             <span className="text-slate-300">{fmtTime(stateA.duration)}</span>
