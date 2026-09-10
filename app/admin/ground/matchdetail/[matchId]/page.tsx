@@ -48,7 +48,7 @@
 
 import React, { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import MatchAnalysis from '../../../components/ground/MatchDetails';
 
 interface PageProps {
@@ -57,8 +57,12 @@ interface PageProps {
 
 export default function MatchDetailsPage({ params }: PageProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const resolvedParams = React.use(params);
   const matchId = resolvedParams.matchId;
+  // The scorecard itself carries no status field — the Matches list passes
+  // along the status it already knew (the fixture's live-match status).
+  const initialStatus = searchParams.get('status') || undefined;
 
   // Track active tab state at the parent page level ('details' or 'referee')
   const [activeTab, setActiveTab] = useState<'details' | 'referee'>('details');
@@ -109,7 +113,7 @@ export default function MatchDetailsPage({ params }: PageProps) {
       </div>
 
       {/* Main Analysis Component passing down the active tab parameter */}
-      <MatchAnalysis matchId={matchId} externalActiveTab={activeTab} onTabChange={setActiveTab} />
+      <MatchAnalysis matchId={matchId} externalActiveTab={activeTab} onTabChange={setActiveTab} initialStatus={initialStatus} />
     </div>
   );
 }

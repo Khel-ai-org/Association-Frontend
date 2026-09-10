@@ -23,6 +23,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
   const [isGroupMode, setIsGroupMode] = useState(true);
   const [isAddTeamsOpen, setIsAddTeamsOpen] = useState(false);
   const [isGenerateFixtureOpen, setIsGenerateFixtureOpen] = useState(false);
+  const [fixturesExist, setFixturesExist] = useState(false);
   const itemsPerPage = 14; // 7 columns * 2 rows
 
   const fetchTournament = useCallback(async () => {
@@ -76,6 +77,33 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
       setLoadingTeams(false);
     }
   }, [tournament, fetchTeams]);
+
+  // Check whether fixtures have already been generated for this tournament,
+  // so "Generate Fixture" can be disabled instead of letting it run twice.
+  const checkFixturesExist = useCallback(async (externalId: string) => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${externalId}/matches`,
+        {
+          method: 'GET',
+          headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const list = Array.isArray(data) ? data : data?.matches || [];
+        setFixturesExist(list.length > 0);
+      }
+    } catch (error) {
+      console.error('Error checking existing fixtures:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tournament?.externalTournamentId) {
+      checkFixturesExist(tournament.externalTournamentId);
+    }
+  }, [tournament, checkFixturesExist]);
 
   const calculateProgress = () => {
     if (!tournament || !tournament.startDate || !tournament.endDate) return 0;
@@ -182,9 +210,9 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
           ) : currentItems.length > 0 ? (
             currentItems.map((team, i) => (
               <div key={team.id} className="flex flex-col items-center text-center border border-slate-100 rounded-2xl p-4 bg-gray-50/30">
-                <p className="text-[11px] text-slate-400 mb-2 self-start">
+                {/* <p className="text-[11px] text-slate-400 mb-2 self-start">
                   Team ID - <span className="font-semibold text-slate-600">{team.id?.slice(-6) ?? '—'}</span>
-                </p>
+                </p> */}
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm mb-2 ${AVATAR_COLORS[i % AVATAR_COLORS.length]}`}>
                   {(team.shortName || team.name || '?').substring(0, 2).toUpperCase()}
                 </div>
@@ -230,14 +258,22 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
           </div>
         )}
 
-        <div className="flex justify-center">
+        <div className="flex flex-col items-center gap-2">
           <button
-            disabled={teams.length === 0}
+            disabled={teams.length === 0 || fixturesExist}
             onClick={() => setIsGenerateFixtureOpen(true)}
             className="bg-[#0F1117] text-white px-8 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Generate Fixture
           </button>
+          {fixturesExist && (
+            <button
+              onClick={() => router.push(`/admin/tournament/${tournamentId}/matches`)}
+              className="text-sm font-semibold text-[#4B70C3] hover:underline"
+            >
+              Fixture already generated — you can view matches
+            </button>
+          )}
         </div>
       </div>
 
@@ -256,7 +292,10 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
         grounds={tournament?.grounds || []}
         isGroupMode={isGroupMode}
         startDate={tournament?.startDate}
-        onGenerated={() => router.push(`/admin/tournament/${tournamentId}/matches`)}
+        onGenerated={() => {
+          setFixturesExist(true);
+          router.push(`/admin/tournament/${tournamentId}/matches`);
+        }}
       />
     </div>
   );

@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { X, Users, Upload, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { Team } from '../../types/tournament';
+import StatusModal from '@/app/components/auth/StatusModal';
 
 interface AddTeamsModalProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
   const [fileName, setFileName] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -46,7 +48,17 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
     fetchExistingTeams();
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  const successModal = (
+    <StatusModal
+      isOpen={showSuccess}
+      onClose={() => setShowSuccess(false)}
+      type="success"
+      title="Team Added"
+      message="New Team Has been Added to the Tournament"
+    />
+  );
+
+  if (!isOpen) return successModal;
 
   const resetAndClose = () => {
     setManualRows([]);
@@ -140,6 +152,7 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
       if (response.ok) {
         onTeamsAdded();
         resetAndClose();
+        setShowSuccess(true);
       } else {
         const errorData = await response.json().catch(() => null);
         setError(errorData?.error || errorData?.message || 'Failed to add teams');
@@ -153,6 +166,7 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-[480px] h-[85vh] rounded-[24px] shadow-2xl relative flex flex-col">
         <button
@@ -277,5 +291,7 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
         </div>
       </div>
     </div>
+    {successModal}
+    </>
   );
 }

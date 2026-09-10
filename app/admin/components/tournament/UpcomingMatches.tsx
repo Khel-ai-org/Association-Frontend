@@ -260,11 +260,12 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         // Once linked, the nested live match's own `status` field is the
         // real source of truth — not this fixture/schedule row's own status.
         const liveStatus = fixture.match?.status;
-        if (liveStatus === 'live') {
+        const normalized = typeof liveStatus === 'string' ? liveStatus.toLowerCase() : '';
+        if (normalized === 'in_progress' || normalized === 'live') {
           statusLabel = 'Live';
           badgeColor = 'bg-[#D11B1B]';
           type = 'Live';
-        } else if (liveStatus === 'completed') {
+        } else if (normalized === 'completed' || normalized === 'finished') {
           statusLabel = 'Completed';
           badgeColor = 'bg-emerald-600';
           type = 'Finished';
@@ -412,7 +413,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               <tr className="text-left text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
                 <th className="py-3 px-3 font-semibold">Match Details</th>
                 <th className="py-3 px-3 font-semibold">Matchup</th>
-                <th className="py-3 px-3 font-semibold">Venue</th>
+                {/* <th className="py-3 px-3 font-semibold">Venue</th> */}
                 <th className="py-3 px-3 font-semibold">Date/Time</th>
                 <th className="py-3 px-3 font-semibold">Status</th>
                 <th className="py-3 px-3 font-semibold">Action</th>
@@ -441,11 +442,11 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                           <span className="font-medium text-slate-700 text-xs">{row.team2}</span>
                         </div>
                       </td>
-                      <td className="py-4 px-3">
+                      {/* <td className="py-4 px-3">
                         <span className="text-slate-500 text-xs">
                           {row.groundId ? tournament?.grounds?.find((g) => g.id === row.groundId)?.name || row.groundId : '—'}
                         </span>
-                      </td>
+                      </td> */}
                       <td className="py-4 px-3 text-slate-600">{row.time}</td>
                       <td className="py-4 px-3">
                         <span className={`text-white text-[10px] px-2 py-1 rounded-md font-bold uppercase tracking-wider ${row.badgeColor}`}>
@@ -474,7 +475,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                   return (
                     <tr
                       key={row.key}
-                      onClick={() => row.linkId && router.push(`/admin/ground/matchdetail/${row.linkId}`)}
+                      onClick={() => row.linkId && router.push(`/admin/ground/matchdetail/${row.linkId}?status=${encodeURIComponent(row.statusLabel)}`)}
                       className={`border-b border-slate-50 transition-colors ${
                         row.linkId ? 'hover:bg-slate-50/70 cursor-pointer' : ''
                       } ${selectedMatchId === row.linkId ? 'bg-blue-50/50' : ''}`}

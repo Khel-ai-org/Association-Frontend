@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Trophy, ChevronDown, Search } from 'lucide-react';
 import { Ground } from '../../types/tournament';
+import StatusModal from '@/app/components/auth/StatusModal';
 
 interface CreateTournamentModalProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
   const [grounds, setGrounds] = useState<Ground[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [isGroundDropdownOpen, setIsGroundDropdownOpen] = useState(false);
   const [groundSearch, setGroundSearch] = useState('');
   const groundDropdownRef = useRef<HTMLDivElement>(null);
@@ -61,8 +63,6 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
 
     fetchGrounds();
   }, [isOpen]);
-
-  if (!isOpen) return null;
 
   const handleClose = () => {
     setFormData(initialFormData);
@@ -125,6 +125,7 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
       if (response.ok) {
         handleClose();
         onCreated();
+        setShowSuccess(true);
       } else {
         const errorData = await response.json().catch(() => null);
         setErrors({ submit: errorData?.message || 'Failed to create tournament' });
@@ -137,7 +138,20 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
     }
   };
 
+  const successModal = (
+    <StatusModal
+      isOpen={showSuccess}
+      onClose={() => setShowSuccess(false)}
+      type="success"
+      title="Tournament Created"
+      message="New Tournament Has been Created Successfully"
+    />
+  );
+
+  if (!isOpen) return successModal;
+
   return (
+    <>
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-[560px] rounded-[32px] shadow-2xl relative max-h-[90vh] overflow-y-auto">
         <button
@@ -331,5 +345,7 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
         </div>
       </div>
     </div>
+    {successModal}
+    </>
   );
 }

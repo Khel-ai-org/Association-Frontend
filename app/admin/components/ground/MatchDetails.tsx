@@ -13,6 +13,10 @@ interface MatchAnalysisProps {
   matchId: string;
   externalActiveTab?: 'details' | 'referee';
   onTabChange?: (tab: 'details' | 'referee') => void;
+  // The scorecard response carries no status field of its own — the Matches
+  // list already knows the live match's status (from the fixture's nested
+  // `match.status`), so it's passed through here instead of guessed at.
+  initialStatus?: string;
 }
 
 interface Appeal {
@@ -58,7 +62,7 @@ interface CocCase {
 
 
 
-const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTab, onTabChange }) => {
+const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTab, onTabChange, initialStatus }) => {
   const [internalTab, setInternalTab] = useState<'details' | 'referee'>('details');
   const activeTab = externalActiveTab !== undefined ? externalActiveTab : internalTab;
   const setActiveTab = (tab: 'details' | 'referee') => {
@@ -224,9 +228,11 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         const sRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/scorecard`, {
           headers: { "ngrok-skip-browser-warning": "true" }
         });
+        
 
         if (sRes.ok) {
           const scDataArray = await sRes.json();
+          console.log("Fetched Scorecard Data:", scDataArray);
           if (Array.isArray(scDataArray) && scDataArray.length > 0) {
             setScorecard(scDataArray[0]);
           }
@@ -446,16 +452,18 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     return { label, bgColor };
   };
 
-  // Source of truth is the live match's own `status` field (e.g.
-  // 'in_progress'/'completed'), not a client-side date guess.
+  // The scorecard response itself carries no status field, so fall back to
+  // whatever the Matches list already knew (the fixture's nested live-match
+  // status), passed in as `initialStatus` — not a client-side date guess.
   const status = useMemo(() => {
-    const liveStatus = scorecard?.status;
+    const liveStatus = scorecard?.status || initialStatus;
     if (!liveStatus) return { text: "N/A", color: "bg-slate-400" };
-    if (liveStatus === 'in_progress' || liveStatus === 'live') return { text: "LIVE", color: "bg-red-600" };
-    if (liveStatus === 'completed') return { text: "FINISHED", color: "bg-green-500" };
-    if (liveStatus === 'scheduled' || liveStatus === 'upcoming') return { text: "UPCOMING", color: "bg-blue-600" };
+    const normalized = liveStatus.toString().toLowerCase();
+    if (normalized === 'in_progress' || normalized === 'live') return { text: "LIVE", color: "bg-red-600" };
+    if (normalized === 'completed' || normalized === 'finished') return { text: "FINISHED", color: "bg-green-500" };
+    if (normalized === 'scheduled' || normalized === 'upcoming') return { text: "UPCOMING", color: "bg-blue-600" };
     return { text: liveStatus.toString().toUpperCase(), color: "bg-slate-400" };
-  }, [scorecard]);
+  }, [scorecard, initialStatus]);
 
   const currentInningsData = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
 
@@ -658,7 +666,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               <span className="font-bold text-slate-900 text-base md:text-lg text-center">
                 {scorecard?.homeTeam?.toUpperCase() || "SA"} 
                 <span className="text-slate-700 font-medium text-sm md:text-base ml-1">
-                  {scorecard?.innings_1?.runs || '225'}/{scorecard?.innings_1?.wickets || '9'} ({scorecard?.innings_1?.overs || '20 ov'})
+                  {scorecard?.innings_1?.runs ?? 0}/{scorecard?.innings_1?.wickets ?? 0} ({scorecard?.innings_1?.overs ?? 0})
                 </span>
               </span>
             </div>
@@ -677,7 +685,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               <span className="font-bold text-slate-900 text-base md:text-lg text-right">
                 {scorecard?.awayTeam?.toUpperCase() || "ENG"} 
                 <span className="text-slate-700 font-medium text-sm md:text-base ml-1">
-                  {scorecard?.innings_2?.runs || '225'}/{scorecard?.innings_2?.wickets || '9'} ({scorecard?.innings_2?.overs || '20 ov'})
+                  {scorecard?.innings_2?.runs ?? 0}/{scorecard?.innings_2?.wickets ?? 0} ({scorecard?.innings_2?.overs ?? 0})
                 </span>
               </span>
               <div className="w-8 h-8 bg-red-700 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">

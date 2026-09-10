@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { X, CalendarDays } from 'lucide-react';
+import { X, CalendarDays, ChevronDown } from 'lucide-react';
 import { Fixture, Ground } from '../../types/tournament';
+import StatusModal from '@/app/components/auth/StatusModal';
 
 interface ScheduleMatchModalProps {
   isOpen: boolean;
@@ -28,19 +29,31 @@ export default function ScheduleMatchModal({
 }: ScheduleMatchModalProps) {
   const [scheduleDate, setScheduleDate] = useState('');
   const [selectedGroundId, setSelectedGroundId] = useState('');
+  const [groundDropdownOpen, setGroundDropdownOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      // Pre-select whatever ground this fixture already has (e.g. assigned
-      // round-robin at generation time), falling back to the first ground.
-      setSelectedGroundId(fixture?.venue || grounds[0]?.id || '');
+      // Always start unselected — the user must actively pick a ground,
+      // rather than one being silently defaulted for them.
+      setSelectedGroundId('');
+      setGroundDropdownOpen(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, fixture]);
 
-  if (!isOpen || !fixture) return null;
+  const successModal = (
+    <StatusModal
+      isOpen={showSuccess}
+      onClose={() => setShowSuccess(false)}
+      type="success"
+      title="Match Scheduled"
+      message="The Match Has been Scheduled for the Tournament"
+    />
+  );
+
+  if (!isOpen || !fixture) return successModal;
 
   const resetAndClose = () => {
     setScheduleDate('');
@@ -77,6 +90,7 @@ export default function ScheduleMatchModal({
           headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
           body: JSON.stringify({
             scheduled_date: scheduleDate,
+            venue: grounds.find((g) => g.id === selectedGroundId)?.name || 'Unknown Ground',
             venue_id: selectedGroundId,
           }),
         }
@@ -106,6 +120,7 @@ export default function ScheduleMatchModal({
 
       onScheduled();
       resetAndClose();
+      setShowSuccess(true);
     } catch (err) {
       console.error('Error scheduling match:', err);
       setError('Network error. Failed to schedule match');
@@ -115,6 +130,7 @@ export default function ScheduleMatchModal({
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-[440px] rounded-[32px] shadow-2xl relative">
         <button
@@ -143,20 +159,41 @@ export default function ScheduleMatchModal({
                 onChange={(e) => setScheduleDate(e.target.value)}
               />
             </div>
-            <div>
+            <div className="relative">
               <label className="block text-sm font-semibold text-slate-500 mb-1.5">Ground</label>
               {grounds.length > 0 ? (
-                <select
-                  value={selectedGroundId}
-                  onChange={(e) => setSelectedGroundId(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none text-sm text-gray-700 bg-white"
-                >
-                  {grounds.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name} ({g.location})
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <div
+                    onClick={() => setGroundDropdownOpen((prev) => !prev)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm cursor-pointer flex justify-between items-center outline-none transition-all"
+                  >
+                    <span className={selectedGroundId ? 'text-gray-700' : 'text-gray-400'}>
+                      {selectedGroundId
+                        ? (() => {
+                            const g = grounds.find((g) => g.id === selectedGroundId);
+                            return g ? `${g.name} (${g.location})` : 'Select Ground';
+                          })()
+                        : 'Select Ground'}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${groundDropdownOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                  {groundDropdownOpen && (
+                    <div className="absolute left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {grounds.map((g) => (
+                        <div
+                          key={g.id}
+                          onClick={() => {
+                            setSelectedGroundId(g.id);
+                            setGroundDropdownOpen(false);
+                          }}
+                          className="px-4 py-2.5 text-sm text-gray-700 hover:bg-slate-50 cursor-pointer"
+                        >
+                          {g.name} ({g.location})
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 <input
                   type="text"
@@ -180,5 +217,7 @@ export default function ScheduleMatchModal({
         </div>
       </div>
     </div>
+    {successModal}
+    </>
   );
 }

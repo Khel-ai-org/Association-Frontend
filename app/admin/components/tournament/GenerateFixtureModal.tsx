@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { X, Trophy } from 'lucide-react';
+import { X, Trophy, ChevronDown } from 'lucide-react';
 import { Team, Ground } from '../../types/tournament';
+import StatusModal from '@/app/components/auth/StatusModal';
 
 interface GenerateFixtureModalProps {
   isOpen: boolean;
@@ -34,6 +35,8 @@ export default function GenerateFixtureModal({
   const [playoffTeams, setPlayoffTeams] = useState('2');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [openGroupDropdown, setOpenGroupDropdown] = useState<string | null>(null);
 
   const groupNames = useMemo(
     () => Array.from({ length: groupCount }, (_, i) => `Group ${GROUP_LETTERS[i] || i + 1}`),
@@ -51,7 +54,17 @@ export default function GenerateFixtureModal({
     });
   }, [groupNames]);
 
-  if (!isOpen) return null;
+  const successModal = (
+    <StatusModal
+      isOpen={showSuccess}
+      onClose={() => setShowSuccess(false)}
+      type="success"
+      title="Fixture Generated"
+      message="Tournament Fixtures Have been Generated Successfully"
+    />
+  );
+
+  if (!isOpen) return successModal;
 
   const resetAndClose = () => {
     setError('');
@@ -104,8 +117,8 @@ export default function GenerateFixtureModal({
             group_configuration,
             // No visible Date/Venue fields in this modal (matching the
             // reference app) — derived silently from the tournament itself.
-            start_date: startDate ? startDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
-            venues: grounds.length ? grounds.map((g) => g.id) : null,
+            //start_date: startDate ? startDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
+            venues: null,
             no_of_teams_qualify_playoffs: parseInt(playoffTeams, 10),
           }),
         }
@@ -114,6 +127,7 @@ export default function GenerateFixtureModal({
       if (response.ok) {
         onGenerated();
         resetAndClose();
+        setShowSuccess(true);
       } else {
         const errorData = await response.json().catch(() => null);
         setError(errorData?.message || 'Failed to generate fixtures');
@@ -127,6 +141,7 @@ export default function GenerateFixtureModal({
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-[620px] rounded-[32px] shadow-2xl relative max-h-[90vh] overflow-y-auto">
         <button
@@ -208,22 +223,38 @@ export default function GenerateFixtureModal({
                           );
                         })}
                       </div>
-                      <select
-                        value=""
-                        onChange={(e) => {
-                          if (e.target.value) toggleTeamInGroup(group, e.target.value);
-                        }}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-200 outline-none text-xs text-gray-600 bg-white"
-                      >
-                        <option value="">Add team...</option>
-                        {availableForGroup(group)
-                          .filter((t) => !(groupAssignments[group] || []).includes(t.id))
-                          .map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))}
-                      </select>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setOpenGroupDropdown((prev) => (prev === group ? null : group))}
+                          className="w-full flex justify-between items-center px-3 py-2 rounded-lg border border-slate-200 outline-none text-xs text-gray-600 bg-white cursor-pointer"
+                        >
+                          <span>Add team...</span>
+                          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 shrink-0 transition-transform ${openGroupDropdown === group ? 'rotate-180' : ''}`} />
+                        </button>
+                        {openGroupDropdown === group && (
+                          <div className="absolute left-0 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 max-h-40 overflow-y-auto">
+                            {availableForGroup(group).filter((t) => !(groupAssignments[group] || []).includes(t.id)).length === 0 ? (
+                              <div className="px-3 py-2 text-xs text-slate-400">No teams available</div>
+                            ) : (
+                              availableForGroup(group)
+                                .filter((t) => !(groupAssignments[group] || []).includes(t.id))
+                                .map((t) => (
+                                  <div
+                                    key={t.id}
+                                    onClick={() => {
+                                      toggleTeamInGroup(group, t.id);
+                                      setOpenGroupDropdown(null);
+                                    }}
+                                    className="px-3 py-2 text-xs text-gray-700 hover:bg-slate-50 cursor-pointer"
+                                  >
+                                    {t.name}
+                                  </div>
+                                ))
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -265,5 +296,7 @@ export default function GenerateFixtureModal({
         </div>
       </div>
     </div>
+    {successModal}
+    </>
   );
 }

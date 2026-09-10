@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Pencil, ChevronDown, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
@@ -52,6 +52,8 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const roleDropdownRef = useRef<HTMLDivElement>(null);
 
   // --- Toast Logic ---
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
@@ -102,6 +104,16 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
       }
     };
     fetchUserData();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
+        setRoleDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // 2. Validation Logic
@@ -286,16 +298,31 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Role</label>
-              <div className="relative">
-                <select name="role" value={formData.role} onChange={handleChange}
-                  className={`input-style appearance-none bg-white text-xs ${errors.role ? 'border-red-500' : 'text-gray-400'}`}
+              <div className="relative" ref={roleDropdownRef}>
+                <div
+                  onClick={() => setRoleDropdownOpen((prev) => !prev)}
+                  className={`input-style flex justify-between items-center cursor-pointer bg-white text-xs ${errors.role ? 'border-red-500' : ''} ${formData.role ? 'text-gray-700' : 'text-gray-400'}`}
                 >
-                  <option value="">Select Role</option>
-                  {Object.values(UserRole).map(role => (
-                    <option key={role} value={role}>{ROLE_LABELS[role]}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                  <span>{formData.role ? ROLE_LABELS[formData.role as UserRole] : 'Select Role'}</span>
+                  <ChevronDown className={`text-slate-400 shrink-0 transition-transform ${roleDropdownOpen ? 'rotate-180' : ''}`} size={16} />
+                </div>
+                {roleDropdownOpen && (
+                  <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    {Object.values(UserRole).map(role => (
+                      <div
+                        key={role}
+                        onClick={() => {
+                          setFormData(prev => ({ ...prev, role }));
+                          if (errors.role) setErrors(prev => ({ ...prev, role: '' }));
+                          setRoleDropdownOpen(false);
+                        }}
+                        className="px-4 py-2.5 text-xs text-gray-700 hover:bg-slate-50 cursor-pointer"
+                      >
+                        {ROLE_LABELS[role]}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {errors.role && <p className="text-[10px] text-red-500">{errors.role}</p>}
             </div>

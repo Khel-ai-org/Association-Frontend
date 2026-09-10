@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, PlusSquare, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import StatusModal from '@/app/components/auth/StatusModal';
 
 interface Ground {
   id: string;
@@ -27,6 +28,7 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showSuccess, setShowSuccess] = useState(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,6 +97,7 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
         setIsModalOpen(false);
         setFormData({ name: '', location: '', pitchType: '', straightBoundary: '', sideBoundary: '' });
         fetchGrounds();
+        setShowSuccess(true);
       }
     } catch (error) {
       console.error("Error creating ground:", error);
@@ -426,7 +429,14 @@ Done
 </div>
 
 )}
-   
+
+      <StatusModal
+        isOpen={showSuccess}
+        onClose={() => setShowSuccess(false)}
+        type="success"
+        title="Ground Added"
+        message="New Ground Has been Added Successfully"
+      />
     </div>
   );
 }
