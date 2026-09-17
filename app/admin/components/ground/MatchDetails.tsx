@@ -2,12 +2,13 @@
  "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2 } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2, User, Check, PieChart } from 'lucide-react';
 import Link from 'next/link';
 
 // Import all separate modal components
 import { AddCommentModal, MrJudgementModal } from '../RefreeModals/AddComments'; 
 import { RefereeActionModal } from '../RefreeModals/ActionModals'; // <-- Import the 5-tab referee action modal
+import { WagonWheelModal } from './WagonWheelModal';
 
 interface MatchAnalysisProps {
   matchId: string;
@@ -39,7 +40,7 @@ interface AppealData {
 
 interface ActiveFilter {
   id: string;
-  category: 'ball' | 'appeal';
+  category: 'ball' | 'appeal' | 'batsman';
   label: string;
 }
 
@@ -80,6 +81,23 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [searchTerm, setSearchTerm] = useState("");
   const [playerSearchTerm, setPlayerSearchTerm] = useState("");
   const [celebrationSearch, setCelebrationSearch] = useState("");
+
+  // Batsman Filter State
+  const [selectedBatsman, setSelectedBatsman] = useState<string>("");
+  const [isBatsmanDropdownOpen, setIsBatsmanDropdownOpen] = useState<boolean>(false);
+  const batsmanDropdownRef = useRef<HTMLDivElement>(null);
+  const [isWagonWheelOpen, setIsWagonWheelOpen] = useState<boolean>(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (batsmanDropdownRef.current && !batsmanDropdownRef.current.contains(e.target as Node)) {
+        setIsBatsmanDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Modal State Controllers
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false);
@@ -305,6 +323,38 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     }));
   }, [inningBalls, superoverBalls]);
 
+  // Extract unique, sorted batsman names from active inning balls and scorecard
+  const batsmanList = useMemo(() => {
+    const names = new Set<string>();
+
+    // 1. From all balls of active inning
+    allBalls.forEach((b: any) => {
+      const bName = b.batsman_name;
+      if (bName && typeof bName === 'string' && bName.trim() && bName.trim().toUpperCase() !== 'N/A') {
+        names.add(bName.trim());
+      }
+    });
+
+    // 2. From scorecard inning batsmen if available
+    const targetInning = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
+    if (targetInning?.batsmen && Array.isArray(targetInning.batsmen)) {
+      targetInning.batsmen.forEach((bm: any) => {
+        const name = typeof bm === 'string' ? bm : (bm.name || bm.batsman_name);
+        if (name && typeof name === 'string' && name.trim() && name.trim().toUpperCase() !== 'N/A') {
+          names.add(name.trim());
+        }
+      });
+    }
+
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [allBalls, scorecard, activeInnings]);
+
+  // Reset selected batsman when switching between 1st and 2nd innings
+  useEffect(() => {
+    setSelectedBatsman("");
+    setIsBatsmanDropdownOpen(false);
+  }, [activeInnings]);
+
   const filteredBalls = useMemo(() => {
     const activeFilters = Object.keys(filters).filter(key => filters[key]);
     const activeAppealFilters = Object.keys(appealFilters).filter(key => appealFilters[key]);
@@ -312,8 +362,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     const celebSearch = celebrationSearch.trim().toLowerCase();
     const playerSearch = searchTerm.trim().toLowerCase();
     const pSearch = playerSearchTerm.trim().toLowerCase();
+    const bFilter = selectedBatsman.trim().toLowerCase();
 
     return allBalls.filter(ball => {
+      // Batsman Dropdown Filter
+      const matchesSelectedBatsman = !bFilter || ball.batsman_name?.trim().toLowerCase() === bFilter;
+
       const matchesName = !playerSearch || 
         ball.batsman_name?.toLowerCase().includes(playerSearch) || 
         ball.bowler_name?.toLowerCase().includes(playerSearch);
@@ -372,9 +426,19 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             return false;
           }));
 
-      return matchesName && matchesPlayerName && matchesCelebration && matchesStandard && matchesAppeal;
+      return matchesSelectedBatsman && matchesName && matchesPlayerName && matchesCelebration && matchesStandard && matchesAppeal;
     });
-  }, [allBalls, filters, appealFilters, appealLookup, scorecard, celebrationSearch, searchTerm, playerSearchTerm]);
+  }, [allBalls, filters, appealFilters, appealLookup, scorecard, celebrationSearch, searchTerm, playerSearchTerm, selectedBatsman]);
+
+  // When filteredBalls changes, if the selected ball is no longer in view, select the first filtered ball
+  useEffect(() => {
+    if (selectedBatsman && filteredBalls.length > 0) {
+      const currentStillValid = filteredBalls.some(b => b.id === selectedBallData?.id);
+      if (!currentStillValid) {
+        setSelectedBallData(filteredBalls[0]);
+      }
+    }
+  }, [selectedBatsman, filteredBalls]);
 
   const ballTimeline = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -470,6 +534,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const activeFiltersList = useMemo(() => {
     const active: ActiveFilter[] = []; 
+    if (selectedBatsman) {
+      active.push({ id: selectedBatsman, category: 'batsman', label: `Batsman: ${selectedBatsman}` });
+    }
     Object.entries(filters).forEach(([key, value]) => {
       if (value) active.push({ id: key, category: 'ball', label: key });
     });
@@ -477,7 +544,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       if (value) active.push({ id: key, category: 'appeal', label: key });
     });
     return active;
-  }, [filters, appealFilters]);
+  }, [filters, appealFilters, selectedBatsman]);
 
   const renderFilterContent = () => (
     <div className="space-y-1 text-slate-900">
@@ -758,6 +825,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                 className="w-full sm:w-36 md:w-44 pl-9 pr-4 py-2 text-gray-900 bg-slate-50 border border-slate-100 rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" 
               />
             </div>
+            {/* OLD: Player Search Input (commented out, not deleted)
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input 
@@ -768,6 +836,82 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                 className="w-full sm:w-44 md:w-52 pl-9 pr-4 py-2 text-gray-900 bg-slate-50 border border-slate-100 rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" 
               />
             </div>
+            */}
+
+            {/* NEW: Standard Custom Batsman Dropdown (matches exact page colors & UI) */}
+            <div className="relative w-full sm:w-auto" ref={batsmanDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsBatsmanDropdownOpen(prev => !prev)}
+                className="w-full sm:w-44 md:w-52 pl-9 pr-3 py-2 text-left text-sm bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-between hover:bg-slate-100/70 transition-colors cursor-pointer outline-none focus:ring-1 ring-blue-500"
+              >
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
+                <span className={`truncate text-sm ${selectedBatsman ? "font-semibold text-slate-900" : "text-slate-400"}`}>
+                  {selectedBatsman || "All Batsmen"}
+                </span>
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-150 shrink-0 ml-1 ${isBatsmanDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {isBatsmanDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1.5 w-full min-w-[200px] bg-white border border-slate-100 rounded-xl shadow-xl p-1 z-50 max-h-60 overflow-y-auto">
+                  {/* All Batsmen option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedBatsman("");
+                      setIsBatsmanDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors text-left ${
+                      !selectedBatsman
+                        ? "bg-slate-100 text-slate-900 font-bold"
+                        : "text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-normal"
+                    }`}
+                  >
+                    <span>All Batsmen</span>
+                    {!selectedBatsman && <Check className="w-3.5 h-3.5 text-slate-900 shrink-0" />}
+                  </button>
+
+                  {/* Individual batsmen */}
+                  {batsmanList.map((name) => {
+                    const isSelected = selectedBatsman.toLowerCase() === name.toLowerCase();
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBatsman(name);
+                          setIsBatsmanDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors text-left ${
+                          isSelected
+                            ? "bg-slate-100 text-slate-900 font-bold"
+                            : "text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-normal"
+                        }`}
+                      >
+                        <span className="truncate">{name}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-slate-900 shrink-0" />}
+                      </button>
+                    );
+                  })}
+
+                  {batsmanList.length === 0 && (
+                    <div className="px-3 py-2.5 text-xs text-slate-400 text-center">
+                      No batsmen recorded
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Wagon Wheel Button */}
+            <button
+              type="button"
+              onClick={() => setIsWagonWheelOpen(true)}
+              className="flex items-center gap-2 px-3 md:px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-lg text-sm font-semibold text-slate-800 transition-colors shadow-2xs cursor-pointer"
+            >
+              <PieChart className="w-4 h-4 text-indigo-600" />
+              <span>Wagon Wheel</span>
+            </button>
             <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100 w-full sm:w-auto">
               {['1st', '2nd'].map((inn) => (
                 <button 
@@ -936,6 +1080,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                 const clearedAppeals = Object.keys(appealFilters).reduce((acc, k) => ({...acc, [k]: false}), {});
                 setAppealFilters(clearedAppeals);
                 setTempAppealFilters(clearedAppeals);
+                setSelectedBatsman("");
+                setPlayerSearchTerm("");
               }}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 border border-slate-200 rounded-lg"
             >
@@ -952,7 +1098,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                       {filter.label}
                       <button 
                         onClick={() => {
-                          if (filter.category === 'ball') {
+                          if (filter.category === 'batsman') {
+                            setSelectedBatsman("");
+                          } else if (filter.category === 'ball') {
                             setFilters(prev => ({ ...prev, [filter.id]: false }));
                             setDraftFilters(prev => ({ ...prev, [filter.id]: false }));
                           } else {
@@ -1081,7 +1229,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   Take Action
                 </button>
               ) : (
-                <Link href={`/admin/analytics/${matchId}?ball=${selectedBallData?.over_number}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
+                <Link href={`/admin/analytics/${matchData?.scoring_match_id}?ball=${selectedBallData?.over_number}&ballId=${selectedBallData?.id}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
                   <button className="w-full mt-8 py-3 bg-[#0F1117] text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-100 cursor-pointer">
                     Analyse Ball
                   </button>
@@ -1227,6 +1375,13 @@ const calculatedOver = Math.floor(ballOver) + 1;
         onSaveAction={(newAction) => {
           // Optional local state update if needed
         }}
+      />
+
+      {/* Wagon Wheel 3D Modal */}
+      <WagonWheelModal
+        isOpen={isWagonWheelOpen}
+        onClose={() => setIsWagonWheelOpen(false)}
+        batsmanName={selectedBatsman || 'All Batsmen'}
       />
 
     </div>

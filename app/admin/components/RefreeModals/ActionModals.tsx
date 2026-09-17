@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { X, Upload, Search, Trash2, Eye, Edit2, Play, ChevronDown, Send, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Upload, Search, Trash2, Eye, Edit2, Play, ChevronDown, Send, Loader2, RotateCcw } from 'lucide-react';
+import { uploadCocVideoPipeline, formatFileSize, CocVideoItem } from '@/lib/cocVideoService';
 
 interface RefereeActionModalProps {
   isOpen: boolean;
@@ -122,6 +123,108 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   // Form states for Key Moment / Celebrations
   const [keyMomentDesc, setKeyMomentDesc] = useState('');
   const [isVideoPreviewOpen, setIsVideoPreviewOpen] = useState(false);
+
+  // Form states for Upload Video (Tab 5)
+  const [videoItems, setVideoItems] = useState<CocVideoItem[]>([]);
+  const [selectedVideoItemIds, setSelectedVideoItemIds] = useState<Set<string>>(new Set());
+  const [videoSearchQuery, setVideoSearchQuery] = useState('');
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+  const [previewVideoTitle, setPreviewVideoTitle] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Clean up object URLs when unmounting
+  useEffect(() => {
+    return () => {
+      videoItems.forEach(item => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+    };
+  }, []);
+
+  const startUploadForItem = async (item: CocVideoItem) => {
+    if (!matchId) {
+      setError("Match ID is required for video upload");
+      return;
+    }
+
+    setVideoItems(prev => prev.map(v => v.id === item.id ? { ...v, status: 'uploading', progress: 0, error: undefined } : v));
+
+    try {
+      const overNum = ballInfo?.over_number ? String(ballInfo.over_number) : '0.1';
+      const result = await uploadCocVideoPipeline(
+        matchId,
+        overNum,
+        Number(innings) || 1,
+        item.file,
+        (progressPct) => {
+          setVideoItems(prev => prev.map(v => v.id === item.id ? { ...v, progress: progressPct } : v));
+        }
+      );
+
+      setVideoItems(prev => prev.map(v => v.id === item.id ? {
+        ...v,
+        status: 'ready',
+        progress: 100,
+        s3Key: result.s3Key,
+        ballVideoId: result.ballVideoId,
+      } : v));
+    } catch (err: any) {
+      console.error("[video upload error]", err);
+      setVideoItems(prev => prev.map(v => v.id === item.id ? {
+        ...v,
+        status: 'error',
+        error: err.message || 'Upload failed',
+      } : v));
+    }
+  };
+
+  const handleFilesSelected = (files: FileList | File[]) => {
+    const fileArray = Array.from(files).filter(f => f.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm)$/i.test(f.name));
+    if (fileArray.length === 0) {
+      setError("Please select valid video files (MP4, MOV, AVI, MKV, WebM)");
+      return;
+    }
+
+    const newItems: CocVideoItem[] = fileArray.map(file => {
+      const previewUrl = URL.createObjectURL(file);
+      const id = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      return {
+        id,
+        file,
+        previewUrl,
+        name: file.name,
+        sizeFormatted: formatFileSize(file.size),
+        progress: 0,
+        status: 'pending',
+      };
+    });
+
+    setVideoItems(prev => [...prev, ...newItems]);
+    // Auto-trigger upload pipeline
+    newItems.forEach(item => startUploadForItem(item));
+  };
+
+  const handleDeleteVideoItem = (id: string) => {
+    setVideoItems(prev => {
+      const target = prev.find(i => i.id === id);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
+      return prev.filter(i => i.id !== id);
+    });
+    setSelectedVideoItemIds(prev => {
+      const updated = new Set(prev);
+      updated.delete(id);
+      return updated;
+    });
+  };
+
+  const handleOpenPreview = (item: CocVideoItem) => {
+    setPreviewVideoUrl(item.previewUrl);
+    setPreviewVideoTitle(item.name);
+    setIsVideoPreviewOpen(true);
+  };
 
   // Prefill data if available from ballInfo
   useEffect(() => {
@@ -379,6 +482,11 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   };
 
   const handleFinalSubmit = () => {
+    const readyVideos = videoItems.filter(v => v.status === 'ready');
+    const actionDetails = activeTab === 'upload_video'
+      ? `${readyVideos.length} Video(s) Uploaded`
+      : cocCategory || cocDesc || "Recorded via Referee Modal";
+
     onSaveAction({
       id: Date.now(),
       matchId: matchId,
@@ -386,7 +494,8 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
       ball: ballInfo?.over_number || "12.4",
       batterBowler: cocPlayer || ballInfo?.batsman_name || "Marco Jansen",
       actionTaken: activeTab.toUpperCase(),
-      details: cocCategory || cocDesc || "Recorded via Referee Modal",
+      details: actionDetails,
+      uploadedVideos: readyVideos.map(v => ({ s3_key: v.s3Key, ball_video_id: v.ballVideoId, name: v.name })),
       by: "Ranjan Madugalle",
       role: "Match Referee",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1467,32 +1576,87 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
         {/* ─── TAB 5: UPLOAD VIDEO ─── */}
         {activeTab === 'upload_video' && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            <div className="border-2 border-dashed border-slate-200 rounded-2xl p-8 text-center bg-slate-50/50 hover:bg-slate-50 transition-colors">
-              <Upload className="w-8 h-8 text-indigo-500 mx-auto mb-3" />
+            {/* Hidden native file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleFilesSelected(e.target.files);
+                  e.target.value = '';
+                }
+              }}
+            />
+
+            {/* Drag and Drop Zone */}
+            <div 
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  handleFilesSelected(e.dataTransfer.files);
+                }
+              }}
+              className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all ${
+                isDragging 
+                  ? 'border-blue-500 bg-blue-50/50 scale-[0.99]' 
+                  : 'border-slate-200 bg-slate-50/50 hover:bg-slate-50'
+              }`}
+            >
+              <Upload className={`w-8 h-8 mx-auto mb-3 transition-colors ${isDragging ? 'text-blue-500' : 'text-indigo-500'}`} />
               <p className="text-xs font-bold text-black">Drag & drop video files here</p>
               <p className="text-[11px] text-slate-500 my-1">or</p>
-              <button className="px-4 py-2 bg-[#0F1117] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-slate-800 transition-colors cursor-pointer">
+              <button 
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-4 py-2 bg-[#0F1117] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-slate-800 transition-colors cursor-pointer"
+              >
                 Choose File
               </button>
-              <p className="text-[10px] text-slate-500 mt-3">Supports: MP4, MOV, AVI, MKV • Max file size: 5 GB per file</p>
+              <p className="text-[10px] text-slate-500 mt-3">Supports: MP4, MOV, AVI, MKV, WebM • Max file size: 5 GB per file</p>
             </div>
 
+            {/* Search and stats bar */}
             <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
               <div className="relative w-full sm:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-black w-4 h-4" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
                 <input 
                   type="text" 
                   placeholder="Search videos..." 
-                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-slate-50 text-black" 
+                  value={videoSearchQuery}
+                  onChange={(e) => setVideoSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs outline-none bg-slate-50 text-black focus:ring-1 ring-blue-500" 
                 />
+              </div>
+              <div className="text-xs text-slate-500 font-medium">
+                {videoItems.filter(v => v.status === 'ready').length} of {videoItems.length} uploaded
               </div>
             </div>
 
+            {/* Uploaded Videos Table */}
             <div className="border border-slate-100 rounded-xl overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-[#F8FAFC] text-[10px] font-bold text-black uppercase tracking-wider">
                   <tr>
-                    <th className="py-3 px-4 w-12 text-center"><input type="checkbox" className="rounded" /></th>
+                    <th className="py-3 px-4 w-12 text-center">
+                      <input 
+                        type="checkbox" 
+                        className="rounded"
+                        checked={videoItems.length > 0 && selectedVideoItemIds.size === videoItems.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedVideoItemIds(new Set(videoItems.map(v => v.id)));
+                          } else {
+                            setSelectedVideoItemIds(new Set());
+                          }
+                        }}
+                      />
+                    </th>
                     <th className="py-3 px-4">Preview</th>
                     <th className="py-3 px-4">Details & Metadata</th>
                     <th className="py-3 px-4">Status</th>
@@ -1500,43 +1664,124 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs text-black">
-                  {[
-                    { title: "Over 8.6 - Player Dissent", angle: "Angle: Umpire Cam", time: "21 Jan 2026, 02:30 PM", size: "Size: 210 MB", status: "Ready" },
-                  ].map((vid, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="py-3 px-4 text-center"><input type="checkbox" className="rounded" /></td>
-                      <td className="py-3 px-4">
-                        <div className="w-20 h-12 bg-slate-200 rounded-lg overflow-hidden relative flex items-center justify-center">
-                          <Play size={16} className="text-white fill-white drop-shadow-md" />
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <p className="font-bold text-black">{vid.title}</p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">{vid.angle} • {vid.time} • {vid.size}</p>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="inline-flex items-center gap-1.5 font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full text-[10px]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> {vid.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <button title="Delete" className="p-1.5 text-black hover:text-red-500 transition-colors"><Trash2 size={15} /></button>
-                          <button 
-                            title="View Video" 
-                            onClick={() => setIsVideoPreviewOpen(true)}
-                            className="p-1.5 text-black hover:text-blue-600 transition-colors cursor-pointer"
-                          >
-                            <Eye size={15} />
-                          </button>
-                        </div>
+                  {videoItems
+                    .filter(v => v.name.toLowerCase().includes(videoSearchQuery.toLowerCase()))
+                    .map((vid) => {
+                      const isSelected = selectedVideoItemIds.has(vid.id);
+                      return (
+                        <tr key={vid.id} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="py-3 px-4 text-center">
+                            <input 
+                              type="checkbox" 
+                              className="rounded"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                setSelectedVideoItemIds(prev => {
+                                  const next = new Set(prev);
+                                  if (e.target.checked) next.add(vid.id);
+                                  else next.delete(vid.id);
+                                  return next;
+                                });
+                              }}
+                            />
+                          </td>
+                          <td className="py-3 px-4">
+                            <div 
+                              onClick={() => handleOpenPreview(vid)}
+                              className="w-20 h-12 bg-slate-900 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer group/thumb"
+                            >
+                              <video src={vid.previewUrl} className="w-full h-full object-cover opacity-80" />
+                              <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover/thumb:bg-black/10 transition-colors">
+                                <Play size={14} className="text-white fill-white drop-shadow-md" />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <p className="font-bold text-black truncate max-w-xs">{vid.name}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              Over {ballInfo?.over_number || '0.1'} • {vid.sizeFormatted}
+                            </p>
+                          </td>
+                          <td className="py-3 px-4">
+                            {vid.status === 'uploading' && (
+                              <div className="w-32">
+                                <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 mb-1">
+                                  <span>Uploading</span>
+                                  <span>{vid.progress}%</span>
+                                </div>
+                                <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                  <div 
+                                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-200" 
+                                    style={{ width: `${vid.progress}%` }} 
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {vid.status === 'ready' && (
+                              <span className="inline-flex items-center gap-1.5 font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full text-[10px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Ready
+                              </span>
+                            )}
+
+                            {vid.status === 'pending' && (
+                              <span className="inline-flex items-center gap-1.5 font-bold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full text-[10px]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Pending
+                              </span>
+                            )}
+
+                            {vid.status === 'error' && (
+                              <div className="flex items-center gap-1.5">
+                                <span 
+                                  className="inline-flex items-center gap-1.5 font-bold text-red-600 bg-red-50 px-2.5 py-0.5 rounded-full text-[10px]" 
+                                  title={vid.error}
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span> Failed
+                                </span>
+                                <button 
+                                  onClick={() => startUploadForItem(vid)} 
+                                  className="p-1 hover:bg-slate-100 rounded text-slate-500 hover:text-black" 
+                                  title="Retry upload"
+                                >
+                                  <RotateCcw size={12} />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button 
+                                title="Delete" 
+                                onClick={() => handleDeleteVideoItem(vid.id)}
+                                className="p-1.5 text-black hover:text-red-500 transition-colors cursor-pointer"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                              <button 
+                                title="View Video" 
+                                onClick={() => handleOpenPreview(vid)}
+                                className="p-1.5 text-black hover:text-blue-600 transition-colors cursor-pointer"
+                              >
+                                <Eye size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                  {videoItems.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
+                        No videos uploaded yet. Choose files or drag and drop videos above.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
 
+            {/* Bottom Submit Action */}
             <div className="flex items-center justify-between pt-4 border-t border-slate-100">
               <button 
                 onClick={handleFinalSubmit}
@@ -1567,13 +1812,20 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               <X size={18} />
             </button>
 
-            <div className="w-full h-[380px] bg-slate-900 rounded-2xl relative overflow-hidden flex items-center justify-center mb-6">
-              <div className="absolute top-4 left-4 bg-black/60 text-white px-3 py-1 rounded-lg text-xs font-bold backdrop-blur-md">
-                Over - {ballInfo?.over_number || '12.4'}
+            <div className="w-full h-[400px] bg-black rounded-2xl relative overflow-hidden flex items-center justify-center mb-6">
+              <div className="absolute top-4 left-4 bg-black/60 text-white px-3 py-1 rounded-lg text-xs font-bold backdrop-blur-md z-10">
+                Over {ballInfo?.over_number || '0.1'} • {previewVideoTitle}
               </div>
-              <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-full flex items-center justify-center cursor-pointer hover:scale-105 transition-transform">
-                <Play size={24} className="text-white fill-white ml-1" />
-              </div>
+              {previewVideoUrl ? (
+                <video
+                  src={previewVideoUrl}
+                  controls
+                  autoPlay
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <p className="text-slate-400 text-sm">No video source available</p>
+              )}
             </div>
 
             <div className="flex justify-end">

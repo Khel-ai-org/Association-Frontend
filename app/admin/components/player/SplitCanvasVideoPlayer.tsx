@@ -742,7 +742,7 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         </div>
       )}
 
-      {/* Center Transport Controls (Only visible in Select/Pointer mode) */}
+      {/* Center Transport Controls — commented out, already present in bottom bar
       {activeTool === 'select' && (
         <div className="absolute inset-0 flex items-center justify-center gap-3 md:gap-6 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
           <button onClick={() => handleStep(-5)} className="pointer-events-auto w-11 h-11 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 hover:bg-white/20 transition-colors">
@@ -764,6 +764,7 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
           </button>
         </div>
       )}
+      */}
 
       {/* Bottom Progress & Timeline Bar with Compact Integrated Transport */}
       <div className="absolute bottom-0 left-0 right-0 z-20 px-4 md:px-8 pb-4 md:pb-6 opacity-0 group-hover:opacity-100 transition-opacity duration-200">

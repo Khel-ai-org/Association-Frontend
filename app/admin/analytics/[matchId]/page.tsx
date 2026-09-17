@@ -31,8 +31,12 @@ const BallAnalyticsPage = () => {
   const outcome = searchParams.get("outcome") || "0";
   const isSuperOver = searchParams.get("isSuperOver") === "true";
   const soNumber = searchParams.get("soNumber") || "1";
-  
+  // NEW: ball database ID for ball-details API
+  const ballId = searchParams.get("ballId") || null;
+
   const [syncData, setSyncData] = useState<any>(null);
+  // NEW: ball-details API response
+  const [ballDetailsData, setBallDetailsData] = useState<any>(null);
   const [activeView, setActiveView] = useState("FRONT");
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -113,7 +117,7 @@ const toggleFullscreen = () => {
     video.removeEventListener("timeupdate", updateProgress);
   };
 }, []); // Runs once on mount
-  // Fetch Sync View Data
+  // Fetch Sync View Data (KEPT for reference — no longer called)
   const fetchSync = async () => {
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_Backend_URL}/matches/${matchId}/sync-view?withDownloadUrls=true`,
@@ -128,10 +132,31 @@ const toggleFullscreen = () => {
   }
 };
 
-useEffect(() => {
-  fetchSync();
-}, [matchId]);
+// OLD: no longer called
+// useEffect(() => {
+//   fetchSync();
+// }, [matchId]);
   console.log("Fetched Sync Data:", syncData);
+
+  // NEW: Fetch ball details with presigned video URLs
+  const fetchBallDetails = async () => {
+    if (!ballId) return;
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchId}/ball-details/${ballId}`,
+      {
+        headers: { "ngrok-skip-browser-warning": "true" },
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      console.log("Fetched Ball Details:", data);
+      setBallDetailsData(data.ball);
+    }
+  };
+
+  useEffect(() => {
+    fetchBallDetails();
+  }, [ballId]);
 
   // Map URLs for the specific ball across all cameras
 //   const ballMap = useMemo(() => {
@@ -168,6 +193,7 @@ useEffect(() => {
 //   console.log("📋 Current Ball Map for Player:", map);
 //   return map;
 // }, [syncData, initialBall, inningParam]);
+/* OLD ballMap — used sync-view folders (commented out, not deleted)
 const ballMap: Record<string, BallFile | null>  = useMemo(() => {
   if (!syncData?.folders) return {};
   const map: Record<string, BallFile | null> = {};
@@ -224,6 +250,36 @@ const ballMap: Record<string, BallFile | null>  = useMemo(() => {
 
   return map;
 }, [syncData, initialBall, inningParam, searchParams]);
+*/
+
+// NEW ballMap — reads presigned URLs from ball-details API (url.ball1.cameraX → cam_X)
+const ballMap: Record<string, BallFile | null> = useMemo(() => {
+  if (!ballDetailsData?.videos?.length) return {};
+
+  const videoEntry = ballDetailsData.videos[0];
+  const urlMap = videoEntry?.url?.ball1 || {};     // { camera1: "https://...", camera2: "https://...", ... }
+  const s3Keys  = videoEntry?.s3_keys?.ball1 || {};
+
+  const map: Record<string, BallFile | null> = {};
+
+  for (let i = 1; i <= 6; i++) {
+    const apiKey  = `camera${i}`;   // key in ball-details response
+    const camKey  = `cam_${i}`;     // key used by CAMERA_MAPPING
+
+    if (urlMap[apiKey]) {
+      map[camKey] = {
+        fileId: videoEntry.id,
+        file: s3Keys[apiKey] || urlMap[apiKey],
+        downloadUrl: urlMap[apiKey],             // presigned URL — ready to play
+        analyzed_id: videoEntry.analyzed_id ?? null,
+        analyzedvideo_status: videoEntry.upload_status ?? null,
+      };
+    }
+  }
+
+  console.log("📋 New Ball Map (ball-details API):", map);
+  return map;
+}, [ballDetailsData]);
 const currentFile = useMemo(() => {
   const camKey = CAMERA_MAPPING[activeView];
   return ballMap[camKey] || null;
@@ -751,6 +807,7 @@ const formatTime = (time: number) => {
                   <video
   src={ballMap[CAMERA_MAPPING[view]]?.downloadUrl}
   className="w-full h-full object-cover"
+  crossOrigin="anonymous"
 />
                 </div>
                 <p className={`text-[8px] md:text-[12px] font-black text-center uppercase tracking-tighter ${activeView === view ? 'text-slate-900' : 'text-slate-700'}`}>{view} VIEW</p>
