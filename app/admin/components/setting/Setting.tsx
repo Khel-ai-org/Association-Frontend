@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SettingsSidebar } from './SettingSidebar';
 import { AccountPage } from './Account';
 import { ChevronLeft } from 'lucide-react';
@@ -11,18 +11,47 @@ import { AnalyticsPage } from './Analytics';
 import { PrivacyDataPage } from './Privacy';
 import { Operators } from './Operators';
 
+// Tabs only an Admin should see — grounds and operator management belong to
+// the association itself, not to individual staff (operator/referee/...).
+const ADMIN_ONLY_TABS = ['Grounds', 'Operators'];
+
 export const Setting = () => {
   const [activeTab, setActiveTab] = useState('Accounts');
   const [view, setView] = useState<'menu' | 'detail'>('detail');
+  const [role, setRole] = useState<string | null>(null);
 
-  
+  useEffect(() => {
+    const fetchRole = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/user/me`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setRole((data.role || '').toLowerCase());
+        }
+      } catch (error) {
+        console.error('Failed to load role:', error);
+      }
+    };
+    fetchRole();
+  }, []);
+
+  const isAdmin = role === 'admin';
+
+  // If a non-admin somehow lands on an admin-only tab (e.g. role resolves
+  // after the sidebar already rendered it), fall back to Accounts — derived
+  // at render time rather than a setState-in-effect bounce.
+  const effectiveTab = role !== null && !isAdmin && ADMIN_ONLY_TABS.includes(activeTab) ? 'Accounts' : activeTab;
+
   const handleTabChange = (id: string) => {
     setActiveTab(id);
-    setView('detail'); 
+    setView('detail');
   };
 
   const renderContent = () => {
-    switch (activeTab) {
+    switch (effectiveTab) {
       case 'Accounts':
         return <AccountPage />;
         case 'Association':
@@ -55,7 +84,7 @@ export const Setting = () => {
         ${view === 'detail' ? 'hidden' : 'flex'} 
         md:flex w-full md:w-[380px] flex-none border-r border-gray-100 
       `}>
-        <SettingsSidebar activeTab={activeTab} setActiveTab={handleTabChange} />
+        <SettingsSidebar activeTab={effectiveTab} setActiveTab={handleTabChange} isAdmin={isAdmin} />
       </div>
 
       {/* CONTENT AREA */}
@@ -75,7 +104,7 @@ export const Setting = () => {
             Settings
           </button>
           <span className="text-xs font-black uppercase tracking-widest text-gray-400">
-            {activeTab}
+            {effectiveTab}
           </span>
         </div>
 
