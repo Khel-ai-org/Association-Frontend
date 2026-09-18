@@ -53,7 +53,7 @@ export default function PendingApproval({ role, onApproved }: PendingApprovalPro
 
       <h2 className="text-xl font-bold text-[#0D0D12] mb-2">Awaiting Approval</h2>
       <p className="text-gray-500 text-sm mb-6">
-        Your profile has been submitted. {approverLabel} needs to approve your account before you can
+        Your profile has been submitted. {approverLabel}  needs to approve your account before you can
         access the dashboard. You&apos;ll be notified once that happens.
       </p>
 

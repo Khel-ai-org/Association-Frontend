@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Pencil, ChevronDown, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import StatusModal from './StatusModal';
 
 // RBAC role, chosen here during profile setup (not at registration). ADMIN
 // means "I'm registering my own Association" (approved by the Business
@@ -52,6 +53,11 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const roleDropdownRef = useRef<HTMLDivElement>(null);
+  // Shown when the entered Association Admin's email doesn't match any real
+  // Association account.
+  const [showAssociationNotFound, setShowAssociationNotFound] = useState(false);
 
   // --- Toast Logic ---
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
@@ -102,6 +108,16 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
       }
     };
     fetchUserData();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
+        setRoleDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // 2. Validation Logic
@@ -219,7 +235,29 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
           onPendingApproval(savedUser.role);
         }
       } else {
-        triggerToast(result.message || "Update failed", "error");
+        // The backend sends this as a code-like string (e.g.
+        // "ASSOCIATION_ADMIN_NOT_FOUND") in either `code` or `message`, with
+        // underscores rather than spaces — normalize both so the check
+        // doesn't depend on exactly which field/casing/separator is used.
+        const normalize = (v: unknown) =>
+          typeof v === 'string' ? v.toUpperCase().replace(/\s+/g, '_') : '';
+        const normalizedCode = normalize(result.code);
+        const normalizedMessage = normalize(result.message);
+        const isAssociationNotFound =
+          formData.role !== UserRole.ADMIN &&
+          [normalizedCode, normalizedMessage].some(
+            (v) =>
+              v.includes('ASSOCIATION_ADMIN_NOT_FOUND') ||
+              v.includes('ASSOCIATION_NOT_FOUND') ||
+              (v.includes('ASSOCIATION') && v.includes('NOT_FOUND'))
+          );
+
+        if (isAssociationNotFound) {
+          setErrors((prev) => ({ ...prev, associationAdminEmail: "Association email not found" }));
+          setShowAssociationNotFound(true);
+        } else {
+          triggerToast(result.message || "Update failed", "error");
+        }
       }
     } catch (error) {
       console.error("Submit error:", error);
@@ -286,16 +324,31 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Role</label>
-              <div className="relative">
-                <select name="role" value={formData.role} onChange={handleChange}
-                  className={`input-style appearance-none bg-white text-xs ${errors.role ? 'border-red-500' : 'text-gray-400'}`}
+              <div className="relative" ref={roleDropdownRef}>
+                <div
+                  onClick={() => setRoleDropdownOpen((prev) => !prev)}
+                  className={`input-style flex justify-between items-center cursor-pointer bg-white text-xs ${errors.role ? 'border-red-500' : ''} ${formData.role ? 'text-gray-700' : 'text-gray-400'}`}
                 >
-                  <option value="">Select Role</option>
-                  {Object.values(UserRole).map(role => (
-                    <option key={role} value={role}>{ROLE_LABELS[role]}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={16} />
+                  <span>{formData.role ? ROLE_LABELS[formData.role as UserRole] : 'Select Role'}</span>
+                  <ChevronDown className={`text-slate-400 shrink-0 transition-transform ${roleDropdownOpen ? 'rotate-180' : ''}`} size={16} />
+                </div>
+                {roleDropdownOpen && (
+                  <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    {Object.values(UserRole).map(role => (
+                      <div
+                        key={role}
+                        onClick={() => {
+                          setFormData(prev => ({ ...prev, role }));
+                          if (errors.role) setErrors(prev => ({ ...prev, role: '' }));
+                          setRoleDropdownOpen(false);
+                        }}
+                        className="px-4 py-2.5 text-xs text-gray-700 hover:bg-slate-50 cursor-pointer"
+                      >
+                        {ROLE_LABELS[role]}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {errors.role && <p className="text-[10px] text-red-500">{errors.role}</p>}
             </div>
@@ -390,6 +443,14 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
           box-shadow: 0 0 0 2px #EEF2FF;
         }
       `}</style>
+
+      <StatusModal
+        isOpen={showAssociationNotFound}
+        onClose={() => setShowAssociationNotFound(false)}
+        type="error"
+        title="Association Email Not Found"
+        message="Please enter the correct Association email."
+      />
     </div>
   );
 }

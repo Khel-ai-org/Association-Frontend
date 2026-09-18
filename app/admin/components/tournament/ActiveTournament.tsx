@@ -1,11 +1,12 @@
 
 "use client";
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import stadiumImage from '../../../../public/stadium.png';
-import {  ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PlusSquare } from 'lucide-react';
+import CreateTournamentModal from './CreateTournamentModal';
 
 interface Tournament {
   id: string;
@@ -21,55 +22,59 @@ interface Tournament {
 export default function ActiveTournaments() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
-  
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
   // Pagination & Search States
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const itemsPerPage = 12; // 4 columns * 3 rows
 
-  useEffect(() => {
-    const fetchTournaments = async () => {
-      try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/operator-tournaments`,
-          { credentials: "include" }
-        );
+  const fetchTournaments = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/my-association`,
+        { credentials: "include" }
+      );
 
-        if (!response.ok) throw new Error(`Error: ${response.status}`);
 
-        const data: Tournament[] = await response.json();
-        const now = new Date();
+      if (!response.ok) throw new Error(`Error: ${response.status}`);
 
-        const sortedData = data.sort((a, b) => {
-          const aStart = new Date(a.startDate);
-          const aEnd = new Date(a.endDate);
-          const bStart = new Date(b.startDate);
-          const bEnd = new Date(b.endDate);
+      const json = await response.json();
+      const data: Tournament[] = json.data;
+      console.log("Tournament",data);
+      const now = new Date();
 
-          const getStatusWeight = (start: Date, end: Date) => {
-            if (now >= start && now <= end) return 0;
-            if (now < start) return 1;
-            return 2;
-          };
+      const sortedData = data.sort((a, b) => {
+        const aStart = new Date(a.startDate);
+        const aEnd = new Date(a.endDate);
+        const bStart = new Date(b.startDate);
+        const bEnd = new Date(b.endDate);
 
-          const weightA = getStatusWeight(aStart, aEnd);
-          const weightB = getStatusWeight(bStart, bEnd);
+        const getStatusWeight = (start: Date, end: Date) => {
+          if (now >= start && now <= end) return 0;
+          if (now < start) return 1;
+          return 2;
+        };
 
-          return weightA !== weightB 
-            ? weightA - weightB 
-            : aStart.getTime() - bStart.getTime();
-        });
+        const weightA = getStatusWeight(aStart, aEnd);
+        const weightB = getStatusWeight(bStart, bEnd);
 
-        setTournaments(sortedData);
-      } catch (error) {
-        console.error("Failed to fetch tournaments:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+        return weightA !== weightB
+          ? weightA - weightB
+          : aStart.getTime() - bStart.getTime();
+      });
 
-    fetchTournaments();
+      setTournaments(sortedData);
+    } catch (error) {
+      console.error("Failed to fetch tournaments:", error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchTournaments();
+  }, [fetchTournaments]);
 
   // Filter Logic
   const filteredTournaments = useMemo(() => {
@@ -112,12 +117,21 @@ export default function ActiveTournaments() {
 
   return (
     <div>
-      
+      <div className="flex justify-end mb-3">
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          className="flex items-center gap-2 bg-[#0F1117] text-white px-4 py-2.5 rounded-xl font-semibold text-sm hover:bg-slate-800 transition-colors"
+        >
+          <PlusSquare className="w-5 h-5" />
+          Create Tournament
+        </button>
+      </div>
+
     <div className="bg-white p-6 rounded-[24px] border border-gray-200 shadow-xs w-full">
       {/* Header with Search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <h2 className="text-xl font-bold text-slate-900 tracking-tight">Active Tournaments</h2>
-        
+
         <div className="relative w-full md:w-72">
           <input
             type="text"
@@ -145,9 +159,9 @@ export default function ActiveTournaments() {
             const progress = getProgress(t.startDate, t.endDate);
 
             return (
-              <Link 
-                key={t.id} 
-                href={`/admin/tournament/${t.id}`}
+              <Link
+                key={t.id}
+                href={`/admin/tournament/${t.id}/teams`}
                 className="flex flex-col border border-slate-100 transition-all rounded-xl bg-white overflow-hidden group hover:border-blue-400 hover:shadow-md active:scale-[0.98]"
               >
                 <div className="relative aspect-[12/5] overflow-hidden">
@@ -246,8 +260,12 @@ export default function ActiveTournaments() {
     Next <ChevronRight className="w-4 h-4" />
   </button>
 </div>
-        
-    
+
+      <CreateTournamentModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreated={fetchTournaments}
+      />
     </div>
   );
 }

@@ -27,7 +27,7 @@ const InputField: React.FC<{
       className={`w-full border rounded-xl p-3 text-xs outline-none transition-all ${
         error ? 'border-red-500 bg-red-50/30' : 'border-gray-100 bg-gray-50'
       } ${
-        readonly ? 'text-gray-400 cursor-default' : 'text-gray-800 focus:border-indigo-500'
+        readonly ? 'text-black cursor-default' : 'text-gray-800 focus:border-indigo-500'
       }`}
     />
     {error && (
@@ -38,33 +38,34 @@ const InputField: React.FC<{
   </div>
 );
 
-// SwitchField remains the same
-const SwitchField: React.FC<{ label: string; sub: string; checked: boolean; onChange: () => void }> = ({ label, sub, checked, onChange }) => (
+const SwitchField: React.FC<{ label: string; sub: string; checked: boolean; onChange: () => void; disabled?: boolean }> = ({ label, sub, checked, onChange, disabled = false }) => (
   <div className="flex items-center justify-between py-2">
     <div>
       <h4 className="text-[14px] font-semibold text-gray-900">{label}</h4>
       <p className="text-sm text-gray-500 mt-0.5">{sub}</p>
     </div>
-    <button 
+    <button
       onClick={onChange}
       type="button"
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-indigo-500' : 'bg-gray-200'}`}
+      disabled={disabled}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${checked ? 'bg-indigo-500' : 'bg-gray-200'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : 'translate-x-1'}`} />
     </button>
   </div>
 );
 
-const PhoneInputField = ({ label, value, onChange, error }: { label: string, value: string, onChange: (val: string | undefined) => void, error?: string }) => (
+const PhoneInputField = ({ label, value, onChange, error, disabled = false }: { label: string, value: string, onChange: (val: string | undefined) => void, error?: string, disabled?: boolean }) => (
   <div className="flex flex-col gap-2 flex-1">
     <label className="text-xs font-medium text-gray-500">{label}</label>
-    <div className={`w-full border rounded-xl p-1 bg-gray-50 transition-all ${error ? 'border-red-500 bg-red-50/30' : 'border-gray-100 focus-within:border-indigo-500'}`}>
+    <div className={`w-full border rounded-xl p-1 transition-all ${error ? 'border-red-500 bg-red-50/30' : 'border-gray-100 focus-within:border-indigo-500'} ${disabled ? 'bg-gray-50/50' : 'bg-gray-50'}`}>
       <PhoneInput
         international
         defaultCountry="IN"
         value={value}
         onChange={onChange}
-        className="text-xs text-gray-800 px-2 py-2 outline-none"
+        disabled={disabled}
+        className={`text-xs px-2 py-2 outline-none ${disabled ? 'text-black' : 'text-gray-800'}`}
       />
     </div>
     {error && <span className="text-[10px] text-red-500 font-medium flex items-center gap-1"><AlertCircle size={10} /> {error}</span>}
@@ -77,7 +78,10 @@ export const AssociationPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  
+  // Staff (operator/referee/umpire/scorer/video_analyst) can view their
+  // parent Association's settings but never edit them — only the Admin can.
+  const [isAdmin, setIsAdmin] = useState(false);
+
   // Track errors for each field
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -154,7 +158,31 @@ export const AssociationPage: React.FC = () => {
 };
 
   useEffect(() => {
-    const fetchSettings = async () => {
+    // GET /association/settings turns out to return the *caller's own*
+    // associationSettings row — for staff that's a separate, blank record,
+    // not their parent Admin's. GET /user/me, however, already carries a
+    // resolved top-level `associationName` for staff (their parent's real
+    // name) — confirmed from a real response: an operator's own
+    // associationSettings.cricketAssociationName was "", but
+    // user.associationName was "State Board Association". So fetch both and
+    // let /user/me's associationName win whenever /association/settings
+    // comes back blank for the name specifically.
+    const fetchData = async () => {
+      let resolvedAssociationName = "";
+      try {
+        const meResponse = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/user/me`, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (meResponse.ok) {
+          const meData = await meResponse.json();
+          setIsAdmin((meData.role || '').toLowerCase() === 'admin');
+          resolvedAssociationName = meData.associationName || "";
+        }
+      } catch (error) {
+        console.error('Failed to load role:', error);
+      }
+
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/association/settings`, {
           method: 'GET',
@@ -165,14 +193,14 @@ export const AssociationPage: React.FC = () => {
           let phone = data.contactPhone || "";
           if (phone && !phone.startsWith('+')) phone = `+91${phone}`;
           setFormData({
-            cricketAssociationName: data.cricketAssociationName || "",
+            cricketAssociationName: data.cricketAssociationName || resolvedAssociationName,
             associationType: data.associationType || "",
             associationGoverningBody: data.associationGoverningBody || "",
             numberOfGroundManaged: data.numberOfGroundManaged || "",
             contactEmail: data.contactEmail || "",
             contactPhone: phone || "",
             groundName: data.groundName || "",
-            activeGround: data.activeGround || "", 
+            activeGround: data.activeGround || "",
             liveMatchAlerts: data.liveMatchAlerts ?? true
           });
         }
@@ -182,7 +210,7 @@ export const AssociationPage: React.FC = () => {
         setLoading(false);
       }
     };
-    fetchSettings();
+    fetchData();
   }, []);
 
   const handleSaveChanges = async () => {
@@ -233,7 +261,9 @@ export const AssociationPage: React.FC = () => {
       <div className="flex justify-between items-start mb-6 gap-3">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">Association Settings</h1>
-          <p className="text-gray-500 text-xs mt-1 font-medium">Basic identity of the Cricket Association</p>
+          <p className="text-gray-500 text-xs mt-1 font-medium">
+            {isAdmin ? "Basic identity of the Cricket Association" : "Your Association's info (view only)"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {saveSuccess && (
@@ -241,14 +271,16 @@ export const AssociationPage: React.FC = () => {
               <CheckCircle2 size={14} /> Saved Successfully
             </span>
           )}
-          <button 
-            onClick={handleSaveChanges}
-            disabled={saving}
-            className="bg-[#0D0D12] text-white px-1 md:px-5 py-1 md:py-2.5 rounded-lg text-xs md:text-sm font-semibold hover:bg-black transition-all flex items-center gap-2 disabled:opacity-70 active:scale-95"
-          >
-            {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={18} />}
-            Save Changes
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleSaveChanges}
+              disabled={saving}
+              className="bg-[#0D0D12] text-white px-1 md:px-5 py-1 md:py-2.5 rounded-lg text-xs md:text-sm font-semibold hover:bg-black transition-all flex items-center gap-2 disabled:opacity-70 active:scale-95"
+            >
+              {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={18} />}
+              Save Changes
+            </button>
+          )}
         </div>
       </div>
 
@@ -256,92 +288,101 @@ export const AssociationPage: React.FC = () => {
 
       <div className="space-y-8 max-w-4xl">
         <section className="space-y-6">
-          <InputField 
-            label="Association Name" 
-            name="cricketAssociationName" 
-            value={formData.cricketAssociationName} 
+          <InputField
+            label="Association Name"
+            name="cricketAssociationName"
+            value={formData.cricketAssociationName}
             onChange={handleChange}
             placeholder="e.g. Vidarbha Cricket Association"
             error={errors.cricketAssociationName}
+            readonly={!isAdmin}
           />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <InputField 
-              label="Association Type" 
-              name="associationType" 
-              value={formData.associationType} 
+            <InputField
+              label="Association Type"
+              name="associationType"
+              value={formData.associationType}
               onChange={handleChange}
               placeholder="e.g. State Association"
               error={errors.associationType}
+              readonly={!isAdmin}
             />
-            <InputField 
-              label="Governing Body" 
-              name="associationGoverningBody" 
-              value={formData.associationGoverningBody} 
+            <InputField
+              label="Governing Body"
+              name="associationGoverningBody"
+              value={formData.associationGoverningBody}
               onChange={handleChange}
               placeholder="e.g. BCCI"
               error={errors.associationGoverningBody}
+              readonly={!isAdmin}
             />
           </div>
 
-          <InputField 
-            label="No. of Grounds Managed" 
-            name="numberOfGroundManaged" 
-            value={formData.numberOfGroundManaged} 
-            onChange={handleChange} 
+          <InputField
+            label="No. of Grounds Managed"
+            name="numberOfGroundManaged"
+            value={formData.numberOfGroundManaged}
+            onChange={handleChange}
             placeholder="0"
             error={errors.numberOfGroundManaged}
+            readonly={!isAdmin}
           />
         </section>
 
         <div className="h-px bg-gray-100 w-full" />
 
         <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <InputField 
-            label="Office Email" 
-            name="contactEmail" 
-            value={formData.contactEmail} 
-            onChange={handleChange} 
+          <InputField
+            label="Office Email"
+            name="contactEmail"
+            value={formData.contactEmail}
+            onChange={handleChange}
             placeholder="email@association.com"
             error={errors.contactEmail}
+            readonly={!isAdmin}
           />
-         <PhoneInputField 
-        label="Contact Number" 
-        value={formData.contactPhone} 
-        onChange={(val) => setFormData(prev => ({ ...prev, contactPhone: val || "" }))} 
-        error={errors.contactPhone} 
+         <PhoneInputField
+        label="Contact Number"
+        value={formData.contactPhone}
+        onChange={(val) => setFormData(prev => ({ ...prev, contactPhone: val || "" }))}
+        error={errors.contactPhone}
+        disabled={!isAdmin}
       />
         </section>
 
         <div className="h-px bg-gray-100 w-full" />
 
         <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <InputField 
-            label="Primary Ground" 
-            name="groundName" 
-            value={formData.groundName} 
-            onChange={handleChange} 
+          <InputField
+            label="Primary Ground"
+            name="groundName"
+            value={formData.groundName}
+            onChange={handleChange}
             placeholder="e.g. Wankhede Stadium"
             error={errors.groundName}
+            readonly={!isAdmin}
           />
-          <InputField 
-            label="Active Tournaments" 
-            name="activeGround" 
-            value={formData.activeGround} 
-            onChange={handleChange} 
+          <InputField
+            label="Active Tournaments"
+            name="activeGround"
+            value={formData.activeGround}
+            onChange={handleChange}
             placeholder="Enter active tournament number"
             error={errors.activeGround}
+            readonly={!isAdmin}
           />
         </section>
 
         <div className="h-px bg-gray-100 w-full" />
 
         <section>
-          <SwitchField 
-            label="Enable Live Scoring Sync" 
-            sub="Automatically sync data from scorer application" 
+          <SwitchField
+            label="Enable Live Scoring Sync"
+            sub="Automatically sync data from scorer application"
             checked={formData.liveMatchAlerts}
             onChange={() => setFormData({...formData, liveMatchAlerts: !formData.liveMatchAlerts})}
+            disabled={!isAdmin}
           />
         </section>
       </div>

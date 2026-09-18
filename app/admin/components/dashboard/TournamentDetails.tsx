@@ -18,18 +18,18 @@ export default function TournamentDetails() {
     try {
       
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/operator-tournaments`,
+        `${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/my-association`,
         {
           method: 'GET',
-          credentials: "include", 
+          credentials: "include",
         }
       );
 
       if (response.ok) {
-        const data = await response.json();
-        setTournaments(data);
+        const json = await response.json();
+        setTournaments(json.data);
       } else if (response.status === 403) {
-        console.error("Access Denied: You must be logged in as an Association.");
+        console.error("Access Denied: your account is not yet approved.");
       }
     } catch (error) {
       console.error("Failed to fetch operator tournament details:", error);
