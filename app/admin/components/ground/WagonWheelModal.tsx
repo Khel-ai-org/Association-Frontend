@@ -14,15 +14,17 @@ interface WagonWheelModalProps {
   data?: WagonWheelData;
 }
 
+// Mirrors the AREA_ANGLE_MAP zone centers in lib/sampleWagonWheel.ts,
+// using the same field-zone names the scorer's wagon-wheel step sends.
 const SECTORS = [
-  { name: 'Straight / Long-On', minAngle: 337.5, maxAngle: 22.5,  color: '#6366f1' },
-  { name: 'Mid-Wicket',         minAngle: 22.5,  maxAngle: 67.5,  color: '#8b5cf6' },
-  { name: 'Square Leg',         minAngle: 67.5,  maxAngle: 112.5, color: '#ec4899' },
-  { name: 'Fine Leg',           minAngle: 112.5, maxAngle: 157.5, color: '#f43f5e' },
-  { name: 'Behind Wickets',     minAngle: 157.5, maxAngle: 202.5, color: '#ef4444' },
-  { name: 'Third Man / Point',  minAngle: 202.5, maxAngle: 247.5, color: '#10b981' },
-  { name: 'Cover / Extra Cover',minAngle: 247.5, maxAngle: 292.5, color: '#06b6d4' },
-  { name: 'Mid-Off / Long-Off', minAngle: 292.5, maxAngle: 337.5, color: '#3b82f6' },
+  { name: 'Deep Cover',      minAngle: 337.5, maxAngle: 22.5,  color: '#06b6d4' },
+  { name: 'Long Off',        minAngle: 22.5,  maxAngle: 67.5,  color: '#3b82f6' },
+  { name: 'Long On',         minAngle: 67.5,  maxAngle: 112.5, color: '#6366f1' },
+  { name: 'Deep Mid Wicket', minAngle: 112.5, maxAngle: 157.5, color: '#8b5cf6' },
+  { name: 'Deep Square Leg', minAngle: 157.5, maxAngle: 202.5, color: '#ec4899' },
+  { name: 'Deep Fine Leg',   minAngle: 202.5, maxAngle: 247.5, color: '#f43f5e' },
+  { name: 'Third Man',       minAngle: 247.5, maxAngle: 292.5, color: '#ef4444' },
+  { name: 'Deep Point',      minAngle: 292.5, maxAngle: 337.5, color: '#10b981' },
 ];
 
 export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
@@ -36,12 +38,6 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
     ...SAMPLE_WAGON_WHEEL_DATA,
     batsman: batsmanName || SAMPLE_WAGON_WHEEL_DATA.batsman,
   };
-
-  const [phaseBanner, setPhaseBanner] = useState<{ visible: boolean; text: string; color: string }>({
-    visible: false,
-    text: '',
-    color: '#6366f1',
-  });
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [showRightHud, setShowRightHud] = useState(false);
@@ -247,28 +243,26 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
       sectorLineObjectsRef.current = [];
     }
     setShowRightHud(false);
-    setPhaseBanner({ visible: false, text: '', color: '#6366f1' });
   };
 
   // Smooth Camera Interpolation
   const smoothCameraTo = (pos: { x: number; y: number; z: number }, lookAt: { x: number; y: number; z: number }, duration: number) => {
     return new Promise<void>((resolve) => {
       let isDone = false;
-      const done = (reason: string) => {
+      const done = () => {
         if (!isDone) {
           isDone = true;
-          console.log(`[WagonWheel] smoothCameraTo finished via ${reason}`);
           resolve();
         }
       };
 
       if (!cameraRef.current || !controlsRef.current) {
-        done('no-refs');
+        done();
         return;
       }
 
       // Safety timeout in case TWEEN onComplete is throttled or delayed
-      const timer = setTimeout(() => done('timeout-fallback'), duration + 350);
+      const timer = setTimeout(() => done(), duration + 350);
 
       new TWEEN.Tween(cameraRef.current.position)
         .to({ x: pos.x, y: pos.y, z: pos.z }, duration)
@@ -280,7 +274,7 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
         .easing(TWEEN.Easing.Cubic.InOut)
         .onComplete(() => {
           clearTimeout(timer);
-          done('onComplete');
+          done();
         })
         .start();
     });
@@ -402,7 +396,15 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
     });
   };
 
-  const animateShotBatchSimultaneous = (shotList: WagonWheelShot[], colorHex: number, arcHeight: number, tubeRadius: number) => {
+  // Color/arc-height/tube-thickness per shot, keyed off runs scored on that ball.
+  const getShotStyle = (runs: number) => {
+    if (runs >= 6) return { color: 0xec4899, arcHeight: 1.2, tubeRadius: 0.4 };
+    if (runs === 4) return { color: 0x06b6d4, arcHeight: 0.25, tubeRadius: 0.32 };
+    if (runs >= 1) return { color: 0xf59e0b, arcHeight: 0.08, tubeRadius: 0.26 };
+    return { color: 0x64748b, arcHeight: 0.05, tubeRadius: 0.22 };
+  };
+
+  const animateShotBatchSimultaneous = (shotList: WagonWheelShot[]) => {
     return new Promise<void>((resolve) => {
       if (shotList.length === 0) {
         resolve();
@@ -413,14 +415,15 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
 
       shotList.forEach((shot, i) => {
         const target = convertShotTo3D(shot);
+        const { color, arcHeight, tubeRadius } = getShotStyle(shot.runs);
         const curve = createShotCurve(batsmanPosition, target, arcHeight);
 
         setTimeout(() => {
-          animateSingleShot(curve, colorHex, tubeRadius, target, 800).then(() => {
+          animateSingleShot(curve, color, tubeRadius, target, 550).then(() => {
             completed++;
             if (completed >= total) resolve();
           });
-        }, i * 80);
+        }, i * 40);
       });
     });
   };
@@ -504,76 +507,25 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
     setShowRightHud(true);
   };
 
-  // Trigger Full 4-Phase Sequential Animation
+  // Single direct pass: every shot animates together, then the field
+  // breakdown appears. No staged categories, no banners.
   const startWagonWheelAnimation = async () => {
-    console.log('🚀 [WagonWheel] startWagonWheelAnimation clicked. isAnimating:', isAnimating);
-    if (isAnimating) {
-      console.warn('⚠️ [WagonWheel] Animation is already running! Ignoring click.');
-      return;
-    }
+    if (isAnimating) return;
     const shots = activeData.shots || [];
-    console.log('📊 [WagonWheel] Active shots dataset:', shots.length, shots);
-    if (shots.length === 0) {
-      console.warn('⚠️ [WagonWheel] No shots found in activeData!');
-      return;
-    }
+    if (shots.length === 0) return;
 
     setIsAnimating(true);
     clearDrawings();
 
-    const ones = shots.filter((s) => s.runs >= 1 && s.runs <= 3);
-    const fours = shots.filter((s) => s.runs === 4);
-    const sixes = shots.filter((s) => s.runs === 6);
-    console.log(`🏏 [WagonWheel] Breakdown -> 1-3s: ${ones.length}, 4s: ${fours.length}, 6s: ${sixes.length}`);
+    await smoothCameraTo({ x: 10, y: 145, z: 130 }, { x: 0, y: 4, z: -8 }, 700);
+    await animateShotBatchSimultaneous(shots);
+    await new Promise((r) => setTimeout(r, 300));
 
-    // Initial camera view
-    console.log('📷 [WagonWheel] Moving camera to initial top-down view...');
-    await smoothCameraTo({ x: 0, y: 180, z: 110 }, { x: 0, y: 0, z: 0 }, 1200);
-
-    // Phase 1: Singles & Doubles
-    if (ones.length > 0) {
-      console.log('⚡ [WagonWheel] Starting Phase 1: Singles & Doubles');
-      setPhaseBanner({ visible: true, text: 'Phase 1 · Singles & Doubles', color: '#f59e0b' });
-      await smoothCameraTo({ x: -50, y: 130, z: 110 }, { x: 0, y: 0, z: -5 }, 1500);
-      await animateShotBatchSimultaneous(ones, 0xf59e0b, 0.08, 0.3);
-      await new Promise((r) => setTimeout(r, 800));
-      setPhaseBanner({ visible: false, text: '', color: '#f59e0b' });
-      await new Promise((r) => setTimeout(r, 400));
-    }
-
-    // Phase 2: Boundary Fours
-    if (fours.length > 0) {
-      console.log('⚡ [WagonWheel] Starting Phase 2: Boundary Fours');
-      setPhaseBanner({ visible: true, text: 'Phase 2 · Boundary Fours', color: '#06b6d4' });
-      await smoothCameraTo({ x: 70, y: 110, z: 100 }, { x: 0, y: 2, z: -5 }, 1800);
-      await animateShotBatchSimultaneous(fours, 0x06b6d4, 0.25, 0.35);
-      await new Promise((r) => setTimeout(r, 800));
-      setPhaseBanner({ visible: false, text: '', color: '#06b6d4' });
-      await new Promise((r) => setTimeout(r, 400));
-    }
-
-    // Phase 3: Maximum Sixes
-    if (sixes.length > 0) {
-      console.log('⚡ [WagonWheel] Starting Phase 3: Maximum Sixes');
-      setPhaseBanner({ visible: true, text: 'Phase 3 · Maximum Sixes', color: '#ec4899' });
-      await smoothCameraTo({ x: -40, y: 140, z: 120 }, { x: 0, y: 10, z: -5 }, 2000);
-      await animateShotBatchSimultaneous(sixes, 0xec4899, 1.2, 0.45);
-      await new Promise((r) => setTimeout(r, 1000));
-      setPhaseBanner({ visible: false, text: '', color: '#ec4899' });
-      await new Promise((r) => setTimeout(r, 400));
-    }
-
-    // Phase 4: Scoring Direction Breakdown
-    console.log('📊 [WagonWheel] Starting Phase 4: Scoring Direction Breakdown');
-    setPhaseBanner({ visible: true, text: 'Scoring Direction Breakdown', color: '#818cf8' });
     await fadeOutShotTrajectories();
-    await smoothCameraTo({ x: 0, y: 180, z: 45 }, { x: 0, y: 0, z: 0 }, 2200);
+    await smoothCameraTo({ x: 0, y: 180, z: 45 }, { x: 0, y: 0, z: 0 }, 1000);
     drawSectorLines();
     calculateAndShowDirectionalStats(shots);
-    await new Promise((r) => setTimeout(r, 3000));
-    setPhaseBanner({ visible: false, text: '', color: '#818cf8' });
 
-    console.log('✅ [WagonWheel] Animation fully complete!');
     setIsAnimating(false);
   };
 
@@ -634,16 +586,6 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
         >
           <X className="w-4 h-4" />
         </button>
-
-        {/* Phase Banner Overlay */}
-        {phaseBanner.visible && (
-          <div
-            className="absolute top-20 left-1/2 -translate-x-1/2 z-40 px-6 py-2 bg-[#0f172a]/90 backdrop-blur-md border rounded-full text-xs font-black uppercase tracking-widest shadow-2xl transition-all animate-bounce"
-            style={{ borderColor: phaseBanner.color, color: phaseBanner.color }}
-          >
-            {phaseBanner.text}
-          </div>
-        )}
 
         {/* 3D Canvas Container */}
         <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
