@@ -23,7 +23,6 @@ export interface InitCocVideoUploadResponse {
 export interface ConfirmCocVideoUploadParams {
   ball_video_id: number | string;
   s3_key: string;
-  camera?: string;
   group?: string;
 }
 
@@ -144,7 +143,6 @@ export async function confirmCocVideoUpload(
     body: JSON.stringify({
       ball_video_id: params.ball_video_id,
       s3_key: params.s3_key,
-      camera: params.camera || 'camera1',
       ...(params.group ? { group: params.group } : {}),
     }),
   });
@@ -180,18 +178,16 @@ export async function uploadCocVideoPipeline(
     throw new Error('Invalid upload init response: missing upload_url or s3_key');
   }
 
-  // Extract camera and group if present in init response, otherwise default to camera1
-  const camera = (initData as any).camera || (initData as any).cameras?.[0] || 'camera1';
+  // Extract group if present in init response
   const group = (initData as any).group;
 
   // 2. Direct S3 Upload with live progress
   await uploadToS3WithProgress(upload_url, videoFile, onProgress);
 
-  // 3. Confirm with Backend (passing camera and group)
+  // 3. Confirm with Backend
   const confirmResult = await confirmCocVideoUpload(matchId, {
     ball_video_id,
     s3_key,
-    camera,
     group,
   });
 

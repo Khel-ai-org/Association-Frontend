@@ -71,8 +71,8 @@ export default function AppealAnalysisPage() {
   const fetchAppealData = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/export/tournaments/${tournamentId}/appeal-analysis`, {
-        credentials: "include",
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentId}/appeal-analysis`, {
+        headers: { "ngrok-skip-browser-warning": "true" },
       });
       const json = await res.json();
       console.log("Fetched appeal analysis data:", json);
@@ -326,6 +326,7 @@ export default function AppealAnalysisPage() {
                 <th className="py-4 px-4">Referee</th>
                 <th className="py-4 px-4">Innings</th>
                 <th className="py-4 px-6 text-center">Cameras</th>
+                <th className="py-4 px-6 text-center">CoC Video</th>
                 <th className="py-4 px-6 text-center">Comments</th>
               </tr>
             </thead>
@@ -373,6 +374,31 @@ export default function AppealAnalysisPage() {
                           );
                         })}
                       </div>
+                    </td>
+                    <td className="py-4 px-6">
+                      {item.coc && Object.keys(item.coc).length > 0 ? (
+                        <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-[160px] mx-auto">
+                          {Object.entries(item.coc as Record<string, string>).map(([clipKey, clipUrl]) => (
+                            <button
+                              key={clipKey}
+                              onClick={() => setSelectedVideo({
+                                matchId: item.match_id,
+                                overNumber: item.over_number,
+                                appealId: item.appeal_id,
+                                url: clipUrl || "",
+                                title: `Ball ${item.over_number} - CoC (${clipKey})`,
+                                comments: commentsList
+                              })}
+                              className="flex items-center justify-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md text-xs font-medium text-amber-700 cursor-pointer shadow-2xs"
+                            >
+                              <Play className="w-3 h-3 text-amber-500 fill-amber-500" />
+                              <span>{clipKey}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium block text-center">No CoC Video</span>
+                      )}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {commentsList.length === 0 ? (

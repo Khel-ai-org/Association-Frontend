@@ -2,7 +2,7 @@
  "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2, User, Check, PieChart } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2, User, Check, PieChart, Play } from 'lucide-react';
 import Link from 'next/link';
 
 // Import all separate modal components
@@ -44,6 +44,15 @@ interface ActiveFilter {
   label: string;
 }
 
+interface CocCaseVideo {
+  id: number;
+  tag: string;
+  upload_status: string;
+  video_id: Record<string, string>;
+  url: Record<string, string>;
+  uploaded_at: string | null;
+}
+
 interface CocCase {
   id: number;
   ball_id: number;
@@ -55,7 +64,39 @@ interface CocCase {
   description: string | null;
   created_at: string;
   updated_at: string;
+  over_number?: string;
+  videos?: CocCaseVideo[];
 }
+
+// One playable clip, flattened out of a CoC case's video records
+// (a record can hold multiple camera angles, e.g. video1 + video2).
+interface FlattenedCocClip {
+  key: string;
+  tag: string;
+  clipLabel: string;
+  url: string;
+  uploadStatus: string;
+  uploadedAt: string | null;
+}
+
+const flattenCocVideos = (videos: CocCaseVideo[] | undefined): FlattenedCocClip[] => {
+  if (!videos || videos.length === 0) return [];
+  const clips: FlattenedCocClip[] = [];
+  videos.forEach((record) => {
+    const clipKeys = Object.keys(record.url || {});
+    clipKeys.forEach((clipKey) => {
+      clips.push({
+        key: `${record.id}-${clipKey}`,
+        tag: record.tag,
+        clipLabel: clipKey,
+        url: record.url[clipKey],
+        uploadStatus: record.upload_status,
+        uploadedAt: record.uploaded_at,
+      });
+    });
+  });
+  return clips;
+};
 
 
 
@@ -106,6 +147,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const [cocCases, setCocCases] = useState<CocCase[]>([]);
   const [isCocLoading, setIsCocLoading] = useState(false);
+  const [cocVideoGallery, setCocVideoGallery] = useState<{
+    isOpen: boolean;
+    title: string;
+    clips: FlattenedCocClip[];
+    activeIndex: number;
+  }>({ isOpen: false, title: '', clips: [], activeIndex: 0 });
 
   const LENGTHS = ['Yorker', 'Bouncer', 'Full', 'Half Volley', 'Good', 'Full Toss', 'Short'];
   const VARIATIONS = ['Inswinger', 'Outswinger', 'Seam Up', 'Cross Seam', 'Late in', 'Scrambled Seam', 'Late Out', 'Slower', 'Reverse Swing', 'Off Cutter', 'Leg Cutter', 'Back Off Hand', 'Knuckle', 'Split Finger', 'Beamer', 'Wide Yorker'];
@@ -1258,19 +1305,20 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   <th className="py-3 px-4">Details</th>
                   <th className="py-3 px-4">By</th>
                   <th className="py-3 px-4">Time</th>
+                  <th className="py-3 px-4">Videos</th>
                   <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {isCocLoading ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
+                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
                       Loading CoC actions...
                     </td>
                   </tr>
                 ) : cocCases.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
+                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
                       No CoC actions found for this match.
                     </td>
                   </tr>
@@ -1280,15 +1328,16 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                     const timeStr = formattedDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     const dateStr = formattedDateObj.toLocaleDateString();
 
-                    // Calculate Over and Ball Number from ball_id (e.g., ball_id 16 -> Over 2, Ball 4, assuming 6 balls per over)
-                    const ballOver = selectedBallData?.over ?? 0;
-const calculatedOver = Math.floor(ballOver) + 1;
-                    
+                    // Over/ball notation now comes straight from the backend per-case.
+                    const overNumberStr = item.over_number || null;
+                    const overNumFloat = overNumberStr ? parseFloat(overNumberStr) : null;
+                    const calculatedOver = overNumFloat !== null ? Math.floor(overNumFloat) + 1 : null;
+                    const cocClips = flattenCocVideos(item.videos);
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-4 px-4 font-bold text-slate-900">{calculatedOver}</td>
-                        <td className="py-4 px-4 font-semibold text-blue-600">{selectedBallData?.over}</td>
+                        <td className="py-4 px-4 font-bold text-slate-900">{calculatedOver ?? '—'}</td>
+                        <td className="py-4 px-4 font-semibold text-blue-600">{overNumberStr ?? '—'}</td>
                         <td className="py-4 px-4 font-medium text-slate-800">
                           {item.player || item.team ? (
                             <div>
@@ -1319,14 +1368,29 @@ const calculatedOver = Math.floor(ballOver) + 1;
                           <p className="font-medium text-slate-700 text-xs">{timeStr}</p>
                           <p className="text-[10px] text-slate-400">{dateStr}</p>
                         </td>
+                        <td className="py-4 px-4">
+                          {cocClips.length === 0 ? (
+                            <span className="text-slate-400 text-xs">—</span>
+                          ) : (
+                            <button
+                              onClick={() => setCocVideoGallery({
+                                isOpen: true,
+                                title: item.incident_category || item.player || 'Code of Conduct',
+                                clips: cocClips,
+                                activeIndex: 0,
+                              })}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Video size={12} />
+                              {cocClips.length} Clip{cocClips.length > 1 ? 's' : ''}
+                            </button>
+                          )}
+                        </td>
                         <td className="py-4 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                             <button title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer">
                               <Trash2 size={15} />
                             </button>
-                            {/* <button title="Video Review" className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer">
-                              <Video size={15} />
-                            </button> */}
                             <button title="Edit" className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer">
                               <Edit2 size={15} />
                             </button>
@@ -1376,6 +1440,57 @@ const calculatedOver = Math.floor(ballOver) + 1;
           // Optional local state update if needed
         }}
       />
+
+      {/* --- CoC VIDEO GALLERY MODAL --- */}
+      {cocVideoGallery.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[800px] overflow-hidden relative flex flex-col p-6 text-black">
+            <button
+              onClick={() => setCocVideoGallery({ isOpen: false, title: '', clips: [], activeIndex: 0 })}
+              className="absolute top-6 right-6 text-black hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
+            >
+              <X size={18} />
+            </button>
+
+            <h3 className="text-lg font-bold text-slate-900 pr-12 mb-4">{cocVideoGallery.title}</h3>
+
+            <div className="w-full h-[400px] bg-black rounded-2xl relative overflow-hidden flex items-center justify-center mb-4">
+              {cocVideoGallery.clips[cocVideoGallery.activeIndex]?.url ? (
+                <video
+                  key={cocVideoGallery.clips[cocVideoGallery.activeIndex].key}
+                  src={cocVideoGallery.clips[cocVideoGallery.activeIndex].url}
+                  controls
+                  autoPlay
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <p className="text-slate-400 text-sm">No video source available</p>
+              )}
+            </div>
+
+            {cocVideoGallery.clips.length > 1 && (
+              <div className="flex gap-3 overflow-x-auto pb-1 custom-scrollbar">
+                {cocVideoGallery.clips.map((clip, idx) => (
+                  <button
+                    key={clip.key}
+                    onClick={() => setCocVideoGallery(prev => ({ ...prev, activeIndex: idx }))}
+                    className={`shrink-0 w-28 rounded-lg overflow-hidden border-2 transition-colors ${
+                      idx === cocVideoGallery.activeIndex ? 'border-indigo-500' : 'border-transparent'
+                    }`}
+                  >
+                    <div className="w-28 h-16 bg-slate-900 flex items-center justify-center relative">
+                      <Play size={14} className="text-white fill-white drop-shadow-md" />
+                    </div>
+                    <p className="text-[10px] font-semibold text-slate-600 mt-1 truncate">
+                      {clip.tag} · {clip.clipLabel}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Wagon Wheel 3D Modal */}
       <WagonWheelModal

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, Search, Trash2, Eye, Edit2, Play, ChevronDown, Send, Loader2, RotateCcw } from 'lucide-react';
 import { uploadCocVideoPipeline, formatFileSize, CocVideoItem } from '@/lib/cocVideoService';
+import { fetchBallDetails, flattenBallVideos, FlattenedBallVideo } from '@/lib/ballDetailsService';
 
 interface RefereeActionModalProps {
   isOpen: boolean;
@@ -125,13 +126,45 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   const [isVideoPreviewOpen, setIsVideoPreviewOpen] = useState(false);
 
   // Form states for Upload Video (Tab 5)
+  // `videoItems` only tracks THIS session's in-flight uploads (pending/uploading/error).
+  // Once a file finishes uploading it's dropped here and re-fetched from the server,
+  // which is the persistent source of truth for "already uploaded" videos.
   const [videoItems, setVideoItems] = useState<CocVideoItem[]>([]);
-  const [selectedVideoItemIds, setSelectedVideoItemIds] = useState<Set<string>>(new Set());
   const [videoSearchQuery, setVideoSearchQuery] = useState('');
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
   const [previewVideoTitle, setPreviewVideoTitle] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  const [serverVideos, setServerVideos] = useState<FlattenedBallVideo[]>([]);
+  const [isLoadingVideos, setIsLoadingVideos] = useState(false);
+  const [videosLoadError, setVideosLoadError] = useState('');
+
+  const loadBallVideos = async () => {
+    const ballId = ballInfo?.id;
+    if (!matchId || !ballId) return;
+
+    setIsLoadingVideos(true);
+    setVideosLoadError('');
+    try {
+      const ball = await fetchBallDetails(matchId, ballId);
+      setServerVideos(flattenBallVideos(ball.videos || []));
+    } catch (err: any) {
+      console.error('[ball videos fetch error]', err);
+      setVideosLoadError(err.message || 'Failed to load uploaded videos');
+    } finally {
+      setIsLoadingVideos(false);
+    }
+  };
+
+  // Load previously uploaded videos for this ball whenever the modal opens for it,
+  // so the list survives a refresh instead of living only in local state.
+  useEffect(() => {
+    if (isOpen && matchId && ballInfo?.id) {
+      loadBallVideos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, matchId, ballInfo?.id]);
 
   // Clean up object URLs when unmounting
   useEffect(() => {
@@ -152,7 +185,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
     try {
       const overNum = ballInfo?.over_number ? String(ballInfo.over_number) : '0.1';
-      const result = await uploadCocVideoPipeline(
+      await uploadCocVideoPipeline(
         matchId,
         overNum,
         Number(innings) || 1,
@@ -162,13 +195,11 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
         }
       );
 
-      setVideoItems(prev => prev.map(v => v.id === item.id ? {
-        ...v,
-        status: 'ready',
-        progress: 100,
-        s3Key: result.s3Key,
-        ballVideoId: result.ballVideoId,
-      } : v));
+      // Uploaded & confirmed on the backend now — drop from local in-flight
+      // state and refresh from the server, which is the source of truth.
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      setVideoItems(prev => prev.filter(v => v.id !== item.id));
+      await loadBallVideos();
     } catch (err: any) {
       console.error("[video upload error]", err);
       setVideoItems(prev => prev.map(v => v.id === item.id ? {
@@ -213,16 +244,17 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
       }
       return prev.filter(i => i.id !== id);
     });
-    setSelectedVideoItemIds(prev => {
-      const updated = new Set(prev);
-      updated.delete(id);
-      return updated;
-    });
   };
 
   const handleOpenPreview = (item: CocVideoItem) => {
     setPreviewVideoUrl(item.previewUrl);
     setPreviewVideoTitle(item.name);
+    setIsVideoPreviewOpen(true);
+  };
+
+  const handleOpenServerPreview = (video: FlattenedBallVideo) => {
+    setPreviewVideoUrl(video.url);
+    setPreviewVideoTitle(`${video.tag} · ${video.clipLabel}`);
     setIsVideoPreviewOpen(true);
   };
 
@@ -482,9 +514,8 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   };
 
   const handleFinalSubmit = () => {
-    const readyVideos = videoItems.filter(v => v.status === 'ready');
     const actionDetails = activeTab === 'upload_video'
-      ? `${readyVideos.length} Video(s) Uploaded`
+      ? `${serverVideos.length} Video(s) Uploaded`
       : cocCategory || cocDesc || "Recorded via Referee Modal";
 
     onSaveAction({
@@ -495,7 +526,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
       batterBowler: cocPlayer || ballInfo?.batsman_name || "Marco Jansen",
       actionTaken: activeTab.toUpperCase(),
       details: actionDetails,
-      uploadedVideos: readyVideos.map(v => ({ s3_key: v.s3Key, ball_video_id: v.ballVideoId, name: v.name })),
+      uploadedVideos: serverVideos.map(v => ({ tag: v.tag, clip: v.clipLabel, url: v.url })),
       by: "Ranjan Madugalle",
       role: "Match Referee",
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1634,29 +1665,24 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                 />
               </div>
               <div className="text-xs text-slate-500 font-medium">
-                {videoItems.filter(v => v.status === 'ready').length} of {videoItems.length} uploaded
+                {isLoadingVideos
+                  ? 'Loading uploaded videos...'
+                  : `${serverVideos.length} uploaded${videoItems.length > 0 ? ` • ${videoItems.length} in progress` : ''}`}
               </div>
             </div>
+
+            {videosLoadError && (
+              <div className="p-3 bg-red-50 border border-red-100 text-red-600 text-xs rounded-xl flex items-center justify-between">
+                <span>{videosLoadError}</span>
+                <button onClick={loadBallVideos} className="font-bold underline cursor-pointer">Retry</button>
+              </div>
+            )}
 
             {/* Uploaded Videos Table */}
             <div className="border border-slate-100 rounded-xl overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-[#F8FAFC] text-[10px] font-bold text-black uppercase tracking-wider">
                   <tr>
-                    <th className="py-3 px-4 w-12 text-center">
-                      <input 
-                        type="checkbox" 
-                        className="rounded"
-                        checked={videoItems.length > 0 && selectedVideoItemIds.size === videoItems.length}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedVideoItemIds(new Set(videoItems.map(v => v.id)));
-                          } else {
-                            setSelectedVideoItemIds(new Set());
-                          }
-                        }}
-                      />
-                    </th>
                     <th className="py-3 px-4">Preview</th>
                     <th className="py-3 px-4">Details & Metadata</th>
                     <th className="py-3 px-4">Status</th>
@@ -1664,29 +1690,56 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs text-black">
+                  {/* Previously uploaded videos — fetched from the server, persists across refresh */}
+                  {serverVideos
+                    .filter(v =>
+                      v.tag.toLowerCase().includes(videoSearchQuery.toLowerCase()) ||
+                      v.clipLabel.toLowerCase().includes(videoSearchQuery.toLowerCase())
+                    )
+                    .map((sv) => (
+                      <tr key={sv.key} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-3 px-4">
+                          <div
+                            onClick={() => sv.url && handleOpenServerPreview(sv)}
+                            className="w-20 h-12 bg-slate-900 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer group/thumb"
+                          >
+                            <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover/thumb:bg-black/10 transition-colors">
+                              <Play size={14} className="text-white fill-white drop-shadow-md" />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="font-bold text-black truncate max-w-xs">{sv.tag} · {sv.clipLabel}</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Over {sv.overNumber} • {sv.source.toUpperCase()}
+                          </p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-flex items-center gap-1.5 font-bold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-full text-[10px]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> {sv.uploadStatus === 'uploaded' ? 'Uploaded' : sv.uploadStatus}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <button
+                            title="View Video"
+                            onClick={() => sv.url && handleOpenServerPreview(sv)}
+                            disabled={!sv.url}
+                            className="p-1.5 text-black hover:text-blue-600 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <Eye size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+
+                  {/* This session's in-flight uploads (pending/uploading/error) */}
                   {videoItems
                     .filter(v => v.name.toLowerCase().includes(videoSearchQuery.toLowerCase()))
                     .map((vid) => {
-                      const isSelected = selectedVideoItemIds.has(vid.id);
                       return (
                         <tr key={vid.id} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-3 px-4 text-center">
-                            <input 
-                              type="checkbox" 
-                              className="rounded"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                setSelectedVideoItemIds(prev => {
-                                  const next = new Set(prev);
-                                  if (e.target.checked) next.add(vid.id);
-                                  else next.delete(vid.id);
-                                  return next;
-                                });
-                              }}
-                            />
-                          </td>
                           <td className="py-3 px-4">
-                            <div 
+                            <div
                               onClick={() => handleOpenPreview(vid)}
                               className="w-20 h-12 bg-slate-900 rounded-lg overflow-hidden relative flex items-center justify-center cursor-pointer group/thumb"
                             >
@@ -1770,9 +1823,9 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                       );
                     })}
 
-                  {videoItems.length === 0 && (
+                  {!isLoadingVideos && serverVideos.length === 0 && videoItems.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-400 text-xs">
+                      <td colSpan={4} className="py-8 text-center text-slate-400 text-xs">
                         No videos uploaded yet. Choose files or drag and drop videos above.
                       </td>
                     </tr>
