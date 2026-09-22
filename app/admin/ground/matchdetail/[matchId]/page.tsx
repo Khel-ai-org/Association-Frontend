@@ -64,8 +64,8 @@ export default function MatchDetailsPage({ params }: PageProps) {
   // along the status it already knew (the fixture's live-match status).
   const initialStatus = searchParams.get('status') || undefined;
 
-  // Track active tab state at the parent page level ('details' or 'referee')
-  const [activeTab, setActiveTab] = useState<'details' | 'referee'>('details');
+  // Track active tab state at the parent page level
+  const [activeTab, setActiveTab] = useState<'details' | 'referee' | 'scorecard'>('details');
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] p-4 md:p-6">
@@ -99,15 +99,25 @@ export default function MatchDetailsPage({ params }: PageProps) {
           >
             Match Details
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('referee')}
             className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'referee' 
-                ? 'bg-[#121212] text-white shadow-md' 
+              activeTab === 'referee'
+                ? 'bg-[#121212] text-white shadow-md'
                 : 'text-slate-600 hover:text-black'
             }`}
           >
             Match Referee
+          </button>
+          <button
+            onClick={() => setActiveTab('scorecard')}
+            className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${
+              activeTab === 'scorecard'
+                ? 'bg-[#121212] text-white shadow-md'
+                : 'text-slate-600 hover:text-black'
+            }`}
+          >
+            Scorecard
           </button>
         </div>
       </div>

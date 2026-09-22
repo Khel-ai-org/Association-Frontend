@@ -6,13 +6,14 @@ import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, C
 import Link from 'next/link';
 
 // Import all separate modal components
-import { AddCommentModal, MrJudgementModal } from '../RefreeModals/AddComments'; 
+import { AddCommentModal, MrJudgementModal } from '../RefreeModals/AddComments';
 import { RefereeActionModal } from '../RefreeModals/ActionModals'; // <-- Import the 5-tab referee action modal
+import { ScorecardView } from './ScorecardView';
 
 interface MatchAnalysisProps {
   matchId: string;
-  externalActiveTab?: 'details' | 'referee';
-  onTabChange?: (tab: 'details' | 'referee') => void;
+  externalActiveTab?: 'details' | 'referee' | 'scorecard';
+  onTabChange?: (tab: 'details' | 'referee' | 'scorecard') => void;
   // The scorecard response carries no status field of its own — the Matches
   // list already knows the live match's status (from the fixture's nested
   // `match.status`), so it's passed through here instead of guessed at.
@@ -63,9 +64,9 @@ interface CocCase {
 
 
 const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTab, onTabChange, initialStatus }) => {
-  const [internalTab, setInternalTab] = useState<'details' | 'referee'>('details');
+  const [internalTab, setInternalTab] = useState<'details' | 'referee' | 'scorecard'>('details');
   const activeTab = externalActiveTab !== undefined ? externalActiveTab : internalTab;
-  const setActiveTab = (tab: 'details' | 'referee') => {
+  const setActiveTab = (tab: 'details' | 'referee' | 'scorecard') => {
     if (onTabChange) {
       onTabChange(tab);
     }
@@ -75,6 +76,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [isViewMore, setIsViewMore] = useState(false);
   const [activeInnings, setActiveInnings] = useState<'1st' | '2nd'>('1st');
   const [scorecard, setScorecard] = useState<any>(null);
+  const [superOvers, setSuperOvers] = useState<any[]>([]);
   const [appeals, setAppeals] = useState<AppealData | null>(null);
   const [inningBalls, setInningBalls] = useState<any[]>([]);
   const [superoverBalls, setSuperoverBalls] = useState<any[]>([]);
@@ -235,6 +237,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           console.log("Fetched Scorecard Data:", scDataArray);
           if (Array.isArray(scDataArray) && scDataArray.length > 0) {
             setScorecard(scDataArray[0]);
+            // Element 0 is the main match; any further elements are
+            // sequential super-overs (scoring-frontend's scoreboard page
+            // uses this same `data.slice(1)` split).
+            setSuperOvers(scDataArray.length > 1 ? scDataArray.slice(1) : []);
           }
         }
       } catch (err) {
@@ -646,6 +652,25 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     return `${ball.total_runs || 0} Runs`;
   };
 
+  // Matches a super-over's innings to a side (home/away) by team_name first
+  // (scoring-frontend's own matching logic), falling back to the main
+  // match's innings_1/innings_2 position if team_name isn't present.
+  const getSoInnings = (so: any, side: 'home' | 'away') => {
+    const homeTeamName = scorecard?.innings_1?.team_name || scorecard?.homeTeam;
+    const awayTeamName = scorecard?.innings_2?.team_name || scorecard?.awayTeam;
+    const targetName = side === 'home' ? homeTeamName : awayTeamName;
+    if (targetName && so?.innings_1?.team_name === targetName) return so.innings_1;
+    if (targetName && so?.innings_2?.team_name === targetName) return so.innings_2;
+    return side === 'home' ? so?.innings_1 : so?.innings_2;
+  };
+
+  // If the match went to a super over, the last one played is the actual
+  // result of the match — mirrors scoring-frontend's
+  // `data[data.length - 1]?.result || mainMatchData.result`.
+  const finalResult = superOvers.length > 0
+    ? (superOvers[superOvers.length - 1]?.result || scorecard?.result)
+    : scorecard?.result;
+
   if (loading) return <div className="p-10 text-center font-bold text-slate-400 italic">Loading Match Analytics...</div>;
 
   return (
@@ -663,31 +688,62 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               <div className="w-8 h-8 bg-green-700 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {scorecard?.homeTeam?.substring(0, 2).toUpperCase() || "SA"}
               </div>
-              <span className="font-bold text-slate-900 text-base md:text-lg text-center">
-                {scorecard?.homeTeam?.toUpperCase() || "SA"} 
-                <span className="text-slate-700 font-medium text-sm md:text-base ml-1">
-                  {scorecard?.innings_1?.runs ?? 0}/{scorecard?.innings_1?.wickets ?? 0} ({scorecard?.innings_1?.overs ?? 0})
+              <div className="flex flex-col items-center sm:items-start gap-1">
+                <span className="font-bold text-slate-900 text-base md:text-lg text-center whitespace-nowrap">
+                  {scorecard?.homeTeam?.toUpperCase() || "SA"}
+                  <span className="text-slate-800 font-medium text-sm md:text-base ml-1">
+                    {scorecard?.innings_1?.runs ?? 0}/{scorecard?.innings_1?.wickets ?? 0} ({scorecard?.innings_1?.overs ?? 0})
+                  </span>
                 </span>
-              </span>
+                {superOvers.length > 0 && (
+                  <div className="flex flex-wrap justify-center sm:justify-start gap-1">
+                    {superOvers.map((so, idx) => {
+                      const soInnings = getSoInnings(so, 'home');
+                      return (
+                        <span key={idx} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 border border-amber-100 text-[10px] font-bold text-amber-700 whitespace-nowrap">
+                          SO{idx + 1} {soInnings?.runs ?? 0}-{soInnings?.wickets ?? 0} <span className="text-amber-500 font-medium">({soInnings?.overs ?? 0} ov)</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="hidden lg:block h-8 w-[1px] bg-slate-200" />
-          
-          <div className="text-slate-700 font-medium text-center text-sm md:text-base w-full lg:w-auto order-first lg:order-none border-b lg:border-b-0 pb-4 lg:pb-0 border-slate-100">
-            {scorecard?.result || 'South Africa Defeated England By 4 Wickets'}
+
+          <div className="flex flex-col items-center gap-1.5 text-slate-800 font-medium text-center text-sm md:text-base w-full lg:w-auto order-first lg:order-none border-b lg:border-b-0 pb-4 lg:pb-0 border-slate-100">
+            {superOvers.length > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider">Super Over</span>
+            )}
+            <span>{finalResult || 'South Africa Defeated England By 4 Wickets'}</span>
           </div>
 
           <div className="h-8 w-[1px] bg-slate-200 hidden lg:block" />
-          
+
           <div className="flex flex-col sm:flex-row items-center gap-4 w-full lg:w-auto justify-between lg:justify-end">
             <div className="flex items-center gap-3">
-              <span className="font-bold text-slate-900 text-base md:text-lg text-right">
-                {scorecard?.awayTeam?.toUpperCase() || "ENG"} 
-                <span className="text-slate-700 font-medium text-sm md:text-base ml-1">
-                  {scorecard?.innings_2?.runs ?? 0}/{scorecard?.innings_2?.wickets ?? 0} ({scorecard?.innings_2?.overs ?? 0})
+              <div className="flex flex-col items-center sm:items-end gap-1">
+                <span className="font-bold text-slate-900 text-base md:text-lg text-right whitespace-nowrap">
+                  {scorecard?.awayTeam?.toUpperCase() || "ENG"}
+                  <span className="text-slate-800 font-medium text-sm md:text-base ml-1">
+                    {scorecard?.innings_2?.runs ?? 0}/{scorecard?.innings_2?.wickets ?? 0} ({scorecard?.innings_2?.overs ?? 0})
+                  </span>
                 </span>
-              </span>
+                {superOvers.length > 0 && (
+                  <div className="flex flex-wrap justify-center sm:justify-end gap-1">
+                    {superOvers.map((so, idx) => {
+                      const soInnings = getSoInnings(so, 'away');
+                      return (
+                        <span key={idx} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-50 border border-amber-100 text-[10px] font-bold text-amber-700 whitespace-nowrap">
+                          SO{idx + 1} {soInnings?.runs ?? 0}-{soInnings?.wickets ?? 0} <span className="text-amber-500 font-medium">({soInnings?.overs ?? 0} ov)</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <div className="w-8 h-8 bg-red-700 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
                 {scorecard?.awayTeam?.substring(0, 2).toUpperCase() || "ENG"}
               </div>
@@ -750,7 +806,11 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         )}
       </div>
 
-      {/* --- MATCH TIMELINE SECTION --- */}
+      {/* --- SCORECARD TAB --- */}
+      {activeTab === 'scorecard' && <ScorecardView scorecard={scorecard} superOvers={superOvers} matchId={matchId} />}
+
+      {/* --- MATCH TIMELINE SECTION (Details & Referee tabs only) --- */}
+      {activeTab !== 'scorecard' && (
       <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 border-b border-slate-50 pb-4">
           <h2 className="text-lg font-bold text-slate-900">Match Timeline</h2>
@@ -777,13 +837,15 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             </div>
             <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100 w-full sm:w-auto">
               {['1st', '2nd'].map((inn) => (
-                <button 
-                  key={inn} 
+                <button
+                  key={inn}
                   onClick={() => { setActiveInnings(inn as any); setSearchTerm(""); }}
-                  className={`flex-1 sm:flex-none px-4 md:px-6 py-1.5 text-xs font-bold rounded-md transition-all 
+                  className={`flex-1 sm:flex-none px-4 md:px-6 py-1.5 text-xs font-bold rounded-md transition-all
                     ${activeInnings === inn ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                  {inn} Innings
+                  {(inn === '1st' ? scorecard?.innings_1?.team_name : scorecard?.innings_2?.team_name)
+                    || (inn === '1st' ? scorecard?.homeTeam : scorecard?.awayTeam)
+                    || `${inn} Innings`}
                 </button>
               ))}
             </div>
@@ -1098,6 +1160,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           </div>
         </div>
       </div>
+      )}
 
       {/* --- MATCH REFEREE ACTIONS TABLE SECTION (Only visible on Match Referee Tab) --- */}
       {activeTab === 'referee' && (
