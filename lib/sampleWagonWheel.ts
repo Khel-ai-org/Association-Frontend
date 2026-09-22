@@ -15,6 +15,7 @@ export interface WagonWheelData {
   animationType: 'WAGON_WHEEL';
   theme?: string;
   batsman: string;
+  battingHand?: 'RHB' | 'LHB';
   runsTotal: number;
   ballsTotal: number;
   fours: number;
@@ -62,30 +63,69 @@ export const INNER_ZONE_NAMES = [
   'Point',
 ] as const;
 
-// Each inner/deep pair shares the same field angle — only the distance differs.
-const AREA_ANGLE_MAP: Record<string, number> = {
-  Cover: 0, 'Deep Cover': 0,
-  'Mid Off': 45, 'Long Off': 45,
-  'Mid On': 90, 'Long On': 90,
-  'Mid Wicket': 135, 'Deep Mid Wicket': 135,
-  'Square Leg': 180, 'Deep Square Leg': 180,
-  'Fine Leg': 225, 'Deep Fine Leg': 225,
-  Slip: 270, 'Third Man': 270,
-  Point: 315, 'Deep Point': 315,
+// Each named area is a 45° wedge, not a single line — inner/deep pairs
+// (e.g. "Mid Off"/"Long Off") share the same wedge, just picked for shots
+// of different reach. A shot's exact angle is randomized within its
+// area's wedge so repeated shots to the same area fan out realistically
+// instead of stacking on one line.
+//
+// The batsman stands at z=-8.8 (see batsmanPosition in WagonWheelModal.tsx)
+// and faces the bowler in the +Z direction. Given convertShotTo3D's mapping
+// (worldZ = -cos(angle) * distance), world angle 180° — not 0° — is what's
+// actually "straight toward the bowler", so Long Off/Long On must straddle
+// 180° and Third Man/Fine Leg must straddle 0°/360° ("behind the keeper").
+// Going around: Fine Leg → Square Leg → Mid Wicket → Long On → Long Off →
+// Cover → Point → Third Man → (back to Fine Leg), putting leg/on-side in
+// [0°,180°] and off-side in [180°,360°].
+const AREA_WEDGE_CENTER: Record<string, number> = {
+  'Fine Leg': 22.5, 'Deep Fine Leg': 22.5,
+  'Square Leg': 67.5, 'Deep Square Leg': 67.5,
+  'Mid Wicket': 112.5, 'Deep Mid Wicket': 112.5,
+  'Mid On': 157.5, 'Long On': 157.5,
+  'Mid Off': 202.5, 'Long Off': 202.5,
+  Cover: 247.5, 'Deep Cover': 247.5,
+  Point: 292.5, 'Deep Point': 292.5,
+  Slip: 337.5, 'Third Man': 337.5,
 };
 
-const isDeepZone = (area: string) => (DEEP_ZONE_NAMES as readonly string[]).includes(area);
+// Half-width kept a little inside the true 22.5° wedge edge so a shot never
+// visually crosses into the neighboring named area.
+const WEDGE_HALF_SPREAD = 18;
 
-const getDistanceForArea = (area: string, runs: number): number => {
-  if (!isDeepZone(area)) return 18 + runs * 6; // infield shot, ~24-36m
-  return runs >= 6 ? 88 : 65; // aerial six vs. along-the-ground boundary
+const getRandomAngleForArea = (area: string): number => {
+  const center = AREA_WEDGE_CENTER[area] ?? 0;
+  const offset = (Math.random() * 2 - 1) * WEDGE_HALF_SPREAD;
+  return (center + offset + 360) % 360;
 };
+
+// Distance is driven by runs, not by the area's inner/deep label — a six is
+// a six regardless of which named wedge it was hit through.
+// Must match `boundaryRadius` (65m) in WagonWheelModal.tsx, where the
+// boundary rope is actually drawn.
+const BOUNDARY_ROPE_DISTANCE = 65;
+
+const getRandomDistanceForRuns = (runs: number): number => {
+  // Every four/six reaches the same rope — only the angle should vary,
+  // so distance is fixed here, not randomized.
+  if (runs >= 6) return BOUNDARY_ROPE_DISTANCE + 5; // cleared the rope
+  if (runs === 4) return BOUNDARY_ROPE_DISTANCE; // reaches exactly the rope
+  if (runs >= 1) {
+    // Outside the 30-yard circle (~27m) but well short of the boundary,
+    // nudged a little further out the more runs were taken.
+    const min = 26 + runs * 2;
+    return randomBetween(min, min + 12);
+  }
+  return 15; // dot ball — not animated, distance is nominal
+};
+
+const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
 
 const describeShot = (area: string, runs: number): string => {
   if (runs >= 6) return `Six over ${area}`;
   if (runs === 4) return `Four through ${area}`;
   if (runs === 1) return `Single to ${area}`;
-  return `${runs} run${runs > 1 ? 's' : ''} to ${area}`;
+  if (runs === 0) return `Dot ball to ${area}`;
+  return `${runs} runs to ${area}`;
 };
 
 /**
@@ -99,15 +139,15 @@ export const buildWagonWheelDataFromScorerBalls = (
   theme: string = 'dark'
 ): WagonWheelData => {
   const shots: WagonWheelShot[] = balls.map((b) => {
-    const baseAngle = AREA_ANGLE_MAP[b.area] ?? 0;
-    const angle = b.battingHand === 'LHB' ? (360 - baseAngle) % 360 : baseAngle;
+    const rawAngle = getRandomAngleForArea(b.area);
+    const angle = b.battingHand === 'LHB' ? (360 - rawAngle) % 360 : rawAngle;
     return {
       id: b.id,
       runs: b.runs,
       shotType: describeShot(b.area, b.runs),
       area: b.area,
       angle,
-      distance: getDistanceForArea(b.area, b.runs),
+      distance: getRandomDistanceForRuns(b.runs),
     };
   });
 
@@ -115,6 +155,7 @@ export const buildWagonWheelDataFromScorerBalls = (
     animationType: 'WAGON_WHEEL',
     theme,
     batsman,
+    battingHand: balls[0]?.battingHand || 'RHB',
     runsTotal: shots.reduce((sum, s) => sum + s.runs, 0),
     ballsTotal: balls.length,
     fours: shots.filter((s) => s.runs === 4).length,
@@ -126,21 +167,48 @@ export const buildWagonWheelDataFromScorerBalls = (
 // Static stand-in for the live scorer feed — same shape the real API
 // will send once ball-by-ball wagon-wheel data is wired in.
 export const SAMPLE_SCORER_BALLS: ScorerBallInput[] = [
-  { id: 1, over: 1, ballNumber: 1, runs: 1, area: 'Mid On', battingHand: 'RHB' },
-  { id: 2, over: 1, ballNumber: 4, runs: 1, area: 'Fine Leg', battingHand: 'RHB' },
-  { id: 3, over: 2, ballNumber: 2, runs: 2, area: 'Mid Wicket', battingHand: 'RHB' },
-  { id: 4, over: 2, ballNumber: 5, runs: 1, area: 'Cover', battingHand: 'RHB' },
-  { id: 5, over: 3, ballNumber: 1, runs: 2, area: 'Point', battingHand: 'RHB' },
-  { id: 6, over: 4, ballNumber: 3, runs: 4, area: 'Deep Point', battingHand: 'RHB' },
-  { id: 7, over: 5, ballNumber: 2, runs: 4, area: 'Deep Cover', battingHand: 'RHB' },
-  { id: 8, over: 6, ballNumber: 6, runs: 4, area: 'Long On', battingHand: 'RHB' },
-  { id: 9, over: 7, ballNumber: 4, runs: 4, area: 'Deep Mid Wicket', battingHand: 'RHB' },
-  { id: 10, over: 8, ballNumber: 1, runs: 4, area: 'Deep Fine Leg', battingHand: 'RHB' },
-  { id: 11, over: 9, ballNumber: 3, runs: 4, area: 'Long Off', battingHand: 'RHB' },
-  { id: 12, over: 10, ballNumber: 5, runs: 6, area: 'Long On', battingHand: 'RHB' },
-  { id: 13, over: 11, ballNumber: 2, runs: 6, area: 'Deep Mid Wicket', battingHand: 'RHB' },
-  { id: 14, over: 12, ballNumber: 4, runs: 6, area: 'Third Man', battingHand: 'RHB' },
-  { id: 15, over: 13, ballNumber: 6, runs: 6, area: 'Long Off', battingHand: 'RHB' },
+  { id: 1, over: 1, ballNumber: 1, runs: 0, area: 'Cover', battingHand: 'RHB' },
+  { id: 2, over: 1, ballNumber: 2, runs: 1, area: 'Mid On', battingHand: 'RHB' },
+  { id: 3, over: 1, ballNumber: 4, runs: 1, area: 'Fine Leg', battingHand: 'RHB' },
+  { id: 4, over: 1, ballNumber: 6, runs: 2, area: 'Point', battingHand: 'RHB' },
+  { id: 5, over: 2, ballNumber: 1, runs: 0, area: 'Mid Off', battingHand: 'RHB' },
+  { id: 6, over: 2, ballNumber: 2, runs: 2, area: 'Mid Wicket', battingHand: 'RHB' },
+  { id: 7, over: 2, ballNumber: 5, runs: 1, area: 'Cover', battingHand: 'RHB' },
+  { id: 8, over: 3, ballNumber: 1, runs: 2, area: 'Point', battingHand: 'RHB' },
+  { id: 9, over: 3, ballNumber: 3, runs: 1, area: 'Slip', battingHand: 'RHB' },
+  { id: 10, over: 3, ballNumber: 6, runs: 4, area: 'Deep Cover', battingHand: 'RHB' },
+  { id: 11, over: 4, ballNumber: 2, runs: 1, area: 'Square Leg', battingHand: 'RHB' },
+  { id: 12, over: 4, ballNumber: 3, runs: 4, area: 'Deep Point', battingHand: 'RHB' },
+  { id: 13, over: 4, ballNumber: 5, runs: 3, area: 'Deep Square Leg', battingHand: 'RHB' },
+  { id: 14, over: 5, ballNumber: 1, runs: 1, area: 'Mid On', battingHand: 'RHB' },
+  { id: 15, over: 5, ballNumber: 2, runs: 4, area: 'Deep Cover', battingHand: 'RHB' },
+  { id: 16, over: 5, ballNumber: 4, runs: 0, area: 'Mid Wicket', battingHand: 'RHB' },
+  { id: 17, over: 6, ballNumber: 1, runs: 2, area: 'Fine Leg', battingHand: 'RHB' },
+  { id: 18, over: 6, ballNumber: 6, runs: 4, area: 'Long On', battingHand: 'RHB' },
+  { id: 19, over: 7, ballNumber: 2, runs: 1, area: 'Point', battingHand: 'RHB' },
+  { id: 20, over: 7, ballNumber: 4, runs: 4, area: 'Deep Mid Wicket', battingHand: 'RHB' },
+  { id: 21, over: 8, ballNumber: 1, runs: 4, area: 'Deep Fine Leg', battingHand: 'RHB' },
+  { id: 22, over: 8, ballNumber: 3, runs: 1, area: 'Cover', battingHand: 'RHB' },
+  { id: 23, over: 8, ballNumber: 5, runs: 2, area: 'Mid On', battingHand: 'RHB' },
+  { id: 24, over: 9, ballNumber: 3, runs: 4, area: 'Long Off', battingHand: 'RHB' },
+  { id: 25, over: 9, ballNumber: 6, runs: 1, area: 'Square Leg', battingHand: 'RHB' },
+  { id: 26, over: 10, ballNumber: 2, runs: 4, area: 'Deep Square Leg', battingHand: 'RHB' },
+  { id: 27, over: 10, ballNumber: 5, runs: 6, area: 'Long On', battingHand: 'RHB' },
+  { id: 28, over: 11, ballNumber: 1, runs: 0, area: 'Slip', battingHand: 'RHB' },
+  { id: 29, over: 11, ballNumber: 2, runs: 6, area: 'Deep Mid Wicket', battingHand: 'RHB' },
+  { id: 30, over: 11, ballNumber: 4, runs: 2, area: 'Third Man', battingHand: 'RHB' },
+  { id: 31, over: 12, ballNumber: 3, runs: 4, area: 'Deep Fine Leg', battingHand: 'RHB' },
+  { id: 32, over: 12, ballNumber: 4, runs: 6, area: 'Third Man', battingHand: 'RHB' },
+  { id: 33, over: 12, ballNumber: 6, runs: 1, area: 'Mid Off', battingHand: 'RHB' },
+  { id: 34, over: 13, ballNumber: 2, runs: 4, area: 'Deep Point', battingHand: 'RHB' },
+  { id: 35, over: 13, ballNumber: 5, runs: 3, area: 'Fine Leg', battingHand: 'RHB' },
+  { id: 36, over: 13, ballNumber: 6, runs: 6, area: 'Long Off', battingHand: 'RHB' },
+  { id: 37, over: 14, ballNumber: 1, runs: 1, area: 'Mid Wicket', battingHand: 'RHB' },
+  { id: 38, over: 14, ballNumber: 3, runs: 4, area: 'Deep Cover', battingHand: 'RHB' },
+  { id: 39, over: 14, ballNumber: 5, runs: 6, area: 'Long On', battingHand: 'RHB' },
+  { id: 40, over: 15, ballNumber: 2, runs: 2, area: 'Point', battingHand: 'RHB' },
+  { id: 41, over: 15, ballNumber: 4, runs: 4, area: 'Deep Square Leg', battingHand: 'RHB' },
+  { id: 42, over: 15, ballNumber: 6, runs: 1, area: 'Cover', battingHand: 'RHB' },
 ];
 
 export const SAMPLE_WAGON_WHEEL_DATA: WagonWheelData = buildWagonWheelDataFromScorerBalls(

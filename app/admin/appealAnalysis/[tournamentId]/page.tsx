@@ -30,7 +30,12 @@ export default function AppealAnalysisPage() {
 
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [appeals, setAppeals] = useState<any[]>([]);
+  // The scoring backend identifies tournaments by its own id, not the
+  // association's — resolved once from the tournament record and reused
+  // for every subsequent appeal-analysis fetch (e.g. after posting a comment).
+  const [externalTournamentId, setExternalTournamentId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<any>(null);
   const [newComment, setNewComment] = useState("");
@@ -64,27 +69,70 @@ export default function AppealAnalysisPage() {
 
   const currentUserName = user?.name || "Unknown";
 
-  useEffect(() => {
-    fetchAppealData();
-  }, [tournamentId]);
-
-  const fetchAppealData = async () => {
+  // Fetches appeal analysis from the scoring backend for an already-resolved
+  // scoring tournament id. `cache: 'no-store'` skips the browser's conditional
+  // (304) revalidation path entirely, so this always gets a fresh 200 + body.
+  const fetchAppealData = async (scoringTournamentId: string) => {
     try {
       setLoading(true);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentId}/appeal-analysis`, {
-        headers: { "ngrok-skip-browser-warning": "true" },
-      });
+      setLoadError(null);
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${scoringTournamentId}/appeal-analysis`,
+        {
+          headers: { "ngrok-skip-browser-warning": "true" },
+          cache: "no-store",
+        }
+      );
+      if (!res.ok) throw new Error(`Failed to fetch appeal analysis (HTTP ${res.status})`);
       const json = await res.json();
-      console.log("Fetched appeal analysis data:", json);
-      if (json.success) {
-        setAppeals(json.data || []);
-      }
-    } catch (err) {
+      if (!json.success) throw new Error(json.message || "Appeal analysis request was not successful");
+      setAppeals(json.data || []);
+    } catch (err: any) {
       console.error("Failed to fetch appeal analysis:", err);
+      setLoadError(err.message || "Failed to load appeal analysis");
     } finally {
       setLoading(false);
     }
   };
+
+  // Single orchestrated loader: resolve the association tournament id to the
+  // scoring backend's own id, then fetch the analysis for it. Kept as one
+  // flow (not two chained effects) so there's no race and one place to retry.
+  //
+  // The singular GET /tournaments/{id} endpoint doesn't return
+  // externalTournamentId, so it's looked up from the operator-tournaments
+  // list instead (same endpoint the tournament grid already uses), which
+  // does include it per tournament.
+  const loadTournamentAndAppeals = async () => {
+    if (!tournamentId) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/operator-tournaments`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`Failed to fetch tournaments (HTTP ${res.status})`);
+      const tournaments = await res.json();
+      const list = Array.isArray(tournaments) ? tournaments : tournaments?.tournaments || [];
+      const matchedTournament = list.find((t: any) => t.id === tournamentId);
+      const scoringTournamentId = matchedTournament?.externalTournamentId;
+      if (!scoringTournamentId) throw new Error("This tournament has no linked scoring tournament id");
+
+      setExternalTournamentId(scoringTournamentId);
+      await fetchAppealData(scoringTournamentId);
+    } catch (err: any) {
+      console.error("Failed to resolve scoring tournament id:", err);
+      setLoadError(err.message || "Failed to load tournament");
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTournamentAndAppeals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournamentId]);
 
   const handleExport = () => {
     setExporting(true);
@@ -139,7 +187,7 @@ export default function AppealAnalysisPage() {
         );
 
         setNewComment("");
-        fetchAppealData();
+        if (externalTournamentId) fetchAppealData(externalTournamentId);
       } else {
         alert(json.message || "Failed to post comment");
       }
@@ -308,6 +356,16 @@ export default function AppealAnalysisPage() {
           <div className="flex items-center justify-center p-12 text-slate-400 gap-2">
             <Loader2 className="w-5 h-5 animate-spin" />
             <span>Loading appeals data...</span>
+          </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center justify-center p-12 text-slate-500 gap-3">
+            <p className="text-sm font-medium text-red-600">{loadError}</p>
+            <button
+              onClick={loadTournamentAndAppeals}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold cursor-pointer"
+            >
+              Retry
+            </button>
           </div>
         ) : filteredAppeals.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-12 text-slate-400 gap-2">
