@@ -1,6 +1,6 @@
 "use client"
 import React, { useState, useEffect } from 'react'
-import { Users, Shield, RefreshCw, UserPlus } from 'lucide-react'
+import { Users, Shield, RefreshCw, UserPlus, Search } from 'lucide-react'
 import StatusModal from '@/app/components/auth/StatusModal'
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input'
 import 'react-phone-number-input/style.css'
@@ -63,6 +63,11 @@ const initialRegisterForm = {
 
 const ActivePlayers = () => {
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQueryRaw] = useState('');
+  const setSearchQuery = (value: string) => {
+    setSearchQueryRaw(value);
+    setCurrentPage(1);
+  };
   const [activeModal, setActiveModal] = useState<ActiveModal>(null);
 
   // API Data States
@@ -101,16 +106,27 @@ const ActivePlayers = () => {
 
   // Fetch players and seasons on mount
   useEffect(() => {
-    fetchPlayers();
     fetchAllPlayersForModal();
     fetchSeasons();
     fetchDistricts();
     fetchClubs();
   }, [currentPage]);
 
+  // Debounced so it doesn't fire on every keystroke, and re-runs whenever the
+  // page or the search text changes.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      fetchPlayers();
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPage, searchQuery]);
+
   const fetchPlayers = async () => {
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/kca/players?page=${currentPage}&limit=7`,
+      const params = new URLSearchParams({ page: String(currentPage), limit: '7' });
+      if (searchQuery.trim()) params.set('search', searchQuery.trim());
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/kca/players?${params.toString()}`,
       {
         headers: {
           "ngrok-skip-browser-warning": "true"
@@ -457,9 +473,21 @@ const ActivePlayers = () => {
       <div className="bg-white border border-gray-100 rounded-3xl shadow-sm p-6 md:p-8">
 
         {/* Header Title */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-xl font-bold text-gray-900">Recent Registration</h1>
-          <span className="text-sm font-semibold text-[#4B70C3] cursor-pointer hover:underline">View all</span>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-6">
+          <h1 className="text-xl font-bold text-gray-900 w-full sm:w-auto">Recent Registration</h1>
+          <div className="flex items-center gap-4 w-full sm:w-auto">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search player by name"
+                className="w-full pl-9 pr-4 py-2 bg-[#FAFBFF] border border-gray-100 rounded-xl text-sm outline-none focus:border-[#4B70C3] text-gray-700"
+              />
+            </div>
+            <span className="text-sm font-semibold text-[#4B70C3] cursor-pointer hover:underline whitespace-nowrap">View all</span>
+          </div>
         </div>
 
         {/* Table wrapper */}
@@ -521,6 +549,7 @@ const ActivePlayers = () => {
                       <div className="flex items-center justify-end gap-3 text-xs font-semibold">
                         <button
                           onClick={() => {
+                            setSelectedPlayer(player);
                             if (activeSeasons.length > 0) setSelectedSeason(activeSeasons[0].id);
                             setActiveModal('season');
                           }}
@@ -531,6 +560,7 @@ const ActivePlayers = () => {
                         <span className="text-gray-200">|</span>
                         <button
                           onClick={() => {
+                            setSelectedPlayer(player);
                             if (activeSeasons.length > 0) setSelectedSeason(activeSeasons[0].id);
                             setActiveModal('guest');
                           }}
@@ -541,6 +571,7 @@ const ActivePlayers = () => {
                         <span className="text-gray-200">|</span>
                         <button
                           onClick={() => {
+                            setSelectedPlayer(player);
                             if (activeSeasons.length > 0) setSelectedSeason(activeSeasons[0].id);
                             setActiveModal('transfer');
                           }}

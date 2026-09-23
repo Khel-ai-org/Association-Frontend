@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Pencil, ChevronDown, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import StatusModal from './StatusModal';
 
 // RBAC role, chosen here during profile setup (not at registration). ADMIN
 // means "I'm registering my own Association" (approved by the Business
@@ -54,6 +55,9 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const roleDropdownRef = useRef<HTMLDivElement>(null);
+  // Shown when the entered Association Admin's email doesn't match any real
+  // Association account.
+  const [showAssociationNotFound, setShowAssociationNotFound] = useState(false);
 
   // --- Toast Logic ---
   const [toast, setToast] = useState<{ show: boolean; message: string; type: 'success' | 'error' }>({
@@ -231,7 +235,29 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
           onPendingApproval(savedUser.role);
         }
       } else {
-        triggerToast(result.message || "Update failed", "error");
+        // The backend sends this as a code-like string (e.g.
+        // "ASSOCIATION_ADMIN_NOT_FOUND") in either `code` or `message`, with
+        // underscores rather than spaces — normalize both so the check
+        // doesn't depend on exactly which field/casing/separator is used.
+        const normalize = (v: unknown) =>
+          typeof v === 'string' ? v.toUpperCase().replace(/\s+/g, '_') : '';
+        const normalizedCode = normalize(result.code);
+        const normalizedMessage = normalize(result.message);
+        const isAssociationNotFound =
+          formData.role !== UserRole.ADMIN &&
+          [normalizedCode, normalizedMessage].some(
+            (v) =>
+              v.includes('ASSOCIATION_ADMIN_NOT_FOUND') ||
+              v.includes('ASSOCIATION_NOT_FOUND') ||
+              (v.includes('ASSOCIATION') && v.includes('NOT_FOUND'))
+          );
+
+        if (isAssociationNotFound) {
+          setErrors((prev) => ({ ...prev, associationAdminEmail: "Association email not found" }));
+          setShowAssociationNotFound(true);
+        } else {
+          triggerToast(result.message || "Update failed", "error");
+        }
       }
     } catch (error) {
       console.error("Submit error:", error);
@@ -417,6 +443,14 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
           box-shadow: 0 0 0 2px #EEF2FF;
         }
       `}</style>
+
+      <StatusModal
+        isOpen={showAssociationNotFound}
+        onClose={() => setShowAssociationNotFound(false)}
+        type="error"
+        title="Association Email Not Found"
+        message="Please enter the correct Association email."
+      />
     </div>
   );
 }

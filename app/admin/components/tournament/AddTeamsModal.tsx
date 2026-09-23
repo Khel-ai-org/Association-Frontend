@@ -121,14 +121,18 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
   };
 
   const handleSubmit = async () => {
-    const manualPayload = manualRows
-      .map((n) => n.trim())
-      .filter(Boolean)
-      .map((name) => ({ name, short_name: name.substring(0, 3).toUpperCase() }));
-    const existingPayload = selectedTeamIds.map((team_id) => ({ team_id }));
+    // Manually-typed rows and imported rows both land in manualRows already;
+    // "Select Teams" picks existing teams by id, so resolve those back to
+    // their names too — this endpoint takes team names only, not ids.
+    const manualNames = manualRows.map((n) => n.trim()).filter(Boolean);
+    const selectedNames = selectedTeamIds
+      .map((id) => existingTeams.find((t) => t.id === id)?.name)
+      .filter((name): name is string => !!name);
 
-    const payload = [...existingPayload, ...manualPayload];
-    if (payload.length === 0) {
+    // De-dupe in case the same team was both typed manually and selected.
+    const teamNames = Array.from(new Set([...selectedNames, ...manualNames]));
+
+    if (teamNames.length === 0) {
       setError('Add or select at least one team before submitting.');
       return;
     }
@@ -141,11 +145,11 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
     setError('');
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentExternalId}/teams/bulk`,
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentExternalId}/teams`,
         {
           method: 'POST',
           headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ team_names: teamNames }),
         }
       );
 
