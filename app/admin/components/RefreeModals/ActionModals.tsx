@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, Search, Trash2, Eye, Edit2, Play, ChevronDown, Send, Loader2, RotateCcw } from 'lucide-react';
-import { uploadCocVideoPipeline, formatFileSize, CocVideoItem } from '@/lib/cocVideoService';
+import { uploadCocVideoPipeline, formatFileSize, CocVideoItem, deleteCocVideoClip } from '@/lib/cocVideoService';
 import { fetchBallDetails, flattenBallVideos, FlattenedBallVideo } from '@/lib/ballDetailsService';
 
 interface RefereeActionModalProps {
@@ -256,6 +256,29 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     setPreviewVideoUrl(video.url);
     setPreviewVideoTitle(`${video.tag} · ${video.clipLabel}`);
     setIsVideoPreviewOpen(true);
+  };
+
+  const [deletingClipKeys, setDeletingClipKeys] = useState<Set<string>>(new Set());
+
+  const handleDeleteServerVideo = async (video: FlattenedBallVideo) => {
+    if (!matchId) return;
+    const confirmed = window.confirm(`Delete ${video.tag} · ${video.clipLabel}? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingClipKeys(prev => new Set(prev).add(video.key));
+    try {
+      await deleteCocVideoClip(matchId, video.recordId, video.clipLabel);
+      await loadBallVideos();
+    } catch (err: any) {
+      console.error('[delete video error]', err);
+      setVideosLoadError(err.message || 'Failed to delete video');
+    } finally {
+      setDeletingClipKeys(prev => {
+        const next = new Set(prev);
+        next.delete(video.key);
+        return next;
+      });
+    }
   };
 
   // Prefill data if available from ballInfo
@@ -1720,14 +1743,29 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                           </span>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button
-                            title="View Video"
-                            onClick={() => sv.url && handleOpenServerPreview(sv)}
-                            disabled={!sv.url}
-                            className="p-1.5 text-black hover:text-blue-600 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                          >
-                            <Eye size={15} />
-                          </button>
+                          <div className="flex items-center justify-center gap-2">
+                            {deletingClipKeys.has(sv.key) ? (
+                              <Loader2 size={15} className="animate-spin text-slate-400" />
+                            ) : (
+                              <>
+                                <button
+                                  title="Delete Video"
+                                  onClick={() => handleDeleteServerVideo(sv)}
+                                  className="p-1.5 text-black hover:text-red-500 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                                <button
+                                  title="View Video"
+                                  onClick={() => sv.url && handleOpenServerPreview(sv)}
+                                  disabled={!sv.url}
+                                  className="p-1.5 text-black hover:text-blue-600 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                >
+                                  <Eye size={15} />
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

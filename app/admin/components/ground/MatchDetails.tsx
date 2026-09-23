@@ -2,13 +2,14 @@
  "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2, User, Check, PieChart, Play } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2, User, Check, Play, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 // Import all separate modal components
 import { AddCommentModal, MrJudgementModal } from '../RefreeModals/AddComments'; 
 import { RefereeActionModal } from '../RefreeModals/ActionModals'; // <-- Import the 5-tab referee action modal
 import { WagonWheelModal } from './WagonWheelModal';
+import { buildWagonWheelDataFromApiResponse, WagonWheelApiResponse, WagonWheelData } from '@/lib/sampleWagonWheel';
 
 interface MatchAnalysisProps {
   matchId: string;
@@ -128,6 +129,36 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [isBatsmanDropdownOpen, setIsBatsmanDropdownOpen] = useState<boolean>(false);
   const batsmanDropdownRef = useRef<HTMLDivElement>(null);
   const [isWagonWheelOpen, setIsWagonWheelOpen] = useState<boolean>(false);
+  const [isWagonWheelLoading, setIsWagonWheelLoading] = useState<boolean>(false);
+  const [wagonWheelData, setWagonWheelData] = useState<WagonWheelData | null>(null);
+  const [wagonWheelError, setWagonWheelError] = useState<string>("");
+
+  // Fetches this batsman's real wagon-wheel data and only opens the modal
+  // once it's ready — opening first and fetching in parallel would let the
+  // 3D scene's one-time auto-play animation start (and finish) on stale
+  // sample data before the real response arrives.
+  const handleOpenWagonWheel = async () => {
+    if (!matchData?.scoring_match_id || !selectedBatsman) return;
+    setWagonWheelError("");
+    setIsWagonWheelLoading(true);
+    try {
+      const innNum = activeInnings === '1st' ? 1 : 2;
+      const url = `${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/wagon-wheel?name=${encodeURIComponent(selectedBatsman)}&innings=${innNum}`;
+      const res = await fetch(url, { headers: { "ngrok-skip-browser-warning": "true" } });
+      if (!res.ok) throw new Error(`Failed to load wagon wheel (HTTP ${res.status})`);
+      const json = await res.json();
+      console.log('[WagonWheel] Raw response for', selectedBatsman, ':', json);
+      // Response is wrapped in { status, data: {...} } — unwrap it.
+      const payload: WagonWheelApiResponse = json?.data ?? json;
+      setWagonWheelData(buildWagonWheelDataFromApiResponse(payload));
+      setIsWagonWheelOpen(true);
+    } catch (err: any) {
+      console.error('[WagonWheel] Failed to load:', err);
+      setWagonWheelError(err.message || 'Failed to load wagon wheel data');
+    } finally {
+      setIsWagonWheelLoading(false);
+    }
+  };
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -254,29 +285,34 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     getAppeals();
   }, [matchData, activeInnings]);
 
+  // Pulled out of the effect so it can also be re-run on demand (e.g. when
+  // the referee action modal closes after a video upload), not just when
+  // activeTab/matchData change.
+  const fetchCocCases = async () => {
+    if (activeTab === 'referee' && matchData?.scoring_match_id) {
+      setIsCocLoading(true);
+      try {
+        const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/coc`, {
+          headers: { "ngrok-skip-browser-warning": "true" }
+        });
+        if (!res.ok) throw new Error("Failed to fetch CoC cases");
+        const data = await res.json();
+        console.log("Fetched CoC Cases:", data);
+        if (data && Array.isArray(data.coc_cases)) {
+          setCocCases(data.coc_cases);
+        }
+      } catch (err) {
+        console.error("Error fetching CoC actions:", err);
+      } finally {
+        setIsCocLoading(false);
+      }
+    }
+  };
+
   // Fetch CoC Cases when activeTab is referee and matchData is available
   useEffect(() => {
-    const fetchCocCases = async () => {
-      if (activeTab === 'referee' && matchData?.scoring_match_id) {
-        setIsCocLoading(true);
-        try {
-          const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/coc`, {
-            headers: { "ngrok-skip-browser-warning": "true" }
-          });
-          if (!res.ok) throw new Error("Failed to fetch CoC cases");
-          const data = await res.json();
-          console.log("Fetched CoC Cases:", data);
-          if (data && Array.isArray(data.coc_cases)) {
-            setCocCases(data.coc_cases);
-          }
-        } catch (err) {
-          console.error("Error fetching CoC actions:", err);
-        } finally {
-          setIsCocLoading(false);
-        }
-      }
-    };
     fetchCocCases();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, matchData, SCORING_API_BASE]);
 
   useEffect(() => {
@@ -953,12 +989,31 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             {/* Wagon Wheel Button */}
             <button
               type="button"
-              onClick={() => setIsWagonWheelOpen(true)}
-              className="flex items-center gap-2 px-3 md:px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-lg text-sm font-semibold text-slate-800 transition-colors shadow-2xs cursor-pointer"
+              onClick={handleOpenWagonWheel}
+              disabled={!selectedBatsman || isWagonWheelLoading}
+              title={!selectedBatsman ? 'Select a batsman first' : undefined}
+              className="flex items-center gap-2 px-3 md:px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-lg text-sm font-semibold text-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <PieChart className="w-4 h-4 text-indigo-600" />
-              <span>Wagon Wheel</span>
+              {isWagonWheelLoading ? (
+                <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+              ) : (
+                <svg
+                  viewBox="0 0 723 723"
+                  fill="none"
+                  className="w-4 h-4 text-indigo-600"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="M658.899 156.541C654.477 150.124 645.693 148.508 639.274 152.926C632.857 157.347 631.239 166.133 635.659 172.551C673.973 228.171 694.226 293.412 694.226 361.224C694.226 450.172 659.588 533.797 596.691 596.692C533.796 659.589 450.171 694.226 361.223 694.226C272.274 694.226 188.649 659.589 125.754 596.692C62.8576 533.797 28.2196 450.172 28.2196 361.224C28.2196 272.275 62.8576 188.65 125.754 125.755C188.649 62.8585 272.274 28.2206 361.223 28.2206C429.017 28.2206 494.247 48.4646 549.86 86.7642C556.276 91.1821 565.063 89.5637 569.485 83.1463C573.904 76.7275 572.284 67.9425 565.867 63.5217C505.524 21.9655 434.758 0 361.223 0C264.736 0 174.026 37.5729 105.798 105.8C37.5733 174.027 -0.000976562 264.737 -0.000976562 361.224C-0.000976562 457.71 37.5733 548.421 105.798 616.647C174.026 684.874 264.736 722.447 361.223 722.447C457.709 722.447 548.42 684.874 616.647 616.647C684.872 548.421 722.446 457.71 722.446 361.224C722.446 287.669 700.472 216.891 658.899 156.541Z" fill="currentColor" />
+                  <path d="M361.223 91.5977C254.692 91.5977 168.022 178.267 168.022 284.799V437.647C168.022 544.178 254.692 630.848 361.223 630.848C467.755 630.848 554.424 544.178 554.424 437.647V284.799C554.424 178.267 467.755 91.5977 361.223 91.5977ZM526.204 437.647C526.204 528.617 452.194 602.627 361.223 602.627C270.253 602.627 196.243 528.617 196.243 437.647V284.799C196.243 193.828 270.253 119.818 361.223 119.818C452.194 119.818 526.204 193.828 526.204 284.799V437.647Z" fill="currentColor" />
+                  <path d="M416.779 213.07H305.666C297.874 213.07 291.556 219.387 291.556 227.181V495.271C291.556 503.064 297.874 509.381 305.666 509.381H416.779C424.571 509.381 430.889 503.064 430.889 495.271V227.181C430.889 219.387 424.572 213.07 416.779 213.07ZM402.669 481.16H319.776V241.291H402.669V481.16Z" fill="currentColor" />
+                  <path d="M606.742 129.779C614.535 129.779 620.852 123.462 620.852 115.669C620.852 107.876 614.535 101.559 606.742 101.559C598.949 101.559 592.632 107.876 592.632 115.669C592.632 123.462 598.949 129.779 606.742 129.779Z" fill="currentColor" />
+                </svg>
+              )}
+              <span>{isWagonWheelLoading ? 'Loading...' : 'Wagon Wheel'}</span>
             </button>
+            {wagonWheelError && (
+              <span className="text-xs font-medium text-red-600">{wagonWheelError}</span>
+            )}
             <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100 w-full sm:w-auto">
               {['1st', '2nd'].map((inn) => (
                 <button 
@@ -1430,9 +1485,15 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       />
 
       {/* --- TAKE ACTION 5-TAB MODAL COMPONENT RENDER --- */}
-      <RefereeActionModal 
-        isOpen={isTakeActionOpen} 
-        onClose={() => setIsTakeActionOpen(false)} 
+      <RefereeActionModal
+        isOpen={isTakeActionOpen}
+        onClose={() => {
+          setIsTakeActionOpen(false);
+          // Refresh the referee actions table — any COC case/video uploaded
+          // in the modal (which doesn't share state with this component)
+          // otherwise wouldn't show up until the tab/page was reloaded.
+          fetchCocCases();
+        }}
         matchId={matchData?.scoring_match_id}
         ballInfo={selectedBallData} 
         matchData={scorecard}
@@ -1497,6 +1558,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         isOpen={isWagonWheelOpen}
         onClose={() => setIsWagonWheelOpen(false)}
         batsmanName={selectedBatsman || 'All Batsmen'}
+        data={wagonWheelData || undefined}
       />
 
     </div>

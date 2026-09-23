@@ -199,6 +199,29 @@ export async function uploadCocVideoPipeline(
 }
 
 /**
+ * Deletes a single uploaded clip (e.g. "video2") from a ball's video record.
+ * DELETE /api/v1/matches/:matchId/coc-videos/:ballVideoId/:clipKey
+ */
+export async function deleteCocVideoClip(
+  matchId: string,
+  ballVideoId: number | string,
+  clipKey: string
+): Promise<void> {
+  const baseUrl = getScoringBaseUrl();
+  const url = `${baseUrl}/api/v1/matches/${matchId}/coc-videos/${ballVideoId}/${clipKey}`;
+
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Delete video failed (HTTP ${res.status}): ${errText}`);
+  }
+}
+
+/**
  * Helper to format bytes to human readable size (KB, MB, GB)
  */
 export function formatFileSize(bytes: number): string {

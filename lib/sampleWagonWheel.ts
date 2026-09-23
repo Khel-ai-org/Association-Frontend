@@ -164,6 +164,106 @@ export const buildWagonWheelDataFromScorerBalls = (
   };
 };
 
+// Shape of GET /api/v1/matches/:id/wagon-wheel?name=...&innings=... —
+// the real scoring backend endpoint.
+export interface WagonWheelApiBall {
+  ball_id: number;
+  innings: number;
+  over_number: string;
+  batsman_runs: number;
+  is_boundary: boolean;
+  shot_type: string | null;
+  fielding_type: string | null;
+}
+
+export interface WagonWheelApiResponse {
+  match_id: string;
+  player_name: string;
+  batting_hand?: string; // e.g. "Right Handed" / "Left Handed"
+  innings_filter: number;
+  summary: {
+    total_runs: number;
+    balls_faced: number;
+    fours: number;
+    sixes: number;
+  };
+  wagon_wheel: WagonWheelApiBall[];
+}
+
+// "Right Handed"/"Left Handed" (case-insensitive) -> our internal RHB/LHB.
+// Defaults to RHB for anything else/missing, rather than guessing wrong.
+const mapBattingHand = (raw: string | undefined): 'RHB' | 'LHB' =>
+  raw?.toLowerCase().includes('left') ? 'LHB' : 'RHB';
+
+const ALL_ZONE_NAMES = new Set<string>([...DEEP_ZONE_NAMES, ...INNER_ZONE_NAMES]);
+
+// The API spells some zones with hyphens ("Mid-Off", "Mid-On") where
+// everywhere else in this app uses spaces ("Mid Off", "Long Off", ...).
+// Cleans that up and validates against our canonical 16 zones — returns
+// null (never a guess) for anything that still doesn't match, so a ball
+// we can't confidently place never gets silently mis-plotted.
+const normalizeAreaName = (raw: string | null | undefined): string | null => {
+  if (!raw) return null;
+  const cleaned = raw.replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  if (ALL_ZONE_NAMES.has(cleaned)) return cleaned;
+  console.warn(`[WagonWheel] Unrecognized field zone from API: "${raw}"`);
+  return null;
+};
+
+/**
+ * Converts the real scoring API's wagon-wheel response into the
+ * WagonWheelData shape the 3D modal renders. Batting hand now comes from
+ * the API itself (`batting_hand`); the parameter is only a fallback/override
+ * for callers that already know it from elsewhere.
+ */
+export const buildWagonWheelDataFromApiResponse = (
+  response: WagonWheelApiResponse,
+  battingHandOverride?: 'RHB' | 'LHB',
+  theme: string = 'dark'
+): WagonWheelData => {
+  if (!response || !Array.isArray(response.wagon_wheel)) {
+    console.error('[WagonWheel] Unexpected API response shape (no wagon_wheel array):', response);
+    throw new Error('Wagon wheel response is missing the expected "wagon_wheel" array');
+  }
+
+  const battingHand = battingHandOverride || mapBattingHand(response.batting_hand);
+  const shots: WagonWheelShot[] = response.wagon_wheel
+    .map((ball): WagonWheelShot | null => {
+      const area = normalizeAreaName(ball.fielding_type);
+      // No recorded field position for this ball — it still counts toward
+      // the totals (taken from response.summary below) but can't be drawn
+      // on the field since there's no zone to place it in.
+      if (!area) return null;
+
+      const rawAngle = getRandomAngleForArea(area);
+      const angle = battingHand === 'LHB' ? (360 - rawAngle) % 360 : rawAngle;
+      return {
+        id: ball.ball_id,
+        runs: ball.batsman_runs,
+        shotType: ball.shot_type ? `${ball.shot_type} to ${area}` : describeShot(area, ball.batsman_runs),
+        area,
+        angle,
+        distance: getRandomDistanceForRuns(ball.batsman_runs),
+      };
+    })
+    .filter((s): s is WagonWheelShot => s !== null);
+
+  return {
+    animationType: 'WAGON_WHEEL',
+    theme,
+    batsman: response.player_name,
+    battingHand,
+    // From the API's own summary, not recomputed from `shots` — balls with
+    // no recorded field position are excluded from `shots` but must still
+    // count toward runs/balls faced/fours/sixes.
+    runsTotal: response.summary.total_runs,
+    ballsTotal: response.summary.balls_faced,
+    fours: response.summary.fours,
+    sixes: response.summary.sixes,
+    shots,
+  };
+};
+
 // Static stand-in for the live scorer feed — same shape the real API
 // will send once ball-by-ball wagon-wheel data is wired in.
 export const SAMPLE_SCORER_BALLS: ScorerBallInput[] = [
