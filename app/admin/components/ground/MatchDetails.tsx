@@ -15,6 +15,10 @@ interface MatchAnalysisProps {
   matchId: string;
   externalActiveTab?: 'details' | 'referee';
   onTabChange?: (tab: 'details' | 'referee') => void;
+  // The scorecard response carries no status field of its own — the Matches
+  // list already knows the live match's status (from the fixture's nested
+  // `match.status`), so it's passed through here instead of guessed at.
+  initialStatus?: string;
 }
 
 interface Appeal {
@@ -65,7 +69,8 @@ interface CocCase {
   description: string | null;
   created_at: string;
   updated_at: string;
-  over_number?: string;
+  
+over_number?: string;
   videos?: CocCaseVideo[];
 }
 
@@ -101,7 +106,7 @@ const flattenCocVideos = (videos: CocCaseVideo[] | undefined): FlattenedCocClip[
 
 
 
-const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTab, onTabChange }) => {
+const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTab, onTabChange, initialStatus }) => {
   const [internalTab, setInternalTab] = useState<'details' | 'referee'>('details');
   const activeTab = externalActiveTab !== undefined ? externalActiveTab : internalTab;
   const setActiveTab = (tab: 'details' | 'referee') => {
@@ -113,7 +118,6 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const [isViewMore, setIsViewMore] = useState(false);
   const [activeInnings, setActiveInnings] = useState<'1st' | '2nd'>('1st');
-  const [matchData, setMatchData] = useState<any>(null);
   const [scorecard, setScorecard] = useState<any>(null);
   const [appeals, setAppeals] = useState<AppealData | null>(null);
   const [inningBalls, setInningBalls] = useState<any[]>([]);
@@ -138,12 +142,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   // 3D scene's one-time auto-play animation start (and finish) on stale
   // sample data before the real response arrives.
   const handleOpenWagonWheel = async () => {
-    if (!matchData?.scoring_match_id || !selectedBatsman) return;
+    if (!matchId || !selectedBatsman) return;
     setWagonWheelError("");
     setIsWagonWheelLoading(true);
     try {
       const innNum = activeInnings === '1st' ? 1 : 2;
-      const url = `${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/wagon-wheel?name=${encodeURIComponent(selectedBatsman)}&innings=${innNum}`;
+      const url = `${SCORING_API_BASE}/api/v1/matches/${matchId}/wagon-wheel?name=${encodeURIComponent(selectedBatsman)}&innings=${innNum}`;
       const res = await fetch(url, { headers: { "ngrok-skip-browser-warning": "true" } });
       if (!res.ok) throw new Error(`Failed to load wagon wheel (HTTP ${res.status})`);
       const json = await res.json();
@@ -254,10 +258,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const SCORING_API_BASE = process.env.NEXT_PUBLIC_SCORING_API_URL || "http://localhost:5500/api/v1";
 
   const fetchAppeals = async () => {
-    if (!matchData?.scoring_match_id) return;
+    if (!matchId) return;
     const innNum = activeInnings === '1st' ? 1 : 2;
     try {
-      const url = `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchData.scoring_match_id}/appeals?innings=${innNum}`;
+      const url = `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchId}/appeals?innings=${innNum}`;
       const response = await fetch(url, {
         method: 'GET',
         headers: {
@@ -278,61 +282,56 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   useEffect(() => {
     const getAppeals = async () => {
-      if (!matchData?.scoring_match_id) return;
+      if (!matchId) return;
       const data = await fetchAppeals();
       setAppeals(data);
     };
     getAppeals();
-  }, [matchData, activeInnings]);
+  }, [matchId, activeInnings]);
 
-  // Pulled out of the effect so it can also be re-run on demand (e.g. when
-  // the referee action modal closes after a video upload), not just when
-  // activeTab/matchData change.
-  const fetchCocCases = async () => {
-    if (activeTab === 'referee' && matchData?.scoring_match_id) {
-      setIsCocLoading(true);
-      try {
-        const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/coc`, {
-          headers: { "ngrok-skip-browser-warning": "true" }
-        });
-        if (!res.ok) throw new Error("Failed to fetch CoC cases");
-        const data = await res.json();
-        console.log("Fetched CoC Cases:", data);
-        if (data && Array.isArray(data.coc_cases)) {
-          setCocCases(data.coc_cases);
-        }
-      } catch (err) {
-        console.error("Error fetching CoC actions:", err);
-      } finally {
-        setIsCocLoading(false);
-      }
-    }
-  };
-
-  // Fetch CoC Cases when activeTab is referee and matchData is available
+  // Fetch CoC Cases when activeTab is referee
   useEffect(() => {
-    fetchCocCases();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, matchData, SCORING_API_BASE]);
-
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        setLoading(true);
-        const mRes = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/matches/${matchId}`, { credentials: 'include' });
-        const associationData = await mRes.json();
-        setMatchData(associationData);
-
-        if (associationData?.scoring_match_id) {
-          const sRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${associationData.scoring_match_id}/scorecard`, {
+    const fetchCocCases = async () => {
+      if (activeTab === 'referee' && matchId) {
+        setIsCocLoading(true);
+        try {
+          const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/coc`, {
             headers: { "ngrok-skip-browser-warning": "true" }
           });
-          
-          if (sRes.ok) {
-            const scDataArray = await sRes.json();
-            if (Array.isArray(scDataArray) && scDataArray.length > 0) {
-              setScorecard(scDataArray[0]);
-            }
+          if (!res.ok) throw new Error("Failed to fetch CoC cases");
+          const data = await res.json();
+          console.log("Fetched CoC Cases:", data);
+          if (data && Array.isArray(data.coc_cases)) {
+            setCocCases(data.coc_cases);
+          }
+        } catch (err) {
+          console.error("Error fetching CoC actions:", err);
+        } finally {
+          setIsCocLoading(false);
+        }
+      }
+    };
+    fetchCocCases();
+  }, [activeTab, matchId, SCORING_API_BASE]);
+
+  // `matchId` (from the URL) is already the scoring service's own match id —
+  // no need to resolve it via the core backend first, fetch the scorecard
+  // directly.
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      if (!matchId) return;
+      try {
+        setLoading(true);
+        const sRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/scorecard`, {
+          headers: { "ngrok-skip-browser-warning": "true" }
+        });
+        
+
+        if (sRes.ok) {
+          const scDataArray = await sRes.json();
+          console.log("Fetched Scorecard Data:", scDataArray);
+          if (Array.isArray(scDataArray) && scDataArray.length > 0) {
+            setScorecard(scDataArray[0]);
           }
         }
       } catch (err) {
@@ -346,10 +345,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   useEffect(() => {
     const fetchBalls = async () => {
-      if (!matchData?.scoring_match_id) return;
+      if (!matchId) return;
       const innNum = activeInnings === '1st' ? 1 : 2;
       try {
-        const bRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchData.scoring_match_id}/innings/${innNum}/balls`, {
+        const bRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/innings/${innNum}/balls`, {
           method: 'GET',
           headers: {
             "ngrok-skip-browser-warning": "true",
@@ -370,7 +369,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       }
     };
     fetchBalls();
-  }, [activeInnings, matchData, SCORING_API_BASE]);
+  }, [activeInnings, matchId, SCORING_API_BASE]);
 
   const topBatsmen = useMemo(() => {
     const targetInning = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
@@ -596,14 +595,18 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     return { label, bgColor };
   };
 
+  // The scorecard response itself carries no status field, so fall back to
+  // whatever the Matches list already knew (the fixture's nested live-match
+  // status), passed in as `initialStatus` — not a client-side date guess.
   const status = useMemo(() => {
-    if (!matchData?.date) return { text: "N/A", color: "bg-slate-400" };
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const mDate = new Date(matchData.date); mDate.setHours(0, 0, 0, 0);
-    if (mDate.getTime() === today.getTime()) return { text: "LIVE", color: "bg-red-600" };
-    if (mDate.getTime() > today.getTime()) return { text: "UPCOMING", color: "bg-blue-600" };
-    return { text: "FINISHED", color: "bg-green-500" };
-  }, [matchData]);
+    const liveStatus = scorecard?.status || initialStatus;
+    if (!liveStatus) return { text: "N/A", color: "bg-slate-400" };
+    const normalized = liveStatus.toString().toLowerCase();
+    if (normalized === 'in_progress' || normalized === 'live') return { text: "LIVE", color: "bg-red-600" };
+    if (normalized === 'completed' || normalized === 'finished') return { text: "FINISHED", color: "bg-green-500" };
+    if (normalized === 'scheduled' || normalized === 'upcoming') return { text: "UPCOMING", color: "bg-blue-600" };
+    return { text: liveStatus.toString().toUpperCase(), color: "bg-slate-400" };
+  }, [scorecard, initialStatus]);
 
   const currentInningsData = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
 
@@ -809,7 +812,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               <span className="font-bold text-slate-900 text-base md:text-lg text-center">
                 {scorecard?.homeTeam?.toUpperCase() || "SA"} 
                 <span className="text-slate-700 font-medium text-sm md:text-base ml-1">
-                  {scorecard?.innings_1?.runs || '225'}/{scorecard?.innings_1?.wickets || '9'} ({scorecard?.innings_1?.overs || '20 ov'})
+                  {scorecard?.innings_1?.runs ?? 0}/{scorecard?.innings_1?.wickets ?? 0} ({scorecard?.innings_1?.overs ?? 0})
                 </span>
               </span>
             </div>
@@ -828,7 +831,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               <span className="font-bold text-slate-900 text-base md:text-lg text-right">
                 {scorecard?.awayTeam?.toUpperCase() || "ENG"} 
                 <span className="text-slate-700 font-medium text-sm md:text-base ml-1">
-                  {scorecard?.innings_2?.runs || '225'}/{scorecard?.innings_2?.wickets || '9'} ({scorecard?.innings_2?.overs || '20 ov'})
+                  {scorecard?.innings_2?.runs ?? 0}/{scorecard?.innings_2?.wickets ?? 0} ({scorecard?.innings_2?.overs ?? 0})
                 </span>
               </span>
               <div className="w-8 h-8 bg-red-700 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0">
@@ -1331,7 +1334,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   Take Action
                 </button>
               ) : (
-                <Link href={`/admin/analytics/${matchData?.scoring_match_id}?ball=${selectedBallData?.over_number}&ballId=${selectedBallData?.id}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
+                <Link href={`/admin/analytics/${matchId}?ball=${selectedBallData?.over_number}&ballId=${selectedBallData?.id}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
                   <button className="w-full mt-8 py-3 bg-[#0F1117] text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-100 cursor-pointer">
                     Analyse Ball
                   </button>
@@ -1466,7 +1469,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         isOpen={isAddCommentOpen} 
         onClose={() => setIsAddCommentOpen(false)} 
         ballInfo={selectedBallData} 
-        matchId={matchData?.scoring_match_id} 
+        matchId={matchId} 
         matchData={scorecard}
         onConfirm={(comment) => {
           // You can also refresh or append locally if needed
@@ -1477,7 +1480,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       <MrJudgementModal 
         isOpen={isMrJudgementOpen} 
         onClose={() => setIsMrJudgementOpen(false)} 
-        matchId={matchData?.scoring_match_id} 
+        matchId={matchId} 
         ballId={selectedBallData?.id} 
         onConfirm={(judgement) => {
           // You can also refresh or append locally if needed
@@ -1485,16 +1488,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       />
 
       {/* --- TAKE ACTION 5-TAB MODAL COMPONENT RENDER --- */}
-      <RefereeActionModal
-        isOpen={isTakeActionOpen}
-        onClose={() => {
-          setIsTakeActionOpen(false);
-          // Refresh the referee actions table — any COC case/video uploaded
-          // in the modal (which doesn't share state with this component)
-          // otherwise wouldn't show up until the tab/page was reloaded.
-          fetchCocCases();
-        }}
-        matchId={matchData?.scoring_match_id}
+      <RefereeActionModal 
+        isOpen={isTakeActionOpen} 
+        onClose={() => setIsTakeActionOpen(false)} 
+        matchId={matchId}
         ballInfo={selectedBallData} 
         matchData={scorecard}
         onSaveAction={(newAction) => {

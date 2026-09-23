@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, PlusSquare, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import StatusModal from '@/app/components/auth/StatusModal';
 
 interface Ground {
   id: string;
@@ -27,6 +28,7 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showSuccess, setShowSuccess] = useState(false);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -95,6 +97,7 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
         setIsModalOpen(false);
         setFormData({ name: '', location: '', pitchType: '', straightBoundary: '', sideBoundary: '' });
         fetchGrounds();
+        setShowSuccess(true);
       }
     } catch (error) {
       console.error("Error creating ground:", error);
@@ -237,11 +240,13 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
 
       {/* PAGINATION SECTION (Matches Screenshot 2026-05-04 at 1.46.34 PM.png) */}
       
+       {/* PAGINATION SECTION (Matches Screenshot 2026-05-04 at 1.46.34 PM.png) */}
+      
         <div className="flex items-center justify-center    pt-6 gap-3">
           <button 
-            disabled={currentPage === 1}
+            disabled={currentPage === 1 || totalPages <= 1}
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md"
+            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ChevronLeft className="w-4 h-4 " /> Back
           </button>
@@ -263,9 +268,9 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
           </div>
 
           <button 
-            disabled={currentPage === totalPages}
+            disabled={currentPage === totalPages || totalPages <= 1}
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md "
+            className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-900  bg-white border border-gray-200 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next <ChevronRight className="w-4 h-4" />
           </button>
@@ -424,7 +429,14 @@ Done
 </div>
 
 )}
-   
+
+      <StatusModal
+        isOpen={showSuccess}
+        onClose={() => setShowSuccess(false)}
+        type="success"
+        title="Ground Added"
+        message="New Ground Has been Added Successfully"
+      />
     </div>
   );
 }

@@ -211,9 +211,13 @@ import Link from "next/link";
 interface LoginFormProps {
   // Updated: Passing user object back to handle logic in parent
   onSuccess: (user: any, email: string, isGoogle: boolean) => void;
+  // A profile-complete user can still be logged back in while awaiting
+  // approval — the backend returns a 403 with one of these codes instead of
+  // a user object, so there's no "user" to route on here.
+  onPendingApproval: (role: string | null) => void;
 }
 
-export default function LoginForm({ onSuccess }: LoginFormProps) {
+export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -269,9 +273,17 @@ export default function LoginForm({ onSuccess }: LoginFormProps) {
 
       const data = await res.json();
       if (!res.ok) {
-        if (data.message === "Invalid credentials") setPasswordError("Incorrect email or password");
-        else if (data.message === "Use Google login for this account") setEmailError("This account uses Google login");
-        else alert(data.message || "Login failed");
+        if (data.code === "PENDING_BUSINESS_ADMIN_APPROVAL") {
+          onPendingApproval("admin");
+        } else if (data.code === "PENDING_ASSOCIATION_APPROVAL") {
+          onPendingApproval(null);
+        } else if (data.message === "Invalid credentials") {
+          setPasswordError("Incorrect email or password");
+        } else if (data.message === "Use Google login for this account") {
+          setEmailError("This account uses Google login");
+        } else {
+          alert(data.message || "Login failed");
+        }
         return;
       }
 
@@ -389,6 +401,12 @@ export default function LoginForm({ onSuccess }: LoginFormProps) {
                 if (res.ok) {
                     // Pass user data to handle routing
                     onSuccess(data.user, data.user.email, true);
+                } else if (data.code === "PENDING_BUSINESS_ADMIN_APPROVAL") {
+                  onPendingApproval("admin");
+                } else if (data.code === "PENDING_ASSOCIATION_APPROVAL") {
+                  onPendingApproval(null);
+                } else {
+                  alert(data.message || "Google login failed");
                 }
               } catch (err) {
                 console.error("Google login fetch error", err);
