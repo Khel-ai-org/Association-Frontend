@@ -50,31 +50,40 @@ const namesMatch = (a?: string | null, b?: string | null) =>
 
 const overNumericValue = (over: string) => parseFloat(over) || 0;
 
-// The ball-by-ball `fielding_type` field only ever carries these 8 exact
-// values (same vocabulary as the "Fielding Area" filter in MatchDetails.tsx)
-// — mapped onto the 6 canonical wagon-wheel zones the design uses, with the
-// two "straight" positions folded into their nearest off/leg-side neighbor.
-const WAGON_ZONE_MAP: Record<string, string> = {
-  'Deep Fine Leg': 'Fine Leg',
-  'Deep Cover': 'Cover',
-  'Long Off': 'Cover',
-  'Deep Point': 'Point',
-  'Third Man': 'Third Man',
-  'Deep Mid Wicket': 'Mid Wicket',
-  'Long On': 'Mid Wicket',
-  'Deep Square Leg': 'Square Leg',
-};
-// Fixed hexagon layout (angle in degrees, 0°=right, clockwise) matching the
-// design: Fine Leg upper-left, Cover upper-right, Point right, Third Man
-// lower-right, Mid Wicket lower-left, Square Leg left.
-const WAGON_ZONE_LAYOUT: { zone: string; angle: number }[] = [
-  { zone: 'Fine Leg', angle: 240 },
-  { zone: 'Cover', angle: 300 },
-  { zone: 'Point', angle: 0 },
-  { zone: 'Third Man', angle: 60 },
-  { zone: 'Mid Wicket', angle: 120 },
-  { zone: 'Square Leg', angle: 180 },
+// The ball-by-ball `fielding_type` field carries exactly these 8 values
+// (same vocabulary as the "Fielding Area" filter in MatchDetails.tsx) — an
+// 8-wedge fielding-chart layout, angle measured clockwise from top (12
+// o'clock), one wedge per 45°, matching the reference design exactly.
+// `innerLabel` is the standard cricket position name shown inside the
+// infield circle for that wedge — decorative, not tied to any data field.
+const WAGON_ZONE_LAYOUT: { zone: string; innerLabel: string; angle: number }[] = [
+  { zone: 'Deep Fine Leg', innerLabel: 'Fine Leg', angle: 22.5 },
+  { zone: 'Deep Square Leg', innerLabel: 'Square Leg', angle: 67.5 },
+  { zone: 'Deep Mid Wicket', innerLabel: 'Mid Wicket', angle: 112.5 },
+  { zone: 'Long On', innerLabel: 'Mid On', angle: 157.5 },
+  { zone: 'Long Off', innerLabel: 'Mid Off', angle: 202.5 },
+  { zone: 'Deep Cover', innerLabel: 'Cover', angle: 247.5 },
+  { zone: 'Deep Point', innerLabel: 'Point', angle: 292.5 },
+  { zone: 'Third Man', innerLabel: 'Slip', angle: 337.5 },
 ];
+// The 8 wedge-boundary lines, halfway between each pair of zone centers.
+const WAGON_DIVIDERS = [0, 45, 90, 135, 180, 225, 270, 315];
+// angle measured clockwise from top (12 o'clock) — matches WAGON_ZONE_LAYOUT.
+const polarPct = (angleDeg: number, radiusPct: number) => {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { left: 50 + radiusPct * Math.sin(rad), top: 50 - radiusPct * Math.cos(rad) };
+};
+const polarSvg = (angleDeg: number, radius: number) => {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: 100 + radius * Math.sin(rad), y: 100 - radius * Math.cos(rad) };
+};
+// One 45°-wide pie-slice path (center → edge → arc → edge → center) used as
+// each zone's invisible hover target.
+const wedgePath = (centerAngle: number, radius: number) => {
+  const start = polarSvg(centerAngle - 22.5, radius);
+  const end = polarSvg(centerAngle + 22.5, radius);
+  return `M 100 100 L ${start.x} ${start.y} A ${radius} ${radius} 0 0 1 ${end.x} ${end.y} Z`;
+};
 
 // Matches a super-over's innings to a side (home/away) by team_name first,
 // falling back to positional innings_1/innings_2 — same pattern already used
@@ -117,6 +126,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const [balls1, setBalls1] = useState<Ball[]>([]);
   const [balls2, setBalls2] = useState<Ball[]>([]);
   const [view, setView] = useState<'batting' | 'bowling'>('batting');
+  const [hoveredWagon, setHoveredWagon] = useState<{ zone: string; label: string } | null>(null);
   const [statsTab, setStatsTab] = useState<'match' | 'tournament' | 'career'>('match');
 
   useEffect(() => {
@@ -229,9 +239,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const wagonWheelZones = useMemo(() => {
     const runsByZone: Record<string, number> = {};
     battingBalls.forEach((b) => {
-      const zone = b.fielding_type && WAGON_ZONE_MAP[b.fielding_type];
-      if (!zone) return;
-      runsByZone[zone] = (runsByZone[zone] || 0) + (b.batsman_runs ?? b.total_runs);
+      if (!b.fielding_type) return;
+      runsByZone[b.fielding_type] = (runsByZone[b.fielding_type] || 0) + (b.batsman_runs ?? b.total_runs);
     });
     return WAGON_ZONE_LAYOUT.map((z) => ({ ...z, runs: runsByZone[z.zone] || 0 }));
   }, [battingBalls]);
@@ -533,34 +542,69 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                     <h3 className="text-sm font-bold text-slate-900 mb-4">Scoring Areas (Wagon Wheel)</h3>
-                    <div className="relative w-full aspect-square max-w-[280px] mx-auto">
+                    <div className="relative w-full aspect-square max-w-[420px] mx-auto">
                       <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full">
-                        <circle cx="100" cy="100" r="95" className="fill-emerald-50 stroke-emerald-100" strokeWidth="2" />
-                        <circle cx="100" cy="100" r="60" fill="none" className="stroke-emerald-300" strokeWidth="1" strokeDasharray="4 4" />
-                        {WAGON_ZONE_LAYOUT.map(({ zone, angle }) => {
-                          const rad = (angle * Math.PI) / 180;
-                          const x = 100 + 92 * Math.cos(rad);
-                          const y = 100 + 92 * Math.sin(rad);
-                          return <line key={zone} x1="100" y1="100" x2={x} y2={y} className="stroke-emerald-200" strokeWidth="1.5" />;
+                        <circle cx="100" cy="100" r="92" className="fill-[#7BC96F]" />
+                        <circle cx="100" cy="100" r="54" fill="none" className="stroke-white/60" strokeWidth="1" strokeDasharray="3 3" />
+                        {WAGON_DIVIDERS.map((angle) => {
+                          const { x, y } = polarSvg(angle, 92);
+                          return <line key={angle} x1="100" y1="100" x2={x} y2={y} stroke="white" strokeWidth="1.5" />;
                         })}
-                        <rect x="97" y="90" width="6" height="20" rx="2" className="fill-amber-400" />
+                        <rect x="97" y="86" width="6" height="28" rx="2" className="fill-amber-300" />
+                        {wagonWheelZones.map(({ zone, angle }) => (
+                          <path
+                            key={`wedge-${zone}`}
+                            d={wedgePath(angle, 92)}
+                            fill={hoveredWagon?.zone === zone ? 'rgba(255,255,255,0.28)' : 'transparent'}
+                            className="cursor-pointer transition-colors"
+                            onMouseEnter={() => setHoveredWagon({ zone, label: zone })}
+                            onMouseLeave={() => setHoveredWagon(null)}
+                          />
+                        ))}
                       </svg>
-                      {wagonWheelZones.map(({ zone, angle, runs }) => {
-                        const rad = (angle * Math.PI) / 180;
-                        const radius = 42;
-                        const left = 50 + radius * Math.cos(rad);
-                        const top = 50 + radius * Math.sin(rad);
+                      {/* Inner position labels — kept inside the dashed infield circle, directly hoverable. */}
+                      {wagonWheelZones.map(({ zone, innerLabel, angle, runs }) => {
+                        const { left, top } = polarPct(angle, 17);
                         return (
                           <div
-                            key={zone}
-                            className="absolute text-center -translate-x-1/2 -translate-y-1/2"
+                            key={`inner-${zone}`}
+                            className="absolute text-center -translate-x-1/2 -translate-y-1/2 cursor-pointer"
                             style={{ left: `${left}%`, top: `${top}%` }}
+                            onMouseEnter={() => setHoveredWagon({ zone, label: innerLabel })}
+                            onMouseLeave={() => setHoveredWagon(null)}
                           >
-                            <p className="text-[9px] font-bold text-slate-700 uppercase leading-tight whitespace-nowrap">{zone}</p>
-                            <p className="text-xs font-bold text-indigo-600 whitespace-nowrap">{runs} Runs</p>
+                            <p className="text-[8px] font-semibold text-black uppercase leading-tight whitespace-nowrap">{innerLabel}</p>
+                            {runs > 0 && <p className="text-[8px] font-bold text-blue-600 leading-tight">{runs}</p>}
                           </div>
                         );
                       })}
+                      {/* Outer zone name + runs — kept inside the green circle, near the rim, directly hoverable. */}
+                      {wagonWheelZones.map(({ zone, angle, runs }) => {
+                        const { left, top } = polarPct(angle, 34);
+                        return (
+                          <div
+                            key={zone}
+                            className="absolute w-14 text-center -translate-x-1/2 -translate-y-1/2 cursor-pointer"
+                            style={{ left: `${left}%`, top: `${top}%` }}
+                            onMouseEnter={() => setHoveredWagon({ zone, label: zone })}
+                            onMouseLeave={() => setHoveredWagon(null)}
+                          >
+                            <p className="text-[9px] font-semibold text-black leading-[1.15]">{zone}</p>
+                            <p className="text-[10px] font-extrabold text-blue-600 leading-tight">{runs} Runs</p>
+                          </div>
+                        );
+                      })}
+                      {/* Hover popup — shows whichever label (inner or outer) was hovered, and its runs, large, centered over the wheel. */}
+                      {hoveredWagon && (
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
+                            <p className="text-xs font-semibold text-slate-600 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
+                            <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
+                              {wagonWheelZones.find((z) => z.zone === hoveredWagon.zone)?.runs ?? 0} Runs
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -622,8 +666,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
 
             {view === 'bowling' && activeBowler && (
               <>
-                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs overflow-x-auto">
+                  <div className="flex items-center justify-between gap-2 min-w-max sm:min-w-0">
                     {[
                       { label: 'Overs', value: activeBowler.overs },
                       { label: 'Wickets', value: activeBowler.wickets_taken },
@@ -633,11 +677,14 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       { label: 'Maidens', value: activeBowler.maiden },
                       { label: 'Wides', value: bowlingExtra.wides },
                       { label: 'No balls', value: bowlingExtra.noBalls },
-                    ].map((s) => (
-                      <div key={s.label} className="text-center">
-                        <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
-                        <p className="text-xl font-bold text-slate-900">{s.value}</p>
-                      </div>
+                    ].map((s, i) => (
+                      <React.Fragment key={s.label}>
+                        {i > 0 && <div className="w-px h-9 border-l border-dashed border-slate-200 shrink-0" />}
+                        <div className="text-center px-2 shrink-0">
+                          <p className="text-[10px] font-bold text-slate-600 uppercase mb-1 whitespace-nowrap">{s.label}</p>
+                          <p className="text-xl font-bold text-slate-900">{s.value}</p>
+                        </div>
+                      </React.Fragment>
                     ))}
                   </div>
                 </div>
