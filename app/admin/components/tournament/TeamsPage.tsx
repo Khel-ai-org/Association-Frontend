@@ -11,6 +11,44 @@ interface TeamsPageProps {
   tournamentId: string;
 }
 
+interface StandingRow {
+  teamId: string;
+  code: string;
+  name: string;
+  matches: number;
+  won: number;
+  lost: number;
+  nrr: string;
+  points: number;
+}
+
+// Confirmed shape from a real `/standings/overall` response: the row itself
+// carries matches_played/wins/losses/points/net_run_rate, while the team's
+// own name/short_name sit nested under `row.team`.
+interface RawStandingRow {
+  team_id?: string;
+  matches_played?: number;
+  wins?: number;
+  losses?: number;
+  points?: number;
+  net_run_rate?: string;
+  team?: { id?: string; name?: string; short_name?: string };
+}
+
+const normalizeStanding = (row: RawStandingRow, index: number): StandingRow => {
+  const team = row.team || {};
+  return {
+    teamId: row.team_id || team.id || String(index),
+    code: team.short_name || (team.name || '').slice(0, 3).toUpperCase() || 'N/A',
+    name: team.name || 'Unknown',
+    matches: row.matches_played ?? 0,
+    won: row.wins ?? 0,
+    lost: row.losses ?? 0,
+    nrr: row.net_run_rate ?? '0.000',
+    points: row.points ?? 0,
+  };
+};
+
 const AVATAR_COLORS = ['bg-red-100 text-red-700', 'bg-yellow-100 text-yellow-700', 'bg-blue-100 text-blue-700', 'bg-emerald-100 text-emerald-700', 'bg-purple-100 text-purple-700'];
 
 export default function TeamsPage({ tournamentId }: TeamsPageProps) {
@@ -24,6 +62,8 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
   const [isAddTeamsOpen, setIsAddTeamsOpen] = useState(false);
   const [isGenerateFixtureOpen, setIsGenerateFixtureOpen] = useState(false);
   const [fixturesExist, setFixturesExist] = useState(false);
+  const [standings, setStandings] = useState<StandingRow[]>([]);
+  const [loadingStandings, setLoadingStandings] = useState(true);
   const itemsPerPage = 14; // 7 columns * 2 rows
 
   const fetchTournament = useCallback(async () => {
@@ -104,6 +144,37 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
       checkFixturesExist(tournament.externalTournamentId);
     }
   }, [tournament, checkFixturesExist]);
+
+  const fetchStandings = useCallback(async (externalId: string) => {
+    setLoadingStandings(true);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${externalId}/standings/overall`,
+        {
+          method: 'GET',
+          headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Fetched standings:', data);
+        const list = Array.isArray(data) ? data : data?.standings || data?.data || [];
+        setStandings(list.map(normalizeStanding));
+      }
+    } catch (error) {
+      console.error('Error fetching standings:', error);
+    } finally {
+      setLoadingStandings(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tournament?.externalTournamentId) {
+      fetchStandings(tournament.externalTournamentId);
+    } else if (tournament) {
+      setLoadingStandings(false);
+    }
+  }, [tournament, fetchStandings]);
 
   const calculateProgress = () => {
     if (!tournament || !tournament.startDate || !tournament.endDate) return 0;
@@ -274,6 +345,51 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
               Fixture already generated — you can view matches
             </button>
           )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-[24px] border border-slate-100 p-6 shadow-xs">
+        <h2 className="text-xl font-bold text-slate-900 mb-4">Points Table</h2>
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <th className="py-3 px-4 w-10">#</th>
+                <th className="py-3 px-4">Team</th>
+                <th className="py-3 px-4 text-right">Matches</th>
+                <th className="py-3 px-4 text-right">Won</th>
+                <th className="py-3 px-4 text-right">Lost</th>
+                <th className="py-3 px-4 text-right">NRR</th>
+                <th className="py-3 px-4 text-right">Points</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50 text-sm">
+              {loadingStandings ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-400 animate-pulse">Loading standings...</td>
+                </tr>
+              ) : standings.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-slate-400">No standings available yet.</td>
+                </tr>
+              ) : (
+                standings.map((row, i) => (
+                  <tr key={row.teamId}>
+                    <td className="py-3 px-4 text-slate-500">{i + 1}</td>
+                    <td className="py-3 px-4">
+                      <span className="font-bold text-slate-900 mr-2">{row.code}</span>
+                      <span className="text-slate-600">{row.name}</span>
+                    </td>
+                    <td className="py-3 px-4 text-right text-slate-700">{row.matches}</td>
+                    <td className="py-3 px-4 text-right font-semibold text-green-600">{row.won}</td>
+                    <td className="py-3 px-4 text-right font-semibold text-red-600">{row.lost}</td>
+                    <td className="py-3 px-4 text-right text-slate-700">{row.nrr}</td>
+                    <td className="py-3 px-4 text-right font-bold text-slate-900">{row.points}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
