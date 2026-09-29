@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { LocateFixed,CheckCircle2, PenLine, Loader2, Save, AlertCircle, ChevronDown } from 'lucide-react';
+import { LocateFixed,CheckCircle2, PenLine, Loader2, Save, AlertCircle } from 'lucide-react';
 import PhoneInput,{ isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 
@@ -18,21 +18,32 @@ interface InputFieldProps {
   isSelect?: boolean;
   options?: string[];
   error?: string;
+  readOnly?: boolean;
 }
+
+// "video_analyst" -> "Video Analyst"
+const formatRoleLabel = (role: string) =>
+  role
+    ? role
+        .split('_')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ')
+    : '';
 
 // --- Sub-components ---
 
-const InputField: React.FC<InputFieldProps> = ({ 
-  label, 
-  name, 
-  value, 
-  onChange, 
-  type = "text", 
+const InputField: React.FC<InputFieldProps> = ({
+  label,
+  name,
+  value,
+  onChange,
+  type = "text",
   placeholder = "",
   icon,
   isSelect = false,
   options = [],
-  error
+  error,
+  readOnly = false
 }) => (
   <div className="flex flex-col gap-2 flex-1">
     <label className="text-xs font-medium text-gray-500">{label}</label>
@@ -43,25 +54,27 @@ const InputField: React.FC<InputFieldProps> = ({
             name={name}
             value={value}
             onChange={onChange}
+            disabled={readOnly}
             className={`w-full border rounded-lg p-3 text-sm text-gray-700 outline-none transition-all appearance-none bg-gray-50 cursor-pointer ${
               error ? 'border-red-500 ring-1 ring-red-500/10' : 'border-gray-200 focus:border-black'
-            } ${icon ? 'pr-10' : ''}`} // Add padding if icon exists
+            } ${icon ? 'pr-10' : ''} ${readOnly ? 'cursor-not-allowed text-black' : ''}`} // Add padding if icon exists
           >
             {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
           </select>
         ) : (
-          <input 
+          <input
             type={type}
             name={name}
             value={value}
             onChange={onChange}
             placeholder={placeholder}
-            className={`w-full border rounded-lg p-3 text-sm text-gray-700 outline-none transition-all bg-gray-50 ${
+            readOnly={readOnly}
+            className={`w-full border rounded-lg p-3 text-sm outline-none transition-all bg-gray-50 ${
               error ? 'border-red-500 ring-1 ring-red-500/10' : 'border-gray-200 focus:border-black'
-            } ${icon ? 'pr-10' : ''}`}
+            } ${icon ? 'pr-10' : ''} ${readOnly ? 'text-black cursor-not-allowed' : 'text-gray-700'}`}
           />
         )}
-        
+
         {/* This renders the icon for both Input and Select */}
         {icon && (
           <div className="absolute right-3 flex items-center justify-center pointer-events-none">
@@ -110,12 +123,14 @@ export const AccountPage: React.FC = () => {
     name: "",
     email: "",
     phone: "",
-    associationRole: "admin",
+    role: "",
     cricketAssociationName: "",
     numberOfGroundManaged: "0",
     groundDimension: "",
     location: ""
   });
+
+  const isAdmin = formData.role.toLowerCase() === "admin";
 
   // 1. Fetch User Data
   useEffect(() => {
@@ -131,19 +146,45 @@ export const AccountPage: React.FC = () => {
 
           let formattedPhone = data.phone || "";
         if (formattedPhone && !formattedPhone.startsWith('+')) {
-            formattedPhone = `+91${formattedPhone}`; 
+            formattedPhone = `+91${formattedPhone}`;
         }
+
+          // Cricket Association name. GET /association/settings turns out
+          // to return the *caller's own* associationSettings row — for
+          // staff that's a separate, blank record, not their parent
+          // Admin's. /user/me, however, already carries a resolved
+          // top-level `associationName` for staff (confirmed from a real
+          // response: an operator's own associationSettings.
+          // cricketAssociationName was "", but user.associationName was
+          // "State Board Association") — so that's the reliable fallback.
+          let associationName = data.associationSettings?.cricketAssociationName || "";
+          try {
+            const assocRes = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/association/settings`, {
+              method: 'GET',
+              credentials: 'include',
+            });
+            if (assocRes.ok) {
+              const assocData = await assocRes.json();
+              if (assocData?.cricketAssociationName) associationName = assocData.cricketAssociationName;
+            }
+          } catch (assocError) {
+            console.error("Failed to load association name:", assocError);
+          }
+          if (!associationName) associationName = data.associationName || "";
+
           setFormData({
             name: data.name || "",
             email: data.email || "",
             phone: formattedPhone,
-            associationRole: data.associationRole || "admin",
-            cricketAssociationName: data.associationSettings?.cricketAssociationName || "",
+            // Real RBAC role (admin/operator/referee/umpire/scorer/video_analyst),
+            // not the legacy associationRole field — shown read-only below.
+            role: data.role || "",
+            cricketAssociationName: associationName,
             numberOfGroundManaged: data.associationSettings?.numberOfGroundManaged?.toString() || "0",
             groundDimension: data.associationSettings?.groundDimension || "",
             location: data.location || ""
           });
-          
+
           // Set initial profile image from backend if it exists
           if (data.profileImage) {
             setProfilePreview(data.profileImage);
@@ -226,9 +267,11 @@ export const AccountPage: React.FC = () => {
     try {
       const data = new FormData();
       Object.entries(formData).forEach(([key, value]) => {
+        // Role is fetched/displayed only, never edited from this page.
+        if (key === 'role') return;
         data.append(key, value);
       });
-      
+
       if (selectedFile) {
         data.append('profileImage', selectedFile);
       }
@@ -328,29 +371,38 @@ export const AccountPage: React.FC = () => {
         <section>
           <h5 className="text-[13px] font-bold text-black mb-4 uppercase tracking-[0.1em]">Cricket information</h5>
           <div className="flex flex-col md:flex-row gap-4">
-            <InputField 
-      label="Role" 
-      name="associationRole" 
-      value={formData.associationRole} 
-      onChange={handleChange} 
-      isSelect 
-      options={['admin', 'manager', 'staff']} 
-      icon={<ChevronDown size={16} className="text-gray-400" />} 
-    />
-            <InputField label="Cricket Association" name="cricketAssociationName" value={formData.cricketAssociationName} onChange={handleChange} error={errors.cricketAssociationName} />
+            <InputField
+              label="Role"
+              name="role"
+              value={formatRoleLabel(formData.role)}
+              onChange={handleChange}
+              readOnly
+            />
+            <InputField
+              label="Cricket Association"
+              name="cricketAssociationName"
+              value={formData.cricketAssociationName}
+              onChange={handleChange}
+              error={errors.cricketAssociationName}
+              readOnly={!isAdmin}
+            />
           </div>
         </section>
 
-        <div className='border-b border-gray-100'></div>
+        {isAdmin && (
+          <>
+            <div className='border-b border-gray-100'></div>
 
-        {/* Ground Information */}
-        <section>
-          <h5 className="text-[13px] font-bold text-black mb-4 uppercase tracking-[0.1em]">Ground Information</h5>
-          <div className="flex flex-col md:flex-row gap-4">
-            <InputField label="No. of Grounds Managed" name="numberOfGroundManaged" value={formData.numberOfGroundManaged} onChange={handleChange} error={errors.numberOfGroundManaged} />
-            <InputField label="Ground Dimension" name="groundDimension" value={formData.groundDimension} onChange={handleChange} placeholder="e.g. 65m Radius" />
-          </div>
-        </section>
+            {/* Ground Information — Admin only; staff have no association-level grounds settings of their own. */}
+            <section>
+              <h5 className="text-[13px] font-bold text-black mb-4 uppercase tracking-[0.1em]">Ground Information</h5>
+              <div className="flex flex-col md:flex-row gap-4">
+                <InputField label="No. of Grounds Managed" name="numberOfGroundManaged" value={formData.numberOfGroundManaged} onChange={handleChange} error={errors.numberOfGroundManaged} />
+                <InputField label="Ground Dimension" name="groundDimension" value={formData.groundDimension} onChange={handleChange} placeholder="e.g. 65m Radius" />
+              </div>
+            </section>
+          </>
+        )}
 
         <div className='border-b border-gray-100'></div>
 

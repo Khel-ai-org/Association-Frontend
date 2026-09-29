@@ -11,6 +11,9 @@ interface MenuItem {
 interface SettingsSidebarProps {
   activeTab: string;
   setActiveTab: (id: string) => void;
+  // Grounds Settings and Manage Operators are association-level concerns —
+  // only shown to the Admin, not individual staff (operator/referee/...).
+  isAdmin: boolean;
 }
 const Association = ({ size = 20, ...props }: { size?: number; [key: string]: any }) => (
   <svg 
@@ -54,16 +57,20 @@ const menuItems: MenuItem[] = [
   { id: 'Privacy', icon: ShieldCheck, title: "Privacy & data", sub: "Visibility and tracking" },
 ];
 
-export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ activeTab, setActiveTab }) => {
+export const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ activeTab, setActiveTab, isAdmin }) => {
+  const visibleItems = menuItems.filter(
+    (item) => isAdmin || (item.id !== 'Grounds' && item.id !== 'Operators')
+  );
+
   return (
     <div className="w-full border border-gray-100 bg-white p-6 rounded-2xl flex flex-col">
       <div className="mb-8">
         <h1 className="text-xl font-bold text-gray-900 tracking-tight">Control Center</h1>
         <p className="text-xs text-gray-400 mt-1">Adjust Preferences and Security Options</p>
       </div>
-      
+
       <div className="space-y-2">
-        {menuItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = activeTab === item.id;
           const Icon = item.icon;
           

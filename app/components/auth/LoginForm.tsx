@@ -204,9 +204,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Eye, EyeOff } from "lucide-react"; 
+import { Eye, EyeOff } from "lucide-react";
 import { GoogleLogin } from "@react-oauth/google";
 import Link from "next/link";
+import StatusModal from "./StatusModal";
 
 interface LoginFormProps {
   // Updated: Passing user object back to handle logic in parent
@@ -226,6 +227,13 @@ export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormPro
 
   const [emailError, setEmailError] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  // Shown when the email used here actually belongs to a Business Admin
+  // account (userType "business_admin") — that account type doesn't belong
+  // in this association login flow, whether it logs in via password or Google.
+  const [showBusinessAdminNotice, setShowBusinessAdminNotice] = useState(false);
+
+  const isBusinessAdminUser = (user: { userType?: unknown } | null | undefined) =>
+    typeof user?.userType === "string" && user.userType.toLowerCase() === "business_admin";
 
   useEffect(() => {
     const savedEmail = localStorage.getItem("rememberedEmail");
@@ -277,6 +285,8 @@ export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormPro
           onPendingApproval("admin");
         } else if (data.code === "PENDING_ASSOCIATION_APPROVAL") {
           onPendingApproval(null);
+        } else if (data.code === "BUSINESS_ADMIN_EMAIL" || isBusinessAdminUser(data.user)) {
+          setShowBusinessAdminNotice(true);
         } else if (data.message === "Invalid credentials") {
           setPasswordError("Incorrect email or password");
         } else if (data.message === "Use Google login for this account") {
@@ -287,11 +297,18 @@ export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormPro
         return;
       }
 
+      // This email is registered as a Business Admin — that account type
+      // doesn't belong in this association login flow.
+      if (isBusinessAdminUser(data.user)) {
+        setShowBusinessAdminNotice(true);
+        return;
+      }
+
       if (rememberMe) localStorage.setItem("rememberedEmail", email);
       else localStorage.removeItem("rememberedEmail");
 
       // Pass user object to handle routing in parent
-      onSuccess(data.user, email, false); 
+      onSuccess(data.user, email, false);
     } catch {
       alert("Login failed");
     } finally {
@@ -399,12 +416,21 @@ export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormPro
                 });
                 const data = await res.json();
                 if (res.ok) {
+                    // This email is registered as a Business Admin — that
+                    // account type doesn't belong in this login flow, Google
+                    // sign-in included.
+                    if (isBusinessAdminUser(data.user)) {
+                      setShowBusinessAdminNotice(true);
+                      return;
+                    }
                     // Pass user data to handle routing
                     onSuccess(data.user, data.user.email, true);
                 } else if (data.code === "PENDING_BUSINESS_ADMIN_APPROVAL") {
                   onPendingApproval("admin");
                 } else if (data.code === "PENDING_ASSOCIATION_APPROVAL") {
                   onPendingApproval(null);
+                } else if (data.code === "BUSINESS_ADMIN_EMAIL" || isBusinessAdminUser(data.user)) {
+                  setShowBusinessAdminNotice(true);
                 } else {
                   alert(data.message || "Google login failed");
                 }
@@ -419,6 +445,14 @@ export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormPro
         You agree to our <span className="text-black cursor-pointer underline">Terms of Use</span> and
         <span className="text-black cursor-pointer underline"> Privacy Policy</span> by continuing.
       </p>
+
+      <StatusModal
+        isOpen={showBusinessAdminNotice}
+        onClose={() => setShowBusinessAdminNotice(false)}
+        type="error"
+        title="Wrong Email"
+        message="This email is used as a Business Admin account. Please use a different email to log in here."
+      />
     </div>
   );
 }
