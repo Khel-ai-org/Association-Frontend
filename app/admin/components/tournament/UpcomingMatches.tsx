@@ -19,27 +19,6 @@ interface TournamentDetails {
   grounds?: Ground[];
 }
 
-interface Match {
-  id: string;
-  match_id: number;
-  name: string;
-  date: string | null;
-  match_no?: string;
-  ground_id?: string;
-  scoring_match_id?: string;
-  team1: string;
-  team2: string;
-  score1: string;
-  score2: string;
-  statusText: string;
-  type: string;
-  isLive: boolean;
-  time: string;
-  sortOrder: number;
-  statusLabel?: string;
-  badgeColor?: string;
-}
-
 // Unified row shown in the table: either a fixture linked to a real live
 // match, a fixture still awaiting scheduling, or a legacy core match record
 // with no fixture behind it at all.
@@ -76,7 +55,6 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   const [tournament, setTournament] = useState<TournamentDetails | null>(null);
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState("");
-  const [matches, setMatches] = useState<Match[]>([]);
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -122,77 +100,12 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
     return Math.round((elapsed / total) * 100);
   };
 
-  // --- Fetch core-API admin match records (existing, unchanged) ---
-  const fetchMatches = async () => {
-    if (!tournamentId) {
-      setMatches([]);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      let url = `${process.env.NEXT_PUBLIC_Backend_URL}/matches/tournament/${tournamentId}`;
-      if (selectedGroundId) url += `?groundId=${selectedGroundId}`;
-
-      const response = await fetch(url, { method: 'GET', credentials: 'include' });
-      const data = await response.json();
-
-      const processedData = (Array.isArray(data) ? data : [])
-        .map((match: any) => {
-          const now = new Date();
-          const matchDate = match.date ? new Date(match.date) : null;
-
-          let statusLabel = "Upcoming";
-          let badgeColor = "bg-green-500";
-          let sortOrder = 2;
-
-          if (matchDate) {
-            const isToday = matchDate.toDateString() === now.toDateString();
-            const isPast = matchDate < now && !isToday;
-
-            if (isToday) {
-              statusLabel = "Live";
-              badgeColor = "bg-[#D11B1B]";
-              sortOrder = 1;
-            } else if (isPast) {
-              statusLabel = "Finished";
-              badgeColor = "bg-slate-500";
-              sortOrder = 3;
-            }
-          }
-
-          const teams = match.name?.split(' vs ') || ["T1", "T2"];
-          return {
-            ...match,
-            team1: teams[0] || "T1",
-            team2: teams[1] || "T2",
-            time: matchDate ? matchDate.toLocaleDateString('en-GB') : "TBD",
-            statusLabel,
-            badgeColor,
-            sortOrder,
-            type: statusLabel
-          };
-        });
-
-      processedData.sort((a: Match, b: Match) => a.sortOrder - b.sortOrder);
-      setMatches(processedData);
-    } catch (error) {
-      console.error("Error fetching matches:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchMatches();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournamentId, selectedGroundId]);
-
   // --- Fetch scoring-API fixtures (new) ---
   // Fixtures live in the scoring service, keyed by the tournament's
   // externalTournamentId — not the core tournamentId — so this can only run
   // once the tournament header has loaded.
   const fetchFixtures = async (externalId: string) => {
+    setLoading(true);
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${externalId}/matches`,
@@ -208,6 +121,8 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
       }
     } catch (error) {
       console.error("Error fetching fixtures:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -238,11 +153,8 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   // generation time), which is shown in its own Venue column, not the Action
   // column — the Action column only reflects link status.
   const rows: MatchRow[] = useMemo(() => {
-    const linkedMatchIds = new Set<string>();
-
     const fixtureRows: MatchRow[] = fixtures.map((fixture) => {
       const isLinked = !!(fixture.match && fixture.match_id);
-      if (isLinked && fixture.match_id) linkedMatchIds.add(fixture.match_id);
 
       const label = fixture.group
         ? `Match ${fixture.match_number} (${fixture.group.name})`
@@ -292,27 +204,8 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
       };
     });
 
-    // Legacy core match records not linked to any fixture — render as before.
-    const legacyRows: MatchRow[] = matches
-      .filter((m) => !(m.scoring_match_id && linkedMatchIds.has(m.scoring_match_id)))
-      .map((m) => ({
-        key: `match-${m.id}`,
-        linkId: m.id,
-        matchLabel: `Match ${m.match_id}`,
-        team1: m.team1,
-        team2: m.team2,
-        date: m.date,
-        time: m.time,
-        statusLabel: m.statusLabel || 'Upcoming',
-        badgeColor: m.badgeColor || 'bg-green-500',
-        type: m.statusLabel || 'Upcoming',
-        searchText: `${m.match_id} ${m.team1} ${m.team2}`,
-        isLinked: true,
-        groundId: m.ground_id,
-      }));
-
-    return [...fixtureRows, ...legacyRows];
-  }, [matches, fixtures]);
+    return fixtureRows;
+  }, [fixtures]);
 
   // Search & Filter Logic
   const filtered = rows.filter((r) => {
@@ -541,7 +434,6 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         tournamentExternalId={tournament?.externalTournamentId || ''}
         grounds={tournament?.grounds || []}
         onScheduled={() => {
-          fetchMatches();
           if (tournament?.externalTournamentId) fetchFixtures(tournament.externalTournamentId);
         }}
       />
