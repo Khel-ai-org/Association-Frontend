@@ -16,6 +16,7 @@ export interface OutDetails {
 }
 
 export interface Batsman {
+  id?: string;
   name: string;
   runs: number;
   balls: number;
@@ -23,15 +24,30 @@ export interface Batsman {
   "6s": number;
   SR: number;
   outdetails: OutDetails | null;
+  role?: string;
+  jersey_number?: number | null;
+  batting_hand?: string;
+  bowling_type?: string;
+  is_captain?: boolean;
+  is_vice_captain?: boolean;
+  is_wicket_keeper?: boolean;
 }
 
 export interface Bowler {
+  id?: string;
   name: string;
   overs: string;
   maiden: number;
   runs_given: number;
   wickets_taken: number;
   economy: number;
+  role?: string;
+  jersey_number?: number | null;
+  batting_hand?: string;
+  bowling_type?: string;
+  is_captain?: boolean;
+  is_vice_captain?: boolean;
+  is_wicket_keeper?: boolean;
 }
 
 export interface FowRecord {

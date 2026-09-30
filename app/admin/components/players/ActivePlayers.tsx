@@ -1,11 +1,12 @@
 "use client"
 import React, { useState, useEffect } from 'react'
-import { Users, Shield, RefreshCw, UserPlus, Search } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Users, Shield, RefreshCw, UserPlus, Search, Edit3 } from 'lucide-react'
 import StatusModal from '@/app/components/auth/StatusModal'
-import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input'
+import PhoneInput, { parsePhoneNumber, isValidPhoneNumber } from 'react-phone-number-input'
 import 'react-phone-number-input/style.css'
 
-type ActiveModal = "season" | "guest" | "transfer" | "register" | null;
+type ActiveModal = "season" | "guest" | "transfer" | "register" | "edit" | null;
 
 interface Player {
   id: string;
@@ -13,6 +14,10 @@ interface Player {
   lastName?: string;
   name?: string;
   email?: string;
+  phone?: string;
+  country?: string;
+  batting_hand?: string;
+  bowling_type?: string;
   district?: { name: string } | string;
   club?: { name: string } | string;
   registrations?: {
@@ -59,9 +64,39 @@ const initialRegisterForm = {
   seasonId: '',
   homeDistrictId: '',
   homeClubId: '',
+  country: '',
+  batting_hand: '',
+  bowling_type: '',
+};
+
+const initialEditForm = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  country: '',
+  batting_hand: '',
+  bowling_type: '',
+};
+
+// Helper function to sanitize phone numbers into valid E.164 format for react-phone-number-input
+const sanitizeToE164 = (phone: string | undefined) => {
+  if (!phone) return '';
+  const trimmed = phone.trim();
+  try {
+    const parsed = parsePhoneNumber(trimmed);
+    if (parsed && parsed.number) {
+      return parsed.number;
+    }
+  } catch {
+    // ignore parsing errors and fallback below
+  }
+  const cleaned = (trimmed.startsWith('+') ? '+' : '') + trimmed.replace(/\D/g, '');
+  return cleaned;
 };
 
 const ActivePlayers = () => {
+  const router = useRouter();
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQueryRaw] = useState('');
   const setSearchQuery = (value: string) => {
@@ -92,17 +127,46 @@ const ActivePlayers = () => {
   const [registerErrors, setRegisterErrors] = useState<Record<string, string>>({});
   const [registerSubmitting, setRegisterSubmitting] = useState(false);
 
+  // Edit Player form state
+  const [editForm, setEditForm] = useState(initialEditForm);
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({});
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
   // Dropdown UI toggles
   const [playerDropdownOpen, setPlayerDropdownOpen] = useState(false);
   const [seasonDropdownOpen, setSeasonDropdownOpen] = useState(false);
   const [clubDropdownOpen, setClubDropdownOpen] = useState(false);
   const [districtDropdownOpen, setDistrictDropdownOpen] = useState(false);
-  // Register modal has its own District/Club dropdowns (District selection here
-  // drives which clubs load, same as the Guest Player modal's district field).
   const [registerDistrictDropdownOpen, setRegisterDistrictDropdownOpen] = useState(false);
   const [registerClubDropdownOpen, setRegisterClubDropdownOpen] = useState(false);
   const [registerSeasonDropdownOpen, setRegisterSeasonDropdownOpen] = useState(false);
   const [registerClubs, setRegisterClubs] = useState<Club[]>([]);
+
+  // Dropdowns for Edit Modal
+  const [editBattingHandDropdownOpen, setEditBattingHandDropdownOpen] = useState(false);
+  const [editBowlingTypeDropdownOpen, setEditBowlingTypeDropdownOpen] = useState(false);
+
+  // Dropdowns for Register Modal additional fields
+  const [registerBattingHandDropdownOpen, setRegisterBattingHandDropdownOpen] = useState(false);
+  const [registerBowlingTypeDropdownOpen, setRegisterBowlingTypeDropdownOpen] = useState(false);
+
+  const battingHandOptions = ["Right Handed", "Left Handed"];
+  
+  const paceOptions = [
+    "Right Arm Fast",
+    "Right Arm Medium Fast",
+    "Left Arm Fast",
+    "Left Arm Medium Fast"
+  ];
+
+  const spinOptions = [
+    "Right Arm Off Spin",
+    "Right Arm Leg Spin",
+    "Left Arm Orthodox Spin",
+    "Left Arm Wrist Spin (Chinaman)"
+  ];
+
+  const bowlingTypeOptions = [...paceOptions, ...spinOptions];
 
   // Fetch players and seasons on mount
   useEffect(() => {
@@ -272,6 +336,12 @@ const ActivePlayers = () => {
     setRegisterDistrictDropdownOpen(false);
     setRegisterClubDropdownOpen(false);
     setRegisterSeasonDropdownOpen(false);
+    setEditForm(initialEditForm);
+    setEditErrors({});
+    setEditBattingHandDropdownOpen(false);
+    setEditBowlingTypeDropdownOpen(false);
+    setRegisterBattingHandDropdownOpen(false);
+    setRegisterBowlingTypeDropdownOpen(false);
   };
 
   const handleSeasonRenewalSubmit = async () => {
@@ -370,6 +440,7 @@ const ActivePlayers = () => {
     if (!registerForm.seasonId) newErrors.seasonId = 'Select a season';
     if (!registerForm.homeDistrictId) newErrors.homeDistrictId = 'Required';
     if (!registerForm.homeClubId) newErrors.homeClubId = 'Required';
+    if (!registerForm.country.trim()) newErrors.country = 'Required';
     setRegisterErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -378,22 +449,27 @@ const ActivePlayers = () => {
     if (!validateRegisterForm()) return;
     setRegisterSubmitting(true);
     try {
+      const payload: any = {
+        firstName: registerForm.firstName.trim(),
+        lastName: registerForm.lastName.trim(),
+        email: registerForm.email.trim(),
+        dateOfBirth: registerForm.dob,
+        phone: registerForm.mobile.trim(),
+        country: registerForm.country.trim(),
+        seasonId: registerForm.seasonId,
+        homeDistrictId: registerForm.homeDistrictId,
+        homeClubId: registerForm.homeClubId,
+      };
+      if (registerForm.batting_hand) payload.batting_hand = registerForm.batting_hand;
+      if (registerForm.bowling_type) payload.bowling_type = registerForm.bowling_type;
+
       const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/kca/register/first-time`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           "ngrok-skip-browser-warning": "true"
         },
-        body: JSON.stringify({
-          firstName: registerForm.firstName.trim(),
-          lastName: registerForm.lastName.trim(),
-          email: registerForm.email.trim(),
-          dateOfBirth: registerForm.dob,
-          phone: registerForm.mobile.trim(),
-          seasonId: registerForm.seasonId,
-          homeDistrictId: registerForm.homeDistrictId,
-          homeClubId: registerForm.homeClubId,
-        }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         closeModal();
@@ -408,6 +484,57 @@ const ActivePlayers = () => {
       setRegisterErrors({ submit: 'Network error. Registration failed' });
     } finally {
       setRegisterSubmitting(false);
+    }
+  };
+
+  const validateEditForm = () => {
+    const newErrors: Record<string, string> = {};
+    if (!editForm.firstName.trim()) newErrors.firstName = 'Required';
+    if (!editForm.lastName.trim()) newErrors.lastName = 'Required';
+    if (!editForm.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email)) {
+      newErrors.email = 'Valid email required';
+    }
+    if (!editForm.phone || !isValidPhoneNumber(editForm.phone)) newErrors.phone = 'Invalid mobile number';
+    if (!editForm.country.trim()) newErrors.country = 'Required';
+    setEditErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleEditSubmit = async () => {
+    if (!selectedPlayer || !validateEditForm()) return;
+    setEditSubmitting(true);
+    try {
+      const payload: any = {
+        firstName: editForm.firstName.trim(),
+        lastName: editForm.lastName.trim(),
+        email: editForm.email.trim(),
+        phone: editForm.phone.trim(),
+        country: editForm.country.trim(),
+      };
+      if (editForm.batting_hand) payload.batting_hand = editForm.batting_hand;
+      if (editForm.bowling_type) payload.bowling_type = editForm.bowling_type;
+
+      const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/kca/players/${selectedPlayer.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          "ngrok-skip-browser-warning": "true"
+        },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        closeModal();
+        refreshAfterAction();
+        setSuccessInfo({ title: 'Player Updated', message: 'Player Details Have been Updated Successfully' });
+      } else {
+        const errData = await res.json().catch(() => null);
+        setEditErrors({ submit: errData?.message || errData?.error || 'Update failed' });
+      }
+    } catch (error) {
+      console.error("Update failed", error);
+      setEditErrors({ submit: 'Network error. Update failed' });
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -511,7 +638,11 @@ const ActivePlayers = () => {
                 const clubName = typeof player.club === 'object' ? player.club?.name : (player.club || "Chamundi Hills CC");
 
                 return (
-                  <tr key={player.id || index} className="hover:bg-gray-50/50 transition-colors">
+                  <tr
+                    key={player.id || index}
+                    onClick={() => router.push(`/admin/players/${player.id}/stats?name=${encodeURIComponent(fullName)}`)}
+                    className="hover:bg-gray-50/50 transition-colors cursor-pointer"
+                  >
                     {/* Player info column */}
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3.5">
@@ -545,8 +676,27 @@ const ActivePlayers = () => {
                     </td>
 
                     {/* Actions column */}
-                    <td className="py-4 px-6 text-right">
+                    <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-3 text-xs font-semibold">
+                        <button
+                          onClick={() => {
+                            setSelectedPlayer(player);
+                            setEditForm({
+                              firstName: player.firstName || '',
+                              lastName: player.lastName || '',
+                              email: player.email || '',
+                              phone: sanitizeToE164(player.phone),
+                              country: player.country || '',
+                              batting_hand: player.batting_hand || '',
+                              bowling_type: player.bowling_type || '',
+                            });
+                            setActiveModal('edit');
+                          }}
+                          className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors flex items-center justify-center"
+                          title="Edit Player"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={() => {
                             setSelectedPlayer(player);
@@ -1019,12 +1169,78 @@ const ActivePlayers = () => {
                     <PhoneInput
                       international
                       defaultCountry="IN"
-                      value={registerForm.mobile}
+                      value={sanitizeToE164(registerForm.mobile)}
                       onChange={(val) => setRegisterForm({ ...registerForm, mobile: val || '' })}
                       className="text-sm text-gray-900 outline-none"
                     />
                   </div>
                   {registerErrors.mobile && <p className="text-red-500 text-xs mt-1">{registerErrors.mobile}</p>}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-900 mb-2">Country</label>
+                <input
+                  type="text"
+                  value={registerForm.country}
+                  onChange={(e) => setRegisterForm({ ...registerForm, country: e.target.value })}
+                  placeholder="Enter Country"
+                  className={`w-full p-4 bg-[#FAFBFF] border ${registerErrors.country ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl text-sm text-gray-900 outline-none focus:border-[#4B70C3]`}
+                />
+                {registerErrors.country && <p className="text-red-500 text-xs mt-1">{registerErrors.country}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="relative">
+                  <label className="block text-xs font-bold text-gray-900 mb-2">Batting Hand</label>
+                  <div
+                    onClick={() => setRegisterBattingHandDropdownOpen(!registerBattingHandDropdownOpen)}
+                    className="w-full p-4 bg-[#FAFBFF] border border-[#E5F0FF] rounded-xl text-sm text-gray-900 flex justify-between items-center cursor-pointer"
+                  >
+                    <span className={registerForm.batting_hand ? "text-gray-900" : "text-gray-400"}>
+                      {registerForm.batting_hand || "Select Batting Hand"}
+                    </span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </div>
+                  {registerBattingHandDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                      {battingHandOptions.map((opt) => (
+                        <div
+                          key={opt}
+                          onClick={() => { setRegisterForm({ ...registerForm, batting_hand: opt }); setRegisterBattingHandDropdownOpen(false); }}
+                          className="p-3 text-sm hover:bg-gray-50 cursor-pointer text-gray-900"
+                        >
+                          {opt}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <label className="block text-xs font-bold text-gray-900 mb-2">Bowling Type</label>
+                  <div
+                    onClick={() => setRegisterBowlingTypeDropdownOpen(!registerBowlingTypeDropdownOpen)}
+                    className="w-full p-4 bg-[#FAFBFF] border border-[#E5F0FF] rounded-xl text-sm text-gray-900 flex justify-between items-center cursor-pointer"
+                  >
+                    <span className={`truncate ${registerForm.bowling_type ? "text-gray-900" : "text-gray-400"}`}>
+                      {registerForm.bowling_type || "Select Bowling Type"}
+                    </span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </div>
+                  {registerBowlingTypeDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                      {bowlingTypeOptions.map((opt) => (
+                        <div
+                          key={opt}
+                          onClick={() => { setRegisterForm({ ...registerForm, bowling_type: opt }); setRegisterBowlingTypeDropdownOpen(false); }}
+                          className="p-3 text-sm hover:bg-gray-50 cursor-pointer text-gray-900"
+                        >
+                          {opt}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1129,7 +1345,150 @@ const ActivePlayers = () => {
         </div>
       )}
 
-      {/* Success modal — shared across register / season renewal / guest / transfer */}
+      {/* 5. Edit Player Modal */}
+      {activeModal === 'edit' && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white w-full max-w-[480px] rounded-3xl p-8 relative text-center shadow-xl max-h-[90vh] overflow-y-auto">
+
+            <button onClick={closeModal} className="absolute top-6 right-6 text-gray-400 hover:text-gray-700">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+
+            <div className="w-[60px] h-[60px] bg-[#F0F5FF] rounded-full flex items-center justify-center mx-auto mb-3">
+              <img src="/Logo.png" alt="Logo" className="w-[30px] h-[30px] object-contain" />
+            </div>
+
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Edit Player Details</h2>
+
+            <div className="space-y-4 text-left mb-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-900 mb-2">First Name</label>
+                  <input
+                    type="text"
+                    value={editForm.firstName}
+                    onChange={(e) => setEditForm({ ...editForm, firstName: e.target.value })}
+                    placeholder="Enter First Name"
+                    className={`w-full p-4 bg-[#FAFBFF] border ${editErrors.firstName ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl text-sm text-gray-900 outline-none focus:border-[#4B70C3]`}
+                  />
+                  {editErrors.firstName && <p className="text-red-500 text-xs mt-1">{editErrors.firstName}</p>}
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-900 mb-2">Last Name</label>
+                  <input
+                    type="text"
+                    value={editForm.lastName}
+                    onChange={(e) => setEditForm({ ...editForm, lastName: e.target.value })}
+                    placeholder="Enter Last Name"
+                    className={`w-full p-4 bg-[#FAFBFF] border ${editErrors.lastName ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl text-sm text-gray-900 outline-none focus:border-[#4B70C3]`}
+                  />
+                  {editErrors.lastName && <p className="text-red-500 text-xs mt-1">{editErrors.lastName}</p>}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-900 mb-2">Email</label>
+                <input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  placeholder="Enter Email Address"
+                  className={`w-full p-4 bg-[#FAFBFF] border ${editErrors.email ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl text-sm text-gray-900 outline-none focus:border-[#4B70C3]`}
+                />
+                {editErrors.email && <p className="text-red-500 text-xs mt-1">{editErrors.email}</p>}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-900 mb-2">Mobile No.</label>
+                <div className={`w-full px-4 py-3.5 bg-[#FAFBFF] border ${editErrors.phone ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl`}>
+                  <PhoneInput
+                    international
+                    defaultCountry="IN"
+                    value={sanitizeToE164(editForm.phone)}
+                    onChange={(val) => setEditForm({ ...editForm, phone: val || '' })}
+                    className="text-sm text-gray-900 outline-none"
+                  />
+                </div>
+                {editErrors.phone && <p className="text-red-500 text-xs mt-1">{editErrors.phone}</p>}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-900 mb-2">Country</label>
+                <input
+                  type="text"
+                  value={editForm.country}
+                  onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
+                  placeholder="Enter Country"
+                  className={`w-full p-4 bg-[#FAFBFF] border ${editErrors.country ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl text-sm text-gray-900 outline-none focus:border-[#4B70C3]`}
+                />
+                {editErrors.country && <p className="text-red-500 text-xs mt-1">{editErrors.country}</p>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="relative">
+                  <label className="block text-xs font-bold text-gray-900 mb-2">Batting Hand</label>
+                  <div
+                    onClick={() => setEditBattingHandDropdownOpen(!editBattingHandDropdownOpen)}
+                    className="w-full p-4 bg-[#FAFBFF] border border-[#E5F0FF] rounded-xl text-sm text-gray-900 flex justify-between items-center cursor-pointer"
+                  >
+                    <span className={editForm.batting_hand ? "text-gray-900" : "text-gray-400"}>
+                      {editForm.batting_hand || "Select Batting Hand"}
+                    </span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </div>
+                  {editBattingHandDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                      {battingHandOptions.map((opt) => (
+                        <div
+                          key={opt}
+                          onClick={() => { setEditForm({ ...editForm, batting_hand: opt }); setEditBattingHandDropdownOpen(false); }}
+                          className="p-3 text-sm hover:bg-gray-50 cursor-pointer text-gray-900"
+                        >
+                          {opt}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <label className="block text-xs font-bold text-gray-900 mb-2">Bowling Type</label>
+                  <div
+                    onClick={() => setEditBowlingTypeDropdownOpen(!editBowlingTypeDropdownOpen)}
+                    className="w-full p-4 bg-[#FAFBFF] border border-[#E5F0FF] rounded-xl text-sm text-gray-900 flex justify-between items-center cursor-pointer"
+                  >
+                    <span className={`truncate ${editForm.bowling_type ? "text-gray-900" : "text-gray-400"}`}>
+                      {editForm.bowling_type || "Select Bowling Type"}
+                    </span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  </div>
+                  {editBowlingTypeDropdownOpen && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                      {bowlingTypeOptions.map((opt) => (
+                        <div
+                          key={opt}
+                          onClick={() => { setEditForm({ ...editForm, bowling_type: opt }); setEditBowlingTypeDropdownOpen(false); }}
+                          className="p-3 text-sm hover:bg-gray-50 cursor-pointer text-gray-900"
+                        >
+                          {opt}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {editErrors.submit && <p className="text-red-500 text-sm text-center">{editErrors.submit}</p>}
+            </div>
+
+            <button onClick={handleEditSubmit} disabled={editSubmitting} className="w-full py-4 bg-black text-white rounded-xl font-bold text-sm hover:bg-[#3b5da8] transition-colors disabled:opacity-50">
+              {editSubmitting ? "Updating..." : "Done"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Success modal — shared across register / season renewal / guest / transfer / edit */}
       <StatusModal
         isOpen={!!successInfo}
         onClose={() => setSuccessInfo(null)}

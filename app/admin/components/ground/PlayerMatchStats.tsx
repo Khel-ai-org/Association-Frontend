@@ -31,8 +31,120 @@ interface Ball {
 }
 
 interface PlayerMatchStatsProps {
-  matchId: string;
+  // Optional — when opened outside a specific match (e.g. from the player
+  // roster), there's no scorecard to load, so Match/Tournament stats can't
+  // be shown, but Career stats still work off `playerId` alone.
+  matchId?: string;
   playerName: string;
+  // Optional — when the caller already knows the real player id (e.g. the
+  // roster's own KCA player record), skip deriving it from the scorecard.
+  playerId?: string;
+  defaultTab?: 'match' | 'tournament' | 'career';
+}
+
+// Real shape confirmed from `GET {SCORING_API_BASE}/api/v1/players/:id/history`.
+interface HistoryPlayer {
+  id: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  role: string | null;
+  jersey_number: number | null;
+  batting_hand: string;
+  bowling_type: string;
+  status: string;
+  dateOfBirth: string;
+  age: number;
+  email: string;
+  phone: string;
+  country: string;
+  homeDistrict: { id: string; name: string } | null;
+  homeClub: { id: string; name: string } | null;
+}
+
+interface DismissalBreakdown {
+  bowled: number;
+  caught: number;
+  lbw: number;
+  run_out: number;
+  stumped: number;
+  hit_wicket: number;
+  retired_out: number;
+  timed_out: number;
+  retired_hurt: number;
+}
+
+interface WicketsByType {
+  bowled: number;
+  caught: number;
+  lbw: number;
+  stumped: number;
+  hit_wicket: number;
+}
+
+interface FormatBattingStats {
+  innings: number;
+  runs: number;
+  balls_played: number;
+  fours: number;
+  sixes: number;
+  highest_score: number;
+  average: number;
+  batting_average: number;
+  strike_rate: number;
+  thirties: number;
+  fifties: number;
+  hundreds: number;
+  ducks: number;
+  not_outs: number;
+  dismissals?: DismissalBreakdown;
+}
+
+interface FormatBowlingStats {
+  innings: number;
+  balls_bowled: number;
+  overs: string;
+  runs_given: number;
+  wickets: number;
+  maidens: number;
+  wides: number;
+  no_balls: number;
+  best_bowling: string;
+  economy: number;
+  average: number;
+  strike_rate: number;
+  three_wicket_hauls: number;
+  five_wicket_hauls: number;
+  dots: number;
+  fours_conceded: number;
+  sixes_conceded: number;
+  wickets_by_type?: WicketsByType;
+}
+
+interface FormatFieldingStats {
+  catches: number;
+  stumpings: number;
+  run_outs: number;
+}
+
+interface FormatSummary {
+  total_matches: number;
+  batting: FormatBattingStats;
+  bowling: FormatBowlingStats;
+  fielding: FormatFieldingStats;
+}
+
+interface CareerSummary extends FormatSummary {
+  total: FormatSummary;
+  overall: FormatSummary;
+  by_format: Record<string, FormatSummary | undefined>;
+}
+
+interface PlayerHistoryData {
+  requested_match_type: string;
+  player: HistoryPlayer;
+  career_summary: CareerSummary;
+  history: unknown[];
 }
 
 const SCORING_API_BASE = process.env.NEXT_PUBLIC_SCORING_API_URL || "http://localhost:5500/api/v1";
@@ -392,29 +504,6 @@ const LineLengthChart: React.FC<{ rows: { length: string; pct: number }[] }> = (
   );
 };
 
-// MOCK — Career Stats / Batting. Same rationale as the tournament mocks
-// above: no cross-tournament/career aggregation endpoint exists anywhere.
-const MOCK_CAREER_OVERVIEW = {
-  matches: 245,
-  innings: 204,
-  notOut: 35,
-  runs: '10,325',
-  highestScore: 264,
-  average: 47.5,
-  strikeRate: 137.21,
-  thirties: 125,
-  fifties: 75,
-  hundreds: 38,
-  fours: 603,
-  sixes: 391,
-  ducks: '07',
-};
-
-const MOCK_FORMAT_BREAKDOWN = [
-  { format: 'Test', matches: 125, innings: 210, runs: '9,700', highestScore: '254*', average: 49.20, strikeRate: 58.10, hundreds: 35, fifties: 42 },
-  { format: 'ODI', matches: 125, innings: 210, runs: '9,700', highestScore: '254*', average: 49.20, strikeRate: 58.10, hundreds: 35, fifties: 42 },
-  { format: 'T20', matches: 125, innings: 210, runs: '9,700', highestScore: '254*', average: 49.20, strikeRate: 58.10, hundreds: 35, fifties: 42 },
-];
 
 const MOCK_CAREER_TREND = [
   { year: 2018, matches: 10, innings: 10, runs: 520, average: 46.2, sr: 128.4, centuries: 2 },
@@ -426,14 +515,6 @@ const MOCK_CAREER_TREND = [
   { year: 2024, matches: 12, innings: 12, runs: 660, average: 55.0, sr: 139.7, centuries: 4 },
   { year: 2025, matches: 13, innings: 13, runs: 730, average: 60.8, sr: 145.3, centuries: 5 },
   { year: 2026, matches: 10, innings: 10, runs: 600, average: 54.5, sr: 136.1, centuries: 3 },
-];
-
-const MOCK_RECENT_PERFORMANCES_DETAILED = [
-  { date: '21 Jan 2026', team: 'India', opponent: 'Australia', format: 'T20I', runs: 68, balls: 45, sr: 151.11, result: 'Won' },
-  { date: '18 Jan 2026', team: 'India', opponent: 'Australia', format: 'T20I', runs: 68, balls: 45, sr: 151.11, result: 'Won' },
-  { date: '15 Jan 2026', team: 'India', opponent: 'Australia', format: 'T20I', runs: 68, balls: 45, sr: 151.11, result: 'Won' },
-  { date: '12 Jan 2026', team: 'India', opponent: 'Australia', format: 'T20I', runs: 68, balls: 45, sr: 151.11, result: 'Won' },
-  { date: '09 Jan 2026', team: 'India', opponent: 'Australia', format: 'T20I', runs: 68, balls: 45, sr: 151.11, result: 'Lost' },
 ];
 
 const MOCK_CAREER_MILESTONES = [
@@ -451,35 +532,6 @@ const TREND_TABS = [
 ] as const;
 type TrendMetric = typeof TREND_TABS[number]['key'];
 
-// MOCK — Career Stats / Bowling. Same rationale as the batting career mocks
-// above: no cross-tournament/career aggregation endpoint exists anywhere.
-const MOCK_CAREER_BOWLING_OVERVIEW = {
-  matches: 245,
-  innings: 204,
-  overs: 420,
-  balls: 2364,
-  maidens: 18,
-  wickets: 201,
-  runs: 2800,
-  threeWicketHauls: 18,
-  fiveWicketHauls: '03',
-  bestBowling: '19/6',
-  economy: 6.59,
-  strikeRate: 14.64,
-  average: 16.08,
-  wides: 87,
-  noBalls: '03',
-  dots: 1470,
-  fours: 251,
-  sixes: 149,
-};
-
-const MOCK_CAREER_BOWLING_FORMAT_BREAKDOWN = [
-  { format: 'Test', matches: 58, innings: 112, overs: '2,148.4', runs: '6,982', wickets: 213, best: '6/19', average: 32.78, economy: 3.24, strikeRate: 60.7, fiveW: 8 },
-  { format: 'ODI', matches: 58, innings: 112, overs: '2,148.4', runs: '6,982', wickets: 213, best: '6/19', average: 32.78, economy: 3.24, strikeRate: 60.7, fiveW: 8 },
-  { format: 'T20', matches: 58, innings: 112, overs: '2,148.4', runs: '6,982', wickets: 213, best: '6/19', average: 32.78, economy: 3.24, strikeRate: 60.7, fiveW: 8 },
-];
-
 const MOCK_CAREER_BOWLING_TREND = [
   { year: 2018, matches: 22, overs: 380.2, wickets: 28, economy: 6.10, average: 24.5, sr: 41.2 },
   { year: 2019, matches: 25, overs: 420.1, wickets: 34, economy: 5.85, average: 22.1, sr: 38.6 },
@@ -490,14 +542,6 @@ const MOCK_CAREER_BOWLING_TREND = [
   { year: 2024, matches: 32, overs: 560.2, wickets: 48, economy: 5.05, average: 18.4, sr: 32.1 },
   { year: 2025, matches: 34, overs: 598.5, wickets: 52, economy: 4.95, average: 17.9, sr: 31.2 },
   { year: 2026, matches: 12, overs: 210.0, wickets: 18, economy: 5.20, average: 19.0, sr: 33.5 },
-];
-
-const MOCK_RECENT_BOWLING_PERFORMANCES = [
-  { date: '18 Sep 2026', teamOpponent: 'India vs Australia', format: 'T20I', overs: 4.0, runs: 32, wkts: 3, economy: 8.00, result: 'Won' },
-  { date: '15 Sep 2026', teamOpponent: 'India vs Australia', format: 'T20I', overs: 4.0, runs: 32, wkts: 3, economy: 8.00, result: 'Won' },
-  { date: '12 Sep 2026', teamOpponent: 'India vs Australia', format: 'T20I', overs: 4.0, runs: 32, wkts: 3, economy: 8.00, result: 'Won' },
-  { date: '09 Sep 2026', teamOpponent: 'India vs Australia', format: 'T20I', overs: 4.0, runs: 32, wkts: 3, economy: 8.00, result: 'Won' },
-  { date: '05 Sep 2026', teamOpponent: 'India vs Australia', format: 'T20I', overs: 4.0, runs: 32, wkts: 3, economy: 8.00, result: 'Won' },
 ];
 
 const MOCK_BOWLING_CAREER_MILESTONES = [
@@ -521,6 +565,16 @@ const BOWLING_TREND_TABS = [
   { key: 'sr', label: 'Strike Rate' },
 ] as const;
 type BowlingTrendMetric = typeof BOWLING_TREND_TABS[number]['key'];
+
+// Real `career_summary.by_format` keys, in display order, for the
+// Format-wise Career Breakdown tables.
+const FORMAT_ORDER = [
+  { key: 'test', label: 'Test' },
+  { key: 'odi', label: 'ODI' },
+  { key: 't20', label: 'T20' },
+  { key: 't10', label: 'T10' },
+  { key: 'custom', label: 'Custom' },
+];
 
 const TREND_CHART_W = 800;
 const TREND_CHART_H = 220;
@@ -597,9 +651,113 @@ function CareerTrendChart<T extends TrendPoint>({
   );
 }
 
-export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, playerName }) => {
+// Real shape confirmed from `GET {SCORING_API_BASE}/api/v1/players/:id/opponents`:
+// `data.opponents[]` — each entry groups every team_id a given opponent has
+// played under behind one display `team_name`.
+interface OpponentEntry {
+  team_name: string;
+  team_ids: string[];
+}
+
+// Real shape confirmed from `POST {SCORING_API_BASE}/api/v1/players/:id/recent-form`:
+// `data.batting.matches[]` / `data.bowling.matches[]`, each with `home_team`/
+// `away_team` (no separate "which side is the player's team" field).
+interface RecentFormMatch {
+  match_id?: string;
+  date?: string;
+  home_team?: string;
+  away_team?: string;
+  format?: string;
+  result?: string;
+  result_description?: string;
+  runs?: number;
+  balls?: number;
+  strike_rate?: number;
+  overs?: string | number;
+  runs_given?: number;
+  wickets?: number;
+  economy?: number;
+  [key: string]: unknown;
+}
+
+// The API returns a full ISO timestamp; the UI only ever shows the date part.
+const formatRecentDate = (iso?: string): string => {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const RECENT_FORMAT_OPTIONS = ['All', 'T10', 'T20', 'ODI', 'TEST', 'CUSTOM'] as const;
+type RecentFormatFilter = (typeof RECENT_FORMAT_OPTIONS)[number];
+
+const RecentPerformanceFilters: React.FC<{
+  opponents: OpponentEntry[];
+  opponentFilter: string;
+  onOpponentChange: (v: string) => void;
+  formatFilter: RecentFormatFilter;
+  onFormatChange: (v: RecentFormatFilter) => void;
+}> = ({ opponents, opponentFilter, onOpponentChange, formatFilter, onFormatChange }) => {
+  const [opponentOpen, setOpponentOpen] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <button
+          onClick={() => { setOpponentOpen((o) => !o); setFormatOpen(false); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F1117] text-white text-xs font-semibold"
+        >
+          Opponent - <span className="font-bold">{opponentFilter}</span> <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+        {opponentOpen && (
+          <div className="absolute right-0 mt-1 w-48 max-h-60 overflow-y-auto bg-white border border-slate-100 rounded-lg shadow-lg z-10 py-1">
+            <button
+              onClick={() => { onOpponentChange('All teams'); setOpponentOpen(false); }}
+              className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              All teams
+            </button>
+            {opponents.map((o, i) => (
+              <button
+                key={i}
+                onClick={() => { onOpponentChange(o.team_name); setOpponentOpen(false); }}
+                className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                {o.team_name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="relative">
+        <button
+          onClick={() => { setFormatOpen((o) => !o); setOpponentOpen(false); }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F1117] text-white text-xs font-semibold"
+        >
+          Format - <span className="font-bold">{formatFilter}</span> <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+        {formatOpen && (
+          <div className="absolute right-0 mt-1 w-32 bg-white border border-slate-100 rounded-lg shadow-lg z-10 py-1">
+            {RECENT_FORMAT_OPTIONS.map((f) => (
+              <button
+                key={f}
+                onClick={() => { onFormatChange(f); setFormatOpen(false); }}
+                className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, playerName, playerId: providedPlayerId, defaultTab }) => {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!matchId);
   const [scorecard, setScorecard] = useState<MatchLikeScorecard | null>(null);
   const [superOvers, setSuperOvers] = useState<MatchLikeScorecard[]>([]);
   const [balls1, setBalls1] = useState<Ball[]>([]);
@@ -607,14 +765,20 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const [view, setView] = useState<'batting' | 'bowling'>('batting');
   const [hoveredWagon, setHoveredWagon] = useState<{ zone: string; label: string } | null>(null);
   const [careerFormatFilter, setCareerFormatFilter] = useState<'Overall' | 'Tests' | 'ODI' | 'T20' | 'T10'>('Overall');
+  const [playerHistory, setPlayerHistory] = useState<PlayerHistoryData | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>('runs');
   const [bowlingTrendMetric, setBowlingTrendMetric] = useState<BowlingTrendMetric>('wickets');
   const [hoveredManhattanOver, setHoveredManhattanOver] = useState<number | null>(null);
-  const [statsTab, setStatsTab] = useState<'match' | 'tournament' | 'career'>('match');
+  const [statsTab, setStatsTab] = useState<'match' | 'tournament' | 'career'>(defaultTab || 'match');
+  const [opponents, setOpponents] = useState<OpponentEntry[]>([]);
+  const [recentOpponentFilter, setRecentOpponentFilter] = useState('All teams');
+  const [recentFormatFilter, setRecentFormatFilter] = useState<RecentFormatFilter>('All');
+  const [recentFormBatting, setRecentFormBatting] = useState<RecentFormMatch[]>([]);
+  const [recentFormBowling, setRecentFormBowling] = useState<RecentFormMatch[]>([]);
 
   useEffect(() => {
+    if (!matchId) return;
     const fetchAll = async () => {
-      if (!matchId) return;
       setLoading(true);
       try {
         const [scRes, b1Res, b2Res] = await Promise.all([
@@ -656,7 +820,6 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   );
 
   const battingInnings: Innings | undefined = battingMatch?.inningsNum === 1 ? scorecard?.innings_1 : battingMatch?.inningsNum === 2 ? scorecard?.innings_2 : undefined;
-  const bowlingInnings: Innings | undefined = bowlingMatch?.inningsNum === 1 ? scorecard?.innings_1 : bowlingMatch?.inningsNum === 2 ? scorecard?.innings_2 : undefined;
 
   const battingBalls = useMemo(() => {
     const source = battingMatch?.inningsNum === 1 ? balls1 : battingMatch?.inningsNum === 2 ? balls2 : [];
@@ -674,12 +837,126 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   // Real inference: batsman-only / bowler-only / did both this match.
   const roleLabel = didBat && didBowl ? "All-Rounder" : didBat ? "Batsman" : didBowl ? "Bowler" : "Player";
 
+  // Real — every batsman/bowler row on the scorecard carries the player's
+  // own id, batting hand and bowling type (confirmed from a real payload).
+  // Prefer an explicitly-provided id (e.g. from the player roster) over one
+  // derived from a match scorecard, since the latter isn't always present.
+  const playerId = providedPlayerId || battingMatch?.entry.id || bowlingMatch?.entry.id;
+  const battingHand = battingMatch?.entry.batting_hand || bowlingMatch?.entry.batting_hand;
+  const bowlingType = bowlingMatch?.entry.bowling_type || battingMatch?.entry.bowling_type;
+
+  // Real career data — powers the Career Stats tab (bio, overview, format
+  // breakdown). `history` (match-by-match log) isn't wired up yet.
+  useEffect(() => {
+    if (!playerId) return;
+    const fetchPlayerHistory = async () => {
+      try {
+        const res = await fetch(
+          `${SCORING_API_BASE}/api/v1/players/${playerId}/history`,
+          { headers: { "ngrok-skip-browser-warning": "true" } }
+        );
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.status === 'success' && json?.data) setPlayerHistory(json.data);
+        }
+      } catch (err) {
+        console.error("Player history fetch error:", err);
+      }
+    };
+    fetchPlayerHistory();
+  }, [playerId]);
+
+  // Real recent-form data — powers "Detailed Recent Performances" /
+  // "Recent Bowling Performances" in the Career Stats tab. Re-fetched
+  // whenever the Opponent/Format filters change, since filtering happens
+  // server-side via the POST body (match_type + opponent_team_ids).
+  useEffect(() => {
+    if (!playerId) return;
+    const selectedOpponent = opponents.find((o) => o.team_name === recentOpponentFilter);
+    const fetchRecentForm = async () => {
+      try {
+        const res = await fetch(
+          `${SCORING_API_BASE}/api/v1/players/${playerId}/recent-form`,
+          {
+            method: 'POST',
+            headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+            body: JSON.stringify({
+              match_type: recentFormatFilter === 'All' ? 'all' : recentFormatFilter.toLowerCase(),
+              opponent_team_ids: selectedOpponent ? selectedOpponent.team_ids : [],
+              limit: 5,
+            }),
+          }
+        );
+        if (res.ok) {
+          const json = await res.json();
+          console.log("Player recent-form data:", json);
+          setRecentFormBatting(Array.isArray(json?.data?.batting?.matches) ? json.data.batting.matches : []);
+          setRecentFormBowling(Array.isArray(json?.data?.bowling?.matches) ? json.data.bowling.matches : []);
+        }
+      } catch (err) {
+        console.error("Player recent-form fetch error:", err);
+      }
+    };
+    fetchRecentForm();
+  }, [playerId, recentFormatFilter, recentOpponentFilter, opponents]);
+
+  // Real opponents list — powers the Opponent filter dropdown next to
+  // Recent Performances tables in the Career Stats tab.
+  useEffect(() => {
+    if (!playerId) return;
+    const fetchOpponents = async () => {
+      try {
+        const res = await fetch(
+          `${SCORING_API_BASE}/api/v1/players/${playerId}/opponents`,
+          { headers: { "ngrok-skip-browser-warning": "true" } }
+        );
+        if (res.ok) {
+          const json = await res.json();
+          console.log("Player opponents data:", json);
+          const list = Array.isArray(json?.data?.opponents) ? json.data.opponents : [];
+          setOpponents(list);
+        }
+      } catch (err) {
+        console.error("Player opponents fetch error:", err);
+      }
+    };
+    fetchOpponents();
+  }, [playerId]);
+
+  // Career-wide participation (from the history endpoint) — used to gate
+  // the Batting/Bowling toggle while viewing Career Stats, since a player
+  // might not have batted/bowled in a specific match but has career data
+  // for it (or vice versa).
+  const careerDidBat = (playerHistory?.career_summary.total.batting.innings ?? 0) > 0;
+  const careerDidBowl = (playerHistory?.career_summary.total.bowling.innings ?? 0) > 0;
+  const effectiveDidBat = statsTab === 'career' ? careerDidBat : didBat;
+  const effectiveDidBowl = statsTab === 'career' ? careerDidBowl : didBowl;
+
+  // Maps the existing Overall/Tests/ODI/T20/T10 filter to the real
+  // career_summary shape — "Overall" reads the pre-aggregated `total`
+  // object, everything else looks up `by_format` by its lowercase key.
+  const selectedFormatSummary: FormatSummary | undefined = useMemo(() => {
+    if (!playerHistory) return undefined;
+    if (careerFormatFilter === 'Overall') return playerHistory.career_summary.total;
+    const key = careerFormatFilter === 'Tests' ? 'test' : careerFormatFilter.toLowerCase();
+    return playerHistory.career_summary.by_format[key];
+  }, [playerHistory, careerFormatFilter]);
+
   useEffect(() => {
     if (!loading) {
       if (didBat) setView('batting');
       else if (didBowl) setView('bowling');
     }
   }, [loading, didBat, didBowl]);
+
+  // Standalone Career view (no matchId) — default to whichever discipline
+  // the player actually has career data for, once it loads.
+  useEffect(() => {
+    if (!matchId && playerHistory) {
+      if (careerDidBat) setView('batting');
+      else if (careerDidBowl) setView('bowling');
+    }
+  }, [matchId, playerHistory, careerDidBat, careerDidBowl]);
 
   // --- Batting-side aggregates (all real, derived from `battingBalls`) ---
   const highestInMatch = useMemo(() => {
@@ -889,7 +1166,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
     );
   }
 
-  if (!didBat && !didBowl) {
+  if (matchId && !didBat && !didBowl) {
     return (
       <div className="flex flex-col gap-6">
         <button onClick={() => router.back()} className="flex items-center gap-1 text-sm font-medium text-slate-700 hover:text-slate-900 w-fit">
@@ -898,6 +1175,20 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
         <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center shadow-xs">
           <h2 className="text-xl font-bold text-slate-900 mb-2">{playerName}</h2>
           <p className="text-slate-600 italic">This player did not bat or bowl in this match.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!matchId && !careerDidBat && !careerDidBowl && playerHistory) {
+    return (
+      <div className="flex flex-col gap-6">
+        <button onClick={() => router.back()} className="flex items-center gap-1 text-sm font-medium text-slate-700 hover:text-slate-900 w-fit">
+          <ArrowLeft className="w-4 h-4" /> Back
+        </button>
+        <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center shadow-xs">
+          <h2 className="text-xl font-bold text-slate-900 mb-2">{playerName}</h2>
+          <p className="text-slate-600 italic">This player has no career batting or bowling record.</p>
         </div>
       </div>
     );
@@ -921,20 +1212,22 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2 text-xs">
               <div>
                 <p className="text-slate-600 uppercase font-bold text-[10px]">Age</p>
-                <p className="font-semibold text-slate-900">— yrs</p>
+                <p className="font-semibold text-slate-900">{playerHistory?.player.age ? `${playerHistory.player.age} yrs` : '— yrs'}</p>
               </div>
               <div>
                 <p className="text-slate-600 uppercase font-bold text-[10px]">Batting Style</p>
-                <p className="font-semibold text-slate-900">—</p>
+                <p className="font-semibold text-slate-900">{playerHistory?.player.batting_hand || battingHand || '—'}</p>
               </div>
               <div>
                 <p className="text-slate-600 uppercase font-bold text-[10px]">Bowling Style</p>
-                <p className="font-semibold text-slate-900">{didBowl ? '—' : 'N/A'}</p>
+                <p className="font-semibold text-slate-900">{playerHistory?.player.bowling_type || bowlingType || (didBowl ? '—' : 'N/A')}</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 mt-3">
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
               <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[11px] font-bold">{roleLabel}</span>
-              <span className="text-[11px] text-slate-500 font-medium">{battingInnings?.team_name || bowlingInnings?.team_name || ''}</span>
+              <span className="text-[11px] text-slate-500 font-medium">
+                {playerHistory?.player.country}
+              </span>
             </div>
           </div>
         </div>
@@ -1020,7 +1313,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
       {/* --- TABS --- */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex gap-6 bg-white rounded-2xl border border-slate-100 shadow-xs px-5 py-4 w-full sm:w-auto">
-          {(['match', 'tournament', 'career'] as const).map((t) => (
+          {(matchId ? (['match', 'tournament', 'career'] as const) : (['career'] as const)).map((t) => (
             <button
               key={t}
               onClick={() => setStatsTab(t)}
@@ -1033,14 +1326,14 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
         <div className="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-xs w-fit">
           <button
             onClick={() => setView('batting')}
-            disabled={!didBat}
+            disabled={!effectiveDidBat}
             className={`px-6 py-2.5 text-xs font-bold rounded-xl transition-all ${view === 'batting' ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'}`}
           >
             Batting
           </button>
           <button
             onClick={() => setView('bowling')}
-            disabled={!didBowl}
+            disabled={!effectiveDidBowl}
             className={`px-6 py-2.5 text-xs font-bold rounded-xl transition-all ${view === 'bowling' ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'}`}
           >
             Bowling
@@ -1068,12 +1361,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: 'Matches', value: MOCK_CAREER_BOWLING_OVERVIEW.matches },
-                  { label: 'Innings', value: MOCK_CAREER_BOWLING_OVERVIEW.innings },
-                  { label: 'Overs', value: MOCK_CAREER_BOWLING_OVERVIEW.overs },
-                  { label: 'Balls', value: MOCK_CAREER_BOWLING_OVERVIEW.balls },
-                  { label: 'Maidens', value: MOCK_CAREER_BOWLING_OVERVIEW.maidens },
-                  { label: 'Wickets', value: MOCK_CAREER_BOWLING_OVERVIEW.wickets },
+                  { label: 'Matches', value: selectedFormatSummary?.total_matches ?? 0 },
+                  { label: 'Innings', value: selectedFormatSummary?.bowling.innings ?? 0 },
+                  { label: 'Overs', value: selectedFormatSummary?.bowling.overs ?? '0.0' },
+                  { label: 'Balls', value: selectedFormatSummary?.bowling.balls_bowled ?? 0 },
+                  { label: 'Maidens', value: selectedFormatSummary?.bowling.maidens ?? 0 },
+                  { label: 'Wickets', value: selectedFormatSummary?.bowling.wickets ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1083,12 +1376,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: 'Runs', value: MOCK_CAREER_BOWLING_OVERVIEW.runs },
-                  { label: '3W Hauls', value: MOCK_CAREER_BOWLING_OVERVIEW.threeWicketHauls },
-                  { label: '5W Hauls', value: MOCK_CAREER_BOWLING_OVERVIEW.fiveWicketHauls },
-                  { label: 'Best Bowling', value: MOCK_CAREER_BOWLING_OVERVIEW.bestBowling },
-                  { label: 'Economy', value: MOCK_CAREER_BOWLING_OVERVIEW.economy },
-                  { label: 'Strike Rate', value: MOCK_CAREER_BOWLING_OVERVIEW.strikeRate },
+                  { label: 'Runs', value: selectedFormatSummary?.bowling.runs_given ?? 0 },
+                  { label: '3W Hauls', value: selectedFormatSummary?.bowling.three_wicket_hauls ?? 0 },
+                  { label: '5W Hauls', value: selectedFormatSummary?.bowling.five_wicket_hauls ?? 0 },
+                  { label: 'Best Bowling', value: selectedFormatSummary?.bowling.best_bowling ?? 'N/A' },
+                  { label: 'Economy', value: selectedFormatSummary?.bowling.economy ?? 0 },
+                  { label: 'Strike Rate', value: selectedFormatSummary?.bowling.strike_rate ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1098,12 +1391,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: 'Average', value: MOCK_CAREER_BOWLING_OVERVIEW.average },
-                  { label: 'Wide', value: MOCK_CAREER_BOWLING_OVERVIEW.wides },
-                  { label: 'No Ball', value: MOCK_CAREER_BOWLING_OVERVIEW.noBalls },
-                  { label: 'Dots', value: MOCK_CAREER_BOWLING_OVERVIEW.dots },
-                  { label: '4s', value: MOCK_CAREER_BOWLING_OVERVIEW.fours },
-                  { label: '6s', value: MOCK_CAREER_BOWLING_OVERVIEW.sixes },
+                  { label: 'Average', value: selectedFormatSummary?.bowling.average ?? 0 },
+                  { label: 'Wide', value: selectedFormatSummary?.bowling.wides ?? 0 },
+                  { label: 'No Ball', value: selectedFormatSummary?.bowling.no_balls ?? 0 },
+                  { label: 'Dots', value: selectedFormatSummary?.bowling.dots ?? 0 },
+                  { label: '4s', value: selectedFormatSummary?.bowling.fours_conceded ?? 0 },
+                  { label: '6s', value: selectedFormatSummary?.bowling.sixes_conceded ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1134,26 +1427,31 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_CAREER_BOWLING_FORMAT_BREAKDOWN.map((r) => (
-                      <tr key={r.format}>
-                        <td className="py-3 pr-4 font-bold text-slate-900">{r.format}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.matches}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.innings}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.overs}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.runs}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.wickets}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.best}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.average}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.economy}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.strikeRate}</td>
-                        <td className="py-3 pl-4 text-right text-slate-800">{r.fiveW}</td>
-                      </tr>
-                    ))}
+                    {FORMAT_ORDER.map(({ key, label }) => {
+                      const f = playerHistory?.career_summary.by_format[key];
+                      if (!f) return null;
+                      return (
+                        <tr key={key}>
+                          <td className="py-3 pr-4 font-bold text-slate-900">{label}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.total_matches}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.bowling.innings}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.bowling.overs}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.bowling.runs_given}</td>
+                          <td className="py-3 px-4 text-right font-bold text-slate-900">{f.bowling.wickets}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.bowling.best_bowling}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.bowling.average}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.bowling.economy}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.bowling.strike_rate}</td>
+                          <td className="py-3 pl-4 text-right text-slate-800">{f.bowling.five_wicket_hauls}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
 
+            {false && (
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
                 <h3 className="text-lg font-bold text-slate-900">Career Bowling Trend</h3>
@@ -1184,9 +1482,19 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 )}
               />
             </div>
+            )}
 
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
-              <h3 className="text-sm font-bold text-slate-900 mb-1">Recent Bowling Performances</h3>
+              <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
+                <h3 className="text-sm font-bold text-slate-900">Recent Bowling Performances</h3>
+                <RecentPerformanceFilters
+                  opponents={opponents}
+                  opponentFilter={recentOpponentFilter}
+                  onOpponentChange={setRecentOpponentFilter}
+                  formatFilter={recentFormatFilter}
+                  onFormatChange={setRecentFormatFilter}
+                />
+              </div>
               <p className="text-xs text-slate-600 mb-4">Latest matches and bowling figures.</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -1203,17 +1511,19 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_RECENT_BOWLING_PERFORMANCES.map((r, i) => (
+                    {recentFormBowling.length === 0 ? (
+                      <tr><td colSpan={8} className="py-6 text-center text-slate-500 italic">No recent bowling performances found.</td></tr>
+                    ) : recentFormBowling.map((r, i) => (
                       <tr key={i}>
-                        <td className="py-3 pr-4 text-slate-700">{r.date}</td>
-                        <td className="py-3 px-4 font-bold text-slate-900">{r.teamOpponent}</td>
-                        <td className="py-3 px-4 text-slate-700">{r.format}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.overs.toFixed(1)}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.runs}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.wkts}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.economy.toFixed(2)}</td>
+                        <td className="py-3 pr-4 text-slate-700">{formatRecentDate(r.date)}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900">{String(r.home_team ?? '-')} vs {String(r.away_team ?? '-')}</td>
+                        <td className="py-3 px-4 text-slate-700">{String(r.format ?? '-')}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{String(r.overs ?? '-')}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{String(r.runs_given ?? '-')}</td>
+                        <td className="py-3 px-4 text-right font-bold text-slate-900">{String(r.wickets ?? '-')}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{String(r.economy ?? '-')}</td>
                         <td className="py-3 pl-4 text-right">
-                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${r.result === 'Won' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.result}</span>
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold capitalize ${r.result === 'won' ? 'bg-emerald-50 text-emerald-600' : r.result === 'lost' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'}`}>{String(r.result ?? '-').replace('_', ' ')}</span>
                         </td>
                       </tr>
                     ))}
@@ -1224,6 +1534,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
           </div>
 
           <div className="flex flex-col gap-6">
+            {false && (
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-slate-900">Career Milestones</h3>
@@ -1242,7 +1553,9 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 ))}
               </div>
             </div>
+            )}
 
+            {false && (
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <h3 className="text-sm font-bold text-slate-900 mb-4">Bowling Style Analysis</h3>
               <div className="grid grid-cols-2 gap-3 mb-4">
@@ -1263,30 +1576,49 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${MOCK_BOWLING_STYLE_ANALYSIS.dotBallPct}%` }} />
               </div>
             </div>
+            )}
 
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <h3 className="text-sm font-bold text-slate-900 mb-1">Career Wicket Breakdown</h3>
               <p className="text-xs text-slate-600 mb-4">Distribution by method of dismissal.</p>
-              <div className="h-2.5 rounded-full overflow-hidden flex mb-4">
-                {MOCK_WICKET_BREAKDOWN.map((w) => {
-                  const total = MOCK_WICKET_BREAKDOWN.reduce((sum, x) => sum + x.count, 0);
-                  return <div key={w.method} className={w.color} style={{ width: `${(w.count / total) * 100}%` }} />;
-                })}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                {MOCK_WICKET_BREAKDOWN.map((w) => (
-                  <div key={w.method} className="flex items-center gap-2 text-xs">
-                    <span className={`w-2 h-2 rounded-full ${w.color}`} />
-                    <span className="text-slate-700">{w.method}: <span className="font-bold text-slate-900">{w.count}</span></span>
-                  </div>
-                ))}
-              </div>
+              {(() => {
+                const wbt = playerHistory?.career_summary.total.bowling.wickets_by_type;
+                const rows = wbt
+                  ? [
+                      { method: 'Bowled', count: wbt.bowled, color: 'bg-indigo-500' },
+                      { method: 'Caught', count: wbt.caught, color: 'bg-emerald-500' },
+                      { method: 'LBW', count: wbt.lbw, color: 'bg-amber-500' },
+                      { method: 'Stumped', count: wbt.stumped, color: 'bg-red-500' },
+                      { method: 'Hit Wicket', count: wbt.hit_wicket, color: 'bg-slate-400' },
+                    ]
+                  : [];
+                const total = rows.reduce((sum, x) => sum + x.count, 0);
+                if (!wbt || total === 0) {
+                  return <p className="text-slate-600 italic text-sm">No wicket data available.</p>;
+                }
+                return (
+                  <>
+                    <div className="h-2.5 rounded-full overflow-hidden flex mb-4">
+                      {rows.filter((w) => w.count > 0).map((w) => (
+                        <div key={w.method} className={w.color} style={{ width: `${(w.count / total) * 100}%` }} />
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {rows.map((w) => (
+                        <div key={w.method} className="flex items-center gap-2 text-xs">
+                          <span className={`w-2 h-2 rounded-full ${w.color}`} />
+                          <span className="text-slate-700">{w.method}: <span className="font-bold text-slate-900">{w.count}</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
       ) : statsTab === 'career' && view === 'batting' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
-          <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6">
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h3 className="text-lg font-bold text-slate-900">Career Overview Summary</h3>
@@ -1304,12 +1636,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: 'Matches', value: MOCK_CAREER_OVERVIEW.matches },
-                  { label: 'Innings', value: MOCK_CAREER_OVERVIEW.innings },
-                  { label: 'Not Out', value: MOCK_CAREER_OVERVIEW.notOut },
-                  { label: 'Runs', value: MOCK_CAREER_OVERVIEW.runs },
-                  { label: 'Highest Score', value: MOCK_CAREER_OVERVIEW.highestScore },
-                  { label: 'Average', value: MOCK_CAREER_OVERVIEW.average },
+                  { label: 'Matches', value: selectedFormatSummary?.total_matches ?? 0 },
+                  { label: 'Innings', value: selectedFormatSummary?.batting.innings ?? 0 },
+                  { label: 'Not Out', value: selectedFormatSummary?.batting.not_outs ?? 0 },
+                  { label: 'Runs', value: selectedFormatSummary?.batting.runs ?? 0 },
+                  { label: 'Highest Score', value: selectedFormatSummary?.batting.highest_score ?? 0 },
+                  { label: 'Average', value: selectedFormatSummary?.batting.average ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1319,12 +1651,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: 'Strike Rate', value: MOCK_CAREER_OVERVIEW.strikeRate },
-                  { label: '30s', value: MOCK_CAREER_OVERVIEW.thirties },
-                  { label: '50s', value: MOCK_CAREER_OVERVIEW.fifties },
-                  { label: '100s', value: MOCK_CAREER_OVERVIEW.hundreds },
-                  { label: '4s', value: MOCK_CAREER_OVERVIEW.fours },
-                  { label: '6s', value: MOCK_CAREER_OVERVIEW.sixes },
+                  { label: 'Strike Rate', value: selectedFormatSummary?.batting.strike_rate ?? 0 },
+                  { label: '30s', value: selectedFormatSummary?.batting.thirties ?? 0 },
+                  { label: '50s', value: selectedFormatSummary?.batting.fifties ?? 0 },
+                  { label: '100s', value: selectedFormatSummary?.batting.hundreds ?? 0 },
+                  { label: '4s', value: selectedFormatSummary?.batting.fours ?? 0 },
+                  { label: '6s', value: selectedFormatSummary?.batting.sixes ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1335,7 +1667,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                   <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">Ducks</p>
-                  <p className="text-xl font-bold text-slate-900">{MOCK_CAREER_OVERVIEW.ducks}</p>
+                  <p className="text-xl font-bold text-slate-900">{selectedFormatSummary?.batting.ducks ?? 0}</p>
                 </div>
               </div>
             </div>
@@ -1358,24 +1690,29 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_FORMAT_BREAKDOWN.map((r) => (
-                      <tr key={r.format}>
-                        <td className="py-3 pr-4 font-bold text-slate-900">{r.format}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.matches}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.innings}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.runs}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.highestScore}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.average}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.strikeRate}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.hundreds}</td>
-                        <td className="py-3 pl-4 text-right text-slate-800">{r.fifties}</td>
-                      </tr>
-                    ))}
+                    {FORMAT_ORDER.map(({ key, label }) => {
+                      const f = playerHistory?.career_summary.by_format[key];
+                      if (!f) return null;
+                      return (
+                        <tr key={key}>
+                          <td className="py-3 pr-4 font-bold text-slate-900">{label}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.total_matches}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.batting.innings}</td>
+                          <td className="py-3 px-4 text-right font-bold text-slate-900">{f.batting.runs}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.batting.highest_score}</td>
+                          <td className="py-3 px-4 text-right font-bold text-slate-900">{f.batting.average}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.batting.strike_rate}</td>
+                          <td className="py-3 px-4 text-right text-slate-800">{f.batting.hundreds}</td>
+                          <td className="py-3 pl-4 text-right text-slate-800">{f.batting.fifties}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
 
+            {false && (
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <div className="flex items-center justify-between mb-1 flex-wrap gap-3">
                 <h3 className="text-lg font-bold text-slate-900">Career Batting Trend</h3>
@@ -1406,18 +1743,18 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 )}
               />
             </div>
+            )}
 
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
                 <h3 className="text-sm font-bold text-slate-900">Detailed Recent Performances</h3>
-                <div className="flex items-center gap-2">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F1117] text-white text-xs font-semibold">
-                    Opponent - <span className="font-bold">All teams</span> <ChevronDown className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0F1117] text-white text-xs font-semibold">
-                    Format - <span className="font-bold">All formats</span> <ChevronDown className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                <RecentPerformanceFilters
+                  opponents={opponents}
+                  opponentFilter={recentOpponentFilter}
+                  onOpponentChange={setRecentOpponentFilter}
+                  formatFilter={recentFormatFilter}
+                  onFormatChange={setRecentFormatFilter}
+                />
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -1434,17 +1771,19 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_RECENT_PERFORMANCES_DETAILED.map((r, i) => (
+                    {recentFormBatting.length === 0 ? (
+                      <tr><td colSpan={8} className="py-6 text-center text-slate-500 italic">No recent batting performances found.</td></tr>
+                    ) : recentFormBatting.map((r, i) => (
                       <tr key={i}>
-                        <td className="py-3 pr-4 text-slate-700">{r.date}</td>
-                        <td className="py-3 px-4 text-slate-800">{r.team}</td>
-                        <td className="py-3 px-4 text-slate-800">{r.opponent}</td>
-                        <td className="py-3 px-4 text-slate-700">{r.format}</td>
-                        <td className="py-3 px-4 text-right font-bold text-blue-600">{r.runs}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.balls}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.sr}</td>
+                        <td className="py-3 pr-4 text-slate-700">{formatRecentDate(r.date)}</td>
+                        <td className="py-3 px-4 text-slate-800">{String(r.home_team ?? '-')}</td>
+                        <td className="py-3 px-4 text-slate-800">{String(r.away_team ?? '-')}</td>
+                        <td className="py-3 px-4 text-slate-700">{String(r.format ?? '-')}</td>
+                        <td className="py-3 px-4 text-right font-bold text-blue-600">{String(r.runs ?? '-')}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{String(r.balls ?? '-')}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{String(r.strike_rate ?? '-')}</td>
                         <td className="py-3 pl-4 text-right">
-                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${r.result === 'Won' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.result}</span>
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold capitalize ${r.result === 'won' ? 'bg-emerald-50 text-emerald-600' : r.result === 'lost' ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'}`}>{String(r.result ?? '-').replace('_', ' ')}</span>
                         </td>
                       </tr>
                     ))}
@@ -1452,9 +1791,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 </table>
               </div>
             </div>
-          </div>
-
-          <div className="flex flex-col gap-6">
+          {false && (
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-bold text-slate-900">Career Milestones</h3>
@@ -1473,7 +1810,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 ))}
               </div>
             </div>
-          </div>
+          )}
         </div>
       ) : statsTab === 'tournament' && view === 'bowling' ? (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6">
@@ -1915,6 +2252,10 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
             ))}
           </div>
+        </div>
+      ) : !matchId ? (
+        <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center shadow-xs">
+          <p className="text-slate-600 italic">Open this page from a specific match to see Match/Tournament stats.</p>
         </div>
       ) : view === 'batting' && !didBat ? (
         <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center shadow-xs">
