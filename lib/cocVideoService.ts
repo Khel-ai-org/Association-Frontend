@@ -6,6 +6,7 @@
  */
 
 export interface InitCocVideoUploadParams {
+  ball_id?: number | string;
   over_number: string;
   innings: number;
   file_name: string;
@@ -60,6 +61,7 @@ export async function initCocVideoUpload(
       'ngrok-skip-browser-warning': 'true',
     },
     body: JSON.stringify({
+      ...(params.ball_id !== undefined ? { ball_id: params.ball_id } : {}),
       over_number: params.over_number,
       innings: params.innings,
       file_name: params.file_name,
@@ -160,6 +162,7 @@ export async function confirmCocVideoUpload(
  */
 export async function uploadCocVideoPipeline(
   matchId: string,
+  ballId: number | string | undefined,
   overNumber: string,
   innings: number,
   videoFile: File,
@@ -167,6 +170,7 @@ export async function uploadCocVideoPipeline(
 ): Promise<{ s3Key: string; ballVideoId: number | string; confirmResult: any }> {
   // 1. Init
   const initData = await initCocVideoUpload(matchId, {
+    ball_id: ballId,
     over_number: overNumber,
     innings: innings,
     file_name: videoFile.name,

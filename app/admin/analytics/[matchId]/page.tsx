@@ -42,25 +42,27 @@ const BallAnalyticsPage = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
-  const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-const [statusMsg, setStatusMsg] = useState("");
+  // Analyse View feature — disabled, not currently used.
+  // const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  // const [statusMsg, setStatusMsg] = useState("");
 
 const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   // Keep track of the status coming from your status API
-const [pollingStatus, setPollingStatus] = useState<string | null>(null);
+  // const [pollingStatus, setPollingStatus] = useState<string | null>(null);
 
-const [biomechanicsMetrics, setBiomechanicsMetrics] = useState([
-  { name: "Balance", value: "--", color: "bg-orange-200" },
-  { name: "Head Hand Combination", value: "--", color: "bg-red-200" },
-  { name: "Stance", value: "--", color: "bg-indigo-200" },
-  { name: "Shoulder", value: "--", color: "bg-slate-200" },
-  { name: "Head", value: "--", color: "bg-stone-200" },
-  { name: "Weight Distribution", value: "--", color: "bg-emerald-200" },
-]);
-  
+  // Biomechanics feature — disabled, not currently used.
+  // const [biomechanicsMetrics, setBiomechanicsMetrics] = useState([
+  //   { name: "Balance", value: "--", color: "bg-orange-200" },
+  //   { name: "Head Hand Combination", value: "--", color: "bg-red-200" },
+  //   { name: "Stance", value: "--", color: "bg-indigo-200" },
+  //   { name: "Shoulder", value: "--", color: "bg-slate-200" },
+  //   { name: "Head", value: "--", color: "bg-stone-200" },
+  //   { name: "Weight Distribution", value: "--", color: "bg-emerald-200" },
+  // ]);
+
 const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       videoContainerRef.current?.requestFullscreen();
@@ -80,17 +82,18 @@ const toggleFullscreen = () => {
   };
 
 
-  const handleButtonClick = () => {
-  if (isCompleted && currentFile?.analyzed_id) {
-    // Navigates to your other app in a new tab
-    window.open(`http://localhost:5173/analysis/${currentFile.analyzed_id}`, '_blank');
-    
-    // OR: use this line if you want to navigate in the same tab:
-    // window.location.href = `http://localhost:5173/analysis/${currentFile.analyzed_id}`;
-  } else if (!isBusy) {
-    handleSingleAnalysis();
-  }
-};
+  // Analyse View button handler — disabled, not currently used.
+  // const handleButtonClick = () => {
+  // if (isCompleted && currentFile?.analyzed_id) {
+  //   // Navigates to your other app in a new tab
+  //   window.open(`http://localhost:5173/analysis/${currentFile.analyzed_id}`, '_blank');
+  //
+  //   // OR: use this line if you want to navigate in the same tab:
+  //   // window.location.href = `http://localhost:5173/analysis/${currentFile.analyzed_id}`;
+  // } else if (!isBusy) {
+  //   handleSingleAnalysis();
+  // }
+  // };
   // Close settings when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -290,17 +293,17 @@ const currentVideoUrl = useMemo(() => currentFile?.downloadUrl || null, [current
   //const currentVideoUrl = useMemo(() => ballMap[CAMERA_MAPPING[activeView]] || null, [activeView, ballMap]);
   console.log("Current Video URL for active view:", currentVideoUrl);
 
-  // AI Setup
-  useEffect(() => {
-    const setupAI = async () => {
-      const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
-      poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
-        runningMode: "VIDEO",
-      });
-    };
-    setupAI();
-  }, []);
+  // AI Setup (pose detection for Biomechanics) — disabled, not currently used.
+  // useEffect(() => {
+  //   const setupAI = async () => {
+  //     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+  //     poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
+  //       baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
+  //       runningMode: "VIDEO",
+  //     });
+  //   };
+  //   setupAI();
+  // }, []);
 
   const skipTime = (amount: number) => {
     if (videoRef.current) {
@@ -329,6 +332,8 @@ const currentVideoUrl = useMemo(() => currentFile?.downloadUrl || null, [current
   }
 };
 
+// Biomechanics data fetch — disabled, not currently used.
+/*
 useEffect(() => {
   const fetchBiomechanics = async () => {
     if (!currentFile?.analyzed_id) {
@@ -419,6 +424,7 @@ useEffect(() => {
 
   fetchBiomechanics();
 }, [currentFile?.analyzed_id]);
+*/
 //   const handleSingleAnalysis = async () => {
 //   if (!currentVideoUrl) return;
 
@@ -464,6 +470,8 @@ useEffect(() => {
 // };
 // Add this state to your component: 
 // const [pollingStatus, setPollingStatus] = useState<string | null>(null);
+// Analyse View trigger/poll flow — disabled, not currently used.
+/*
 const pollAnalysisStatus = async (
   analyzedId: string,
   fileId: number
@@ -624,6 +632,7 @@ useEffect(() => {
     setPollingStatus(null);
   }
 }, [currentFile?.fileId]);
+*/
 const [currentTime, setCurrentTime] = useState(0);
 const [duration, setDuration] = useState(0);
 
@@ -645,6 +654,8 @@ useEffect(() => {
     video.removeEventListener("loadedmetadata", onLoadedMetadata);
   };
 }, [currentVideoUrl]); // Ensure this re-runs when the URL changes // Re-bind when video source changes
+// Analyse View button state — disabled, not currently used.
+/*
 const backendStatus = currentFile?.analyzedvideo_status;
 
 const activeStatus =
@@ -652,7 +663,7 @@ const activeStatus =
     ? pollingStatus || "processing"
     : backendStatus;
 
-    
+
 // Define button behavior
 const isBusy = activeStatus === "processing" ;
 const isCompleted = activeStatus === "processed" || activeStatus === "completed" ;
@@ -664,6 +675,7 @@ console.log({
   isBusy,
   isCompleted,
 });
+*/
 
 // Prepare camera options for Split View dropdown comparison
 const cameraOptions = useMemo(() => {
@@ -747,16 +759,16 @@ const formatTime = (time: number) => {
       </div>
     </div>
 
-    {/* 5. Analyse Button (Full width on mobile, auto on desktop) */}
+    {/* 5. Analyse Button — disabled, not currently used.
     <div className="w-full md:w-auto mt-2 md:mt-0">
-      <button 
+      <button
         onClick={handleButtonClick}
         disabled={isBusy }
         className={`w-full md:w-auto px-4 py-2 rounded-lg text-white text-[11px] font-bold shadow-md transition-all flex items-center justify-center gap-2 ${
-          isCompleted 
-            ? "bg-green-700 hover:bg-green-800 cursor-pointer" 
-            : isBusy 
-              ? "bg-slate-600 cursor-not-allowed" 
+          isCompleted
+            ? "bg-green-700 hover:bg-green-800 cursor-pointer"
+            : isBusy
+              ? "bg-slate-600 cursor-not-allowed"
               : "bg-slate-900 hover:bg-slate-800 active:scale-95"
         }`}
       >
@@ -764,7 +776,7 @@ const formatTime = (time: number) => {
           <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
         )}
         {!isBusy && !isCompleted && <RotateCcw className="w-3 h-3" />}
-        
+
         {
           !backendStatus
             ? "Analyse View"
@@ -776,23 +788,22 @@ const formatTime = (time: number) => {
         }
       </button>
     </div>
+    */}
   </div>
 </div>
 
-{/* Status Message Section */}
+{/* Status Message Section — disabled, not currently used.
 <div className="flex items-end justify-end mb-4">
   {analysisStatus !== "idle" && (
     <div className={`px-3 py-1.5 rounded-lg text-[10px] font-bold animate-in fade-in slide-in-from-right-4 shadow-xl ${
-      analysisStatus === "success" ? "bg-emerald-500 text-white" : 
+      analysisStatus === "success" ? "bg-emerald-500 text-white" :
       analysisStatus === "error" ? "bg-red-500 text-white" : "bg-blue-600/50 text-white"
     }`}>
       {statusMsg || "Processing..."}
     </div>
   )}
-
-
-  
 </div>
+*/}
 <SplitCanvasVideoPlayer 
   srcA={currentVideoUrl} 
   subtitleA={`Ball ${initialBall} Analytics`}
@@ -816,7 +827,8 @@ const formatTime = (time: number) => {
           </div>
         </div>
 
-        {/* Biomechanics Sidebar */}
+        {/* Biomechanics Sidebar — disabled, not currently used. */}
+        {/*
         <div className="w-full xl:w-[340px] bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border border-slate-100 shadow-xs flex flex-col shrink-0">
           <h2 className="text-lg md:text-xl font-bold text-slate-900">Biomechanics</h2>
           <p className="text-[10px] md:text-[13px] text-slate-700 mb-4">
@@ -861,7 +873,6 @@ const formatTime = (time: number) => {
             </div>
           </div>
 
-          {/* Metrics List */}
           <div className="flex-1">
             {biomechanicsMetrics.map((m, i) => (
               <div key={i} className="flex items-center justify-between py-1.5 md:py-1 group cursor-pointer">
@@ -871,18 +882,12 @@ const formatTime = (time: number) => {
                 </div>
                 <div className="flex items-center gap-2 md:gap-3">
                   <span className="text-[11px] md:text-[13px] font-bold text-slate-900">{m.value}</span>
-                  {/* <button className="text-slate-300 hover:text-slate-700">
-                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                  </button> */}
                 </div>
               </div>
             ))}
           </div>
-
-          {/* <button className="flex items-center justify-center gap-2 mt-4 text-[11px] md:text-[13px] font-bold text-slate-800 hover:gap-4 transition-all">
-            See more <ArrowRight className="w-3 h-3 md:w-4 md:h-4" />
-          </button> */}
         </div>
+        */}
       </div>
     </div>
   );

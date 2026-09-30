@@ -191,6 +191,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
       const overNum = ballInfo?.over_number ? String(ballInfo.over_number) : '0.1';
       await uploadCocVideoPipeline(
         matchId,
+        ballInfo?.id,
         overNum,
         Number(innings) || 1,
         item.file,
