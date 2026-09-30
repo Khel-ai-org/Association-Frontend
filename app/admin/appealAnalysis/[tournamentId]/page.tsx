@@ -108,14 +108,17 @@ export default function AppealAnalysisPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/operator-tournaments`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/my-association`, {
         method: "GET",
         credentials: "include",
         cache: "no-store",
       });
       if (!res.ok) throw new Error(`Failed to fetch tournaments (HTTP ${res.status})`);
       const tournaments = await res.json();
-      const list = Array.isArray(tournaments) ? tournaments : tournaments?.tournaments || [];
+      console.log("Fetched tournaments:", tournaments);
+      const list = Array.isArray(tournaments)
+        ? tournaments
+        : tournaments?.data || tournaments?.tournaments || [];
       const matchedTournament = list.find((t: any) => t.id === tournamentId);
       const scoringTournamentId = matchedTournament?.externalTournamentId;
       if (!scoringTournamentId) throw new Error("This tournament has no linked scoring tournament id");

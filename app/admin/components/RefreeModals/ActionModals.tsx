@@ -148,7 +148,11 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     setVideosLoadError('');
     try {
       const ball = await fetchBallDetails(matchId, ballId);
-      setServerVideos(flattenBallVideos(ball.videos || []));
+      // This tab is for COC uploads specifically — the ball can also carry
+      // other video sources (e.g. multi-camera "pull_system" recordings),
+      // which don't belong in this list.
+      const cocVideos = (ball.videos || []).filter((v) => v.video_source === 'coc');
+      setServerVideos(flattenBallVideos(cocVideos));
     } catch (err: any) {
       console.error('[ball videos fetch error]', err);
       setVideosLoadError(err.message || 'Failed to load uploaded videos');

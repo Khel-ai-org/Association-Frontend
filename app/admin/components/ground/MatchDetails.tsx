@@ -147,11 +147,21 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     setIsWagonWheelLoading(true);
     try {
       const innNum = activeInnings === '1st' ? 1 : 2;
-      const url = `${SCORING_API_BASE}/api/v1/matches/${matchId}/wagon-wheel?name=${encodeURIComponent(selectedBatsman)}&innings=${innNum}`;
+      // Scorecard batsmen now carry a stable id — look it up by name instead
+      // of sending the name itself (fragile if two players share a name).
+      const targetInning = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
+      const batsmanId = targetInning?.batsmen?.find(
+        (bm: any) => (bm.name || bm.batsman_name) === selectedBatsman
+      )?.id;
+      if (!batsmanId) {
+        throw new Error(`Could not find an id for "${selectedBatsman}" in the scorecard`);
+      }
+
+      const url = `${SCORING_API_BASE}/api/v1/matches/${matchId}/wagon-wheel?playerId=${encodeURIComponent(batsmanId)}&innings=${innNum}`;
       const res = await fetch(url, { headers: { "ngrok-skip-browser-warning": "true" } });
       if (!res.ok) throw new Error(`Failed to load wagon wheel (HTTP ${res.status})`);
       const json = await res.json();
-      console.log('[WagonWheel] Raw response for', selectedBatsman, ':', json);
+      console.log('[WagonWheel] Raw response for', selectedBatsman, '(id:', batsmanId, '):', json);
       // Response is wrapped in { status, data: {...} } — unwrap it.
       const payload: WagonWheelApiResponse = json?.data ?? json;
       setWagonWheelData(buildWagonWheelDataFromApiResponse(payload));

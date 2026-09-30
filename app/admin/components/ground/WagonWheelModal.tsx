@@ -47,7 +47,7 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
   const [isSceneLoading, setIsSceneLoading] = useState(true);
   const [showRightHud, setShowRightHud] = useState(false);
   const [sectorStats, setSectorStats] = useState<Array<{ name: string; balls: number; runs: number; percentage: number; color: string }>>([]);
-  const [viewMode, setViewMode] = useState<'3d' | 'stats'>('3d');
+  const [viewMode, setViewMode] = useState<'3d' | 'stats'>('stats');
 
   // Runs-by-area % breakdown for the Stat View — computed straight from the
   // data (not tied to the animation), so it's available the instant you
@@ -100,30 +100,33 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
   // show (they're never disposed, just toggled, so 3D View comes back exactly
   // as it was).
   const hasToggledViewRef = useRef(false);
+  const hasPlayedAnimationRef = useRef(false);
 
   useEffect(() => {
+    if (!hasToggledViewRef.current) {
+      // Initial mount — the scene-mount effect sets up the default Stat
+      // View directly, since shots don't exist yet for this to hide/show.
+      hasToggledViewRef.current = true;
+      return;
+    }
+
     const showShots = viewMode !== 'stats';
     animatedObjectsRef.current.forEach((obj) => { obj.visible = showShots; });
     sectorLineObjectsRef.current.forEach((obj) => { obj.visible = showShots; });
-    // OFF-SIDE/ON-SIDE ground branding is redundant once the Stat View
-    // wedges are up (they already convey the same split), so hide it there.
     sideLabelObjectsRef.current.forEach((obj) => { obj.visible = showShots; });
 
-    // Skip the camera move on the initial mount — this effect always fires
-    // once on mount too, and moving the camera here would fight with the
-    // auto-play animation's own camera tween that starts around the same time.
-    const isUserToggle = hasToggledViewRef.current;
-    hasToggledViewRef.current = true;
-
     if (viewMode === 'stats') {
-      // Pure straight-down camera — the flat ground wedges/labels only line
-      // up with their true angular position from directly overhead; any x/z
-      // offset introduces perspective skew that makes them look misaligned.
-      if (isUserToggle) smoothCameraTo({ x: 0, y: 220, z: 0 }, { x: 0, y: 0, z: 0 }, 600);
+      smoothCameraTo({ x: 0, y: 220, z: 0 }, { x: 0, y: 0, z: 0 }, 600);
       drawStatBreakdown(statViewAreas);
     } else {
-      if (isUserToggle) smoothCameraTo({ x: 0, y: 160, z: 120 }, { x: 0, y: 0, z: 0 }, 600);
       clearStatObjects();
+      // Shots only get animated the first time 3D View is actually opened.
+      if (!hasPlayedAnimationRef.current) {
+        hasPlayedAnimationRef.current = true;
+        startWagonWheelAnimation();
+      } else {
+        smoothCameraTo({ x: 0, y: 160, z: 120 }, { x: 0, y: 0, z: 0 }, 600);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode]);
@@ -151,9 +154,10 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
   useEffect(() => {
     if (!isOpen || !mountRef.current) return;
     setIsSceneLoading(true);
-    setViewMode('3d');
+    setViewMode('stats');
     statObjectsRef.current = [];
     hasToggledViewRef.current = false;
+    hasPlayedAnimationRef.current = false;
 
     const container = mountRef.current;
     const width = container.clientWidth || window.innerWidth * 0.9;
@@ -223,12 +227,13 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
     };
     animate();
 
-    // Kick off the animation shortly after mount; the loader stays up
-    // (see startWagonWheelAnimation) until shots actually start drawing,
-    // so it never disappears before there's something to see.
-    const startTimer = setTimeout(() => {
-      startWagonWheelAnimation();
-    }, 200);
+    // Default view is Stat View — set it up directly here (the shots
+    // haven't been animated yet, so there's nothing for 3D View to show
+    // until the user actually switches to it).
+    camera.position.set(0, 220, 0);
+    controls.target.set(0, 0, 0);
+    drawStatBreakdown(statViewAreas);
+    setIsSceneLoading(false);
 
     // Resize handler
     const handleResize = () => {
@@ -242,7 +247,6 @@ export const WagonWheelModal: React.FC<WagonWheelModalProps> = ({
     window.addEventListener('resize', handleResize);
 
     return () => {
-      clearTimeout(startTimer);
       window.removeEventListener('resize', handleResize);
       if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
       clearDrawings();

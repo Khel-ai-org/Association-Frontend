@@ -5,8 +5,11 @@
  * progress, it survives a page refresh.
  */
 
+// A clip entry can be a direct URL string (e.g. COC records: { video1: "url" })
+// or, for multi-camera "pull_system" records, a nested map of camera angles
+// (e.g. { ball1: { camera1: "url", camera2: "url", ... } }).
 export interface BallVideoFileMap {
-  [clipKey: string]: string;
+  [clipKey: string]: string | Record<string, string>;
 }
 
 export interface BallVideoRecord {
@@ -114,17 +117,40 @@ export function flattenBallVideos(videos: BallVideoRecord[]): FlattenedBallVideo
     }
 
     clipKeys.forEach((clipKey) => {
-      rows.push({
-        key: `${record.id}-${clipKey}`,
-        recordId: record.id,
-        tag: record.tag,
-        source: record.video_source,
-        uploadStatus: record.upload_status,
-        overNumber: record.over_number,
-        clipLabel: clipKey,
-        url: record.url[clipKey],
-        uploadedAt: record.uploaded_at,
-        createdAt: record.created_at,
+      const value = record.url[clipKey];
+
+      if (typeof value === 'string') {
+        // Flat shape (e.g. COC): the top-level key IS the clip label.
+        rows.push({
+          key: `${record.id}-${clipKey}`,
+          recordId: record.id,
+          tag: record.tag,
+          source: record.video_source,
+          uploadStatus: record.upload_status,
+          overNumber: record.over_number,
+          clipLabel: clipKey,
+          url: value,
+          uploadedAt: record.uploaded_at,
+          createdAt: record.created_at,
+        });
+        return;
+      }
+
+      // Nested shape (e.g. pull_system multi-camera): clipKey is a group
+      // (like "ball1"), and each inner key is a camera angle with its own URL.
+      Object.entries(value || {}).forEach(([cameraKey, cameraUrl]) => {
+        rows.push({
+          key: `${record.id}-${clipKey}-${cameraKey}`,
+          recordId: record.id,
+          tag: record.tag,
+          source: record.video_source,
+          uploadStatus: record.upload_status,
+          overNumber: record.over_number,
+          clipLabel: `${clipKey} · ${cameraKey}`,
+          url: cameraUrl,
+          uploadedAt: record.uploaded_at,
+          createdAt: record.created_at,
+        });
       });
     });
   });
