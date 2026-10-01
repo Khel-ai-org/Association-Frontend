@@ -213,29 +213,6 @@ const findPlayerInnings = <T extends { name: string }>(
   return null;
 };
 
-// MOCK — no player-profile API exists anywhere in this codebase or its
-// reference backends (confirmed by investigation). Role is the one field
-// here that's genuinely derived from real match data, not invented. so likewise/ineed to be availa
-const MOCK_RECENT_PERFORMANCES = [
-  { score: "76 (45)", competition: "T20 World Cup · Super 8", opponent: "vs Australia" },
-  { score: "63 (44)", competition: "T20 World Cup · Super 8", opponent: "vs England" },
-  { score: "92 (101)", competition: "T20 World Cup · League Stage", opponent: "vs South Africa", },
-];
-
-// MOCK — no field anywhere records a batsman's batting hand, so a real
-// right-hand/left-hand split can't be derived from the ball-by-ball data.
-const MOCK_HAND_SPLIT = [
-  { hand: 'Right-hand', overs: '12.0', runs: 84, avg: 21.0, econ: 7.00, fours: 8, sixes: 2, wkts: 4 },
-  { hand: 'Left-hand', overs: '8.2', runs: 61, avg: 15.2, econ: 7.41, fours: 6, sixes: 1, wkts: 4 },
-];
-
-// MOCK — no field anywhere classifies a delivery (or a bowler) as pace vs
-// spin, so this is demo data only, per explicit request, not derived stats.
-const MOCK_PACE_VS_SPIN = [
-  { type: 'Pace', oversPlayed: '06', runs: 25, avg: 20, sr: 66.67, fours: 4, sixes: 3, outs: 0 },
-  { type: 'Spin', oversPlayed: '4.3', runs: 25, avg: 20, sr: 66.67, fours: 4, sixes: 3, outs: 1 },
-];
-
 // MOCK — everything below powers the "Tournament Stats" tab. There is no
 // cross-match/tournament-wide aggregation endpoint anywhere (confirmed by
 // investigation), so this whole section is demo data, per explicit request,
@@ -941,6 +918,59 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
     const key = careerFormatFilter === 'Tests' ? 'test' : careerFormatFilter.toLowerCase();
     return playerHistory.career_summary.by_format[key];
   }, [playerHistory, careerFormatFilter]);
+
+  // Real per-player splits and recent form, straight from the scorecard row.
+  const ballsToOvers = (balls: number) => `${Math.floor(balls / 6)}.${balls % 6}`;
+  const paceSpinRows = useMemo(() => {
+    const pvs = battingMatch?.entry.pace_vs_spin;
+    if (!pvs) return [];
+    return ([['Pace', pvs.pace], ['Spin', pvs.spin], ['Unknown', pvs.unknown]] as const)
+      .filter(([label, d]) => d && (label !== 'Unknown' || d.balls > 0))
+      .map(([type, d]) => ({
+        type,
+        oversPlayed: ballsToOvers(d!.balls),
+        runs: d!.runs,
+        avg: d!.dismissals > 0 ? (d!.runs / d!.dismissals).toFixed(2) : '-',
+        sr: d!.SR,
+        fours: d!.fours,
+        sixes: d!.sixes,
+        outs: d!.dismissals,
+      }));
+  }, [battingMatch]);
+
+  const handSplitRows = useMemo(() => {
+    const vbh = bowlingMatch?.entry.vs_batting_hand;
+    if (!vbh) return [];
+    return ([['Right-hand', vbh.right_handed], ['Left-hand', vbh.left_handed], ['Unknown', vbh.unknown]] as const)
+      .filter(([label, d]) => d && (label !== 'Unknown' || d.balls > 0))
+      .map(([hand, d]) => ({
+        hand,
+        overs: d!.overs,
+        runs: d!.runs_given,
+        avg: d!.wickets > 0 ? (d!.runs_given / d!.wickets).toFixed(2) : '-',
+        econ: d!.economy,
+        fours: d!.fours,
+        sixes: d!.sixes,
+        wkts: d!.wickets,
+      }));
+  }, [bowlingMatch]);
+
+  const matchRecentPerformances = useMemo(() => {
+    if (view === 'batting') {
+      return (battingMatch?.entry.recent_performances || []).slice(0, 5).map((p) => ({
+        score: `${p.runs} (${p.balls})`,
+        detail: `${p["4s"]}x4 · ${p["6s"]}x6 · SR ${p.SR}`,
+        matchName: p.match_name,
+        date: p.match_date,
+      }));
+    }
+    return (bowlingMatch?.entry.recent_performances || []).slice(0, 5).map((p) => ({
+      score: `${p.wickets_taken}/${p.runs_given}`,
+      detail: `${p.overs} ov · Econ ${p.economy}`,
+      matchName: p.match_name,
+      date: p.match_date,
+    }));
+  }, [view, battingMatch, bowlingMatch]);
 
   useEffect(() => {
     if (!loading) {
@@ -2344,7 +2374,10 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50 text-sm">
-                        {MOCK_PACE_VS_SPIN.map((r) => (
+                        {paceSpinRows.length === 0 && (
+                          <tr><td colSpan={8} className="py-6 text-center text-slate-600 italic">No pace vs spin data available.</td></tr>
+                        )}
+                        {paceSpinRows.map((r) => (
                           <tr key={r.type}>
                             <td className="py-3 pr-4 font-semibold text-slate-900">{r.type}</td>
                             <td className="py-3 px-4 text-right text-slate-800">{r.oversPlayed}</td>
@@ -2535,7 +2568,10 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50 text-sm">
-                        {MOCK_HAND_SPLIT.map((r) => (
+                        {handSplitRows.length === 0 && (
+                          <tr><td colSpan={8} className="py-6 text-center text-slate-600 italic">No batting-hand data available.</td></tr>
+                        )}
+                        {handSplitRows.map((r) => (
                           <tr key={r.hand}>
                             <td className="py-3 pr-4 font-semibold text-slate-900">{r.hand}</td>
                             <td className="py-3 px-4 text-right text-slate-800">{r.overs}</td>
@@ -2716,18 +2752,24 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
 
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <h3 className="text-sm font-bold text-slate-900 mb-4">Recent Performances</h3>
-              {/* MOCK — no cross-match player-history endpoint exists anywhere. */}
-              <div className="flex flex-col gap-3">
-                {MOCK_RECENT_PERFORMANCES.map((p, i) => (
-                  <div key={i} className="flex justify-between items-center border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
-                    <div>
-                      <p className="text-sm font-bold text-slate-900">{p.score}</p>
-                      <p className="text-[11px] text-slate-600">{p.competition}</p>
+              {matchRecentPerformances.length === 0 ? (
+                <p className="text-slate-600 italic text-sm">No recent performances.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {matchRecentPerformances.map((p, i) => (
+                    <div key={i} className="flex justify-between items-center gap-3 border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">{p.score}</p>
+                        <p className="text-[11px] text-slate-600">{p.detail}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold text-slate-700">{p.matchName}</p>
+                        <p className="text-[11px] text-slate-600">{formatRecentDate(p.date)}</p>
+                      </div>
                     </div>
-                    <span className="text-xs font-semibold text-slate-700">{p.opponent}</span>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>

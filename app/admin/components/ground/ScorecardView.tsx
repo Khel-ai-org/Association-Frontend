@@ -15,6 +15,63 @@ export interface OutDetails {
   fielder: string | null;
 }
 
+export interface PaceSpinSplit {
+  runs: number;
+  balls: number;
+  fours: number;
+  sixes: number;
+  dots: number;
+  dismissals: number;
+  SR: number;
+}
+
+export interface PaceVsSpin {
+  pace: PaceSpinSplit;
+  spin: PaceSpinSplit;
+  unknown?: PaceSpinSplit;
+}
+
+export interface HandSplit {
+  balls: number;
+  overs: string;
+  runs_given: number;
+  wickets: number;
+  dots: number;
+  fours: number;
+  sixes: number;
+  economy: number;
+}
+
+export interface VsBattingHand {
+  right_handed: HandSplit;
+  left_handed: HandSplit;
+  unknown?: HandSplit;
+}
+
+export interface BattingRecentPerformance {
+  match_id: string;
+  match_name: string;
+  match_date: string;
+  innings: number;
+  runs: number;
+  balls: number;
+  "4s": number;
+  "6s": number;
+  SR: number;
+}
+
+export interface BowlingRecentPerformance {
+  match_id: string;
+  match_name: string;
+  match_date: string;
+  innings: number;
+  overs: string;
+  maiden: number;
+  runs_given: number;
+  wickets_taken: number;
+  economy: number;
+}
+
 export interface Batsman {
   id?: string;
   name: string;
@@ -24,6 +81,8 @@ export interface Batsman {
   "6s": number;
   SR: number;
   outdetails: OutDetails | null;
+  pace_vs_spin?: PaceVsSpin;
+  recent_performances?: BattingRecentPerformance[];
   role?: string;
   jersey_number?: number | null;
   batting_hand?: string;
@@ -31,6 +90,8 @@ export interface Batsman {
   is_captain?: boolean;
   is_vice_captain?: boolean;
   is_wicket_keeper?: boolean;
+  status?: string;
+  is_substituted?: boolean;
 }
 
 export interface Bowler {
@@ -41,6 +102,8 @@ export interface Bowler {
   runs_given: number;
   wickets_taken: number;
   economy: number;
+  vs_batting_hand?: VsBattingHand;
+  recent_performances?: BowlingRecentPerformance[];
   role?: string;
   jersey_number?: number | null;
   batting_hand?: string;
@@ -48,6 +111,8 @@ export interface Bowler {
   is_captain?: boolean;
   is_vice_captain?: boolean;
   is_wicket_keeper?: boolean;
+  status?: string;
+  is_substituted?: boolean;
 }
 
 export interface FowRecord {
@@ -133,9 +198,12 @@ const formatExtras = (extras?: Extras) => {
 const buildPartnershipRows = (innings?: Innings) => (innings?.partnerships || []).map((p, idx) => {
   const player1 = p.players?.[0] || { name: "—", runs: 0, balls: 0 };
   const player2 = p.players?.[1] || { name: "—", runs: 0, balls: 0 };
-  const totalFromBatsmen = player1.runs + player2.runs;
-  const player1Pct = totalFromBatsmen > 0 ? Math.round((player1.runs / totalFromBatsmen) * 100) : 50;
-  const player2Pct = 100 - player1Pct;
+  // Share of the partnership total; extras take the remainder so the three
+  // segments always add up to 100%.
+  const total = p.total_runs > 0 ? p.total_runs : player1.runs + player2.runs + (p.extras || 0);
+  const player1Pct = total > 0 ? Math.round((player1.runs / total) * 100) : 0;
+  const player2Pct = total > 0 ? Math.round((player2.runs / total) * 100) : 0;
+  const extrasPct = total > 0 ? Math.max(0, 100 - player1Pct - player2Pct) : 0;
   const rpo = p.total_balls > 0 ? ((p.total_runs / p.total_balls) * 6).toFixed(2) : "0.00";
   return {
     key: idx,
@@ -145,6 +213,7 @@ const buildPartnershipRows = (innings?: Innings) => (innings?.partnerships || []
     player2,
     player1Pct,
     player2Pct,
+    extrasPct,
     totalRuns: p.total_runs,
     totalBalls: p.total_balls,
     extras: p.extras,
@@ -164,13 +233,31 @@ const getSoInnings = (main: MatchLikeScorecard | null, so: MatchLikeScorecard, s
   return side === '1st' ? so.innings_1 : so.innings_2;
 };
 
-const PlayerLink: React.FC<{ matchId: string; name: string }> = ({ matchId, name }) => (
-  <Link
-    href={`/admin/ground/matchdetail/${matchId}/player?name=${encodeURIComponent(name)}`}
-    className="font-semibold text-blue-600 hover:underline"
-  >
-    {name}
-  </Link>
+type PlayerFlags = Pick<Batsman, 'status' | 'is_substituted' | 'is_captain' | 'is_vice_captain'>;
+
+// Badges: C / VC for leadership, IP for impact player, SUB for substitutes.
+const getPlayerBadges = (p: PlayerFlags): string[] => {
+  const status = (p.status || '').toLowerCase();
+  const badges: string[] = [];
+  if (p.is_captain) badges.push('C');
+  if (p.is_vice_captain) badges.push('VC');
+  if (status === 'impact_player') badges.push('IP');
+  if (status === 'substitute') badges.push('SUB');
+  return badges;
+};
+
+const PlayerLink: React.FC<{ matchId: string; name: string; player?: PlayerFlags }> = ({ matchId, name, player }) => (
+  <span className="inline-flex items-center gap-1.5 flex-wrap">
+    <Link
+      href={`/admin/ground/matchdetail/${matchId}/player?name=${encodeURIComponent(name)}`}
+      className="font-semibold text-blue-600 hover:underline"
+    >
+      {name}
+    </Link>
+    {player && getPlayerBadges(player).map((b) => (
+      <span key={b} className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-bold text-slate-700">{b}</span>
+    ))}
+  </span>
 );
 
 const BattingTable: React.FC<{ batsmen: Batsman[]; matchId: string }> = ({ batsmen, matchId }) => (
@@ -194,7 +281,7 @@ const BattingTable: React.FC<{ batsmen: Batsman[]; matchId: string }> = ({ batsm
           </tr>
         ) : batsmen.map((b, i) => (
           <tr key={i}>
-            <td className="py-3 pr-4"><PlayerLink matchId={matchId} name={b.name} /></td>
+            <td className="py-3 pr-4"><PlayerLink matchId={matchId} name={b.name} player={b} /></td>
             <td className="py-3 px-4 text-slate-700">{getOutDetailsString(b.outdetails)}</td>
             <td className="py-3 px-4 text-right font-bold text-slate-900">{b.runs}</td>
             <td className="py-3 px-4 text-right text-slate-800">{b.balls}</td>
@@ -228,7 +315,7 @@ const BowlingTable: React.FC<{ bowlers: Bowler[]; matchId: string }> = ({ bowler
           </tr>
         ) : bowlers.map((bw, i) => (
           <tr key={i}>
-            <td className="py-3 pr-4"><PlayerLink matchId={matchId} name={bw.name} /></td>
+            <td className="py-3 pr-4"><PlayerLink matchId={matchId} name={bw.name} player={bw} /></td>
             <td className="py-3 px-4 text-right text-slate-800">{bw.overs}</td>
             <td className="py-3 px-4 text-right text-slate-800">{bw.maiden}</td>
             <td className="py-3 px-4 text-right text-slate-800">{bw.runs_given}</td>
@@ -286,36 +373,35 @@ const PartnershipsCard: React.FC<{ innings?: Innings; heading: string }> = ({ in
         <div className="flex flex-col gap-6">
           {partnershipRows.map((p) => (
             <div key={p.key} className="pb-6 border-b border-slate-50 last:border-b-0 last:pb-0">
-              <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-[1fr_1.5fr_1fr_1.5fr_auto] items-center gap-3 mb-3">
                 <div>
-                  <span className="text-xs font-bold text-indigo-600">{p.label}</span>
-                  <p className="text-[11px] text-slate-600 font-medium">Over {p.overs}</p>
+                  <span className="text-xs font-bold text-indigo-600 uppercase">{p.label}</span>
+                  <p className="text-[11px] text-slate-700 font-semibold">Over {p.overs}</p>
                 </div>
-                <span className="text-[11px] font-bold text-slate-600 uppercase">
-                  Extras <span className="text-slate-700">{p.extras}</span>
+                <p className="text-sm font-bold text-blue-600 md:text-right">
+                  {p.player1.name} {p.player1.runs}({p.player1.balls})
+                </p>
+                <div className="text-center">
+                  <p className="font-bold text-slate-900 text-lg leading-tight">{p.totalRuns} runs</p>
+                  <p className="text-[11px] text-slate-600 font-medium">{p.totalBalls} BALLS &middot; {p.rpo} RPO</p>
+                </div>
+                <p className="text-sm font-bold text-amber-500">
+                  {p.player2.runs}({p.player2.balls}) {p.player2.name}
+                </p>
+                <span className="text-[11px] font-bold text-slate-600 uppercase md:text-right">
+                  Extras <span className="ml-2 text-slate-700 text-sm">{p.extras}</span>
                 </span>
               </div>
 
-              <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
-                <div className="text-left min-w-[140px]">
-                  <p className="font-bold text-slate-900 text-sm">{p.player1.name} <span className="font-semibold text-slate-700">{p.player1.runs}({p.player1.balls})</span></p>
-                </div>
-                <div className="text-center">
-                  <p className="font-bold text-slate-900">{p.totalRuns} runs</p>
-                  <p className="text-[11px] text-slate-600 font-medium">{p.totalBalls} balls &middot; {p.rpo} RPO</p>
-                </div>
-                <div className="text-right min-w-[140px]">
-                  <p className="font-bold text-slate-900 text-sm"><span className="font-semibold text-slate-700">{p.player2.runs}({p.player2.balls})</span> {p.player2.name}</p>
-                </div>
+              <div className="flex h-2 rounded-full overflow-hidden bg-slate-100">
+                <div className="bg-blue-500" style={{ width: `${p.player1Pct}%` }} />
+                <div className="bg-amber-400" style={{ width: `${p.player2Pct}%` }} />
+                <div className="bg-pink-400" style={{ width: `${p.extrasPct}%` }} />
               </div>
-
-              <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-100">
-                <div className="bg-indigo-600" style={{ width: `${p.player1Pct}%` }} />
-                <div className="bg-indigo-200" style={{ width: `${p.player2Pct}%` }} />
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-[11px] font-bold text-indigo-600">{p.player1Pct}%</span>
-                <span className="text-[11px] font-bold text-slate-600">{p.player2Pct}%</span>
+              <div className="flex mt-1">
+                <span className="text-[11px] font-bold text-blue-500" style={{ width: `${p.player1Pct}%` }}>{p.player1Pct}%</span>
+                <span className="text-[11px] font-bold text-amber-500 text-center" style={{ width: `${p.player2Pct}%` }}>{p.player2Pct}%</span>
+                <span className="text-[11px] font-bold text-pink-500 text-right" style={{ width: `${p.extrasPct}%` }}>{p.extrasPct}%</span>
               </div>
             </div>
           ))}
