@@ -2,8 +2,10 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useGoBackSteps } from "../../hooks/useGoBack";
 import { PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { Play, Pause, RotateCcw, Settings, Maximize, ArrowRight, ChevronLeft, ArrowLeft, Minimize } from "lucide-react";
+import { SplitCanvasVideoPlayer } from "@/app/admin/components/player/SplitCanvasVideoPlayer";
 
 
 const CAMERA_MAPPING: Record<string, string> = {
@@ -20,6 +22,7 @@ interface BallFile {
 const BallAnalyticsPage = () => {
   const { matchId } = useParams();
   const router = useRouter();
+  const goBackSteps = useGoBackSteps();
   const searchParams = useSearchParams();
   
   // Data from URL Parameters
@@ -30,32 +33,38 @@ const BallAnalyticsPage = () => {
   const outcome = searchParams.get("outcome") || "0";
   const isSuperOver = searchParams.get("isSuperOver") === "true";
   const soNumber = searchParams.get("soNumber") || "1";
-  
+  // NEW: ball database ID for ball-details API
+  const ballId = searchParams.get("ballId") || null;
+
   const [syncData, setSyncData] = useState<any>(null);
+  // NEW: ball-details API response
+  const [ballDetailsData, setBallDetailsData] = useState<any>(null);
   const [activeView, setActiveView] = useState("FRONT");
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
-  const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-const [statusMsg, setStatusMsg] = useState("");
+  // Analyse View feature — disabled, not currently used.
+  // const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  // const [statusMsg, setStatusMsg] = useState("");
 
 const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   // Keep track of the status coming from your status API
-const [pollingStatus, setPollingStatus] = useState<string | null>(null);
+  // const [pollingStatus, setPollingStatus] = useState<string | null>(null);
 
-const [biomechanicsMetrics, setBiomechanicsMetrics] = useState([
-  { name: "Balance", value: "--", color: "bg-orange-200" },
-  { name: "Head Hand Combination", value: "--", color: "bg-red-200" },
-  { name: "Stance", value: "--", color: "bg-indigo-200" },
-  { name: "Shoulder", value: "--", color: "bg-slate-200" },
-  { name: "Head", value: "--", color: "bg-stone-200" },
-  { name: "Weight Distribution", value: "--", color: "bg-emerald-200" },
-]);
-  
+  // Biomechanics feature — disabled, not currently used.
+  // const [biomechanicsMetrics, setBiomechanicsMetrics] = useState([
+  //   { name: "Balance", value: "--", color: "bg-orange-200" },
+  //   { name: "Head Hand Combination", value: "--", color: "bg-red-200" },
+  //   { name: "Stance", value: "--", color: "bg-indigo-200" },
+  //   { name: "Shoulder", value: "--", color: "bg-slate-200" },
+  //   { name: "Head", value: "--", color: "bg-stone-200" },
+  //   { name: "Weight Distribution", value: "--", color: "bg-emerald-200" },
+  // ]);
+
 const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       videoContainerRef.current?.requestFullscreen();
@@ -75,17 +84,18 @@ const toggleFullscreen = () => {
   };
 
 
-  const handleButtonClick = () => {
-  if (isCompleted && currentFile?.analyzed_id) {
-    // Navigates to your other app in a new tab
-    window.open(`http://localhost:5173/analysis/${currentFile.analyzed_id}`, '_blank');
-    
-    // OR: use this line if you want to navigate in the same tab:
-    // window.location.href = `http://localhost:5173/analysis/${currentFile.analyzed_id}`;
-  } else if (!isBusy) {
-    handleSingleAnalysis();
-  }
-};
+  // Analyse View button handler — disabled, not currently used.
+  // const handleButtonClick = () => {
+  // if (isCompleted && currentFile?.analyzed_id) {
+  //   // Navigates to your other app in a new tab
+  //   window.open(`http://localhost:5173/analysis/${currentFile.analyzed_id}`, '_blank');
+  //
+  //   // OR: use this line if you want to navigate in the same tab:
+  //   // window.location.href = `http://localhost:5173/analysis/${currentFile.analyzed_id}`;
+  // } else if (!isBusy) {
+  //   handleSingleAnalysis();
+  // }
+  // };
   // Close settings when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -112,7 +122,7 @@ const toggleFullscreen = () => {
     video.removeEventListener("timeupdate", updateProgress);
   };
 }, []); // Runs once on mount
-  // Fetch Sync View Data
+  // Fetch Sync View Data (KEPT for reference — no longer called)
   const fetchSync = async () => {
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_Backend_URL}/matches/${matchId}/sync-view?withDownloadUrls=true`,
@@ -127,10 +137,31 @@ const toggleFullscreen = () => {
   }
 };
 
-useEffect(() => {
-  fetchSync();
-}, [matchId]);
+// OLD: no longer called
+// useEffect(() => {
+//   fetchSync();
+// }, [matchId]);
   console.log("Fetched Sync Data:", syncData);
+
+  // NEW: Fetch ball details with presigned video URLs
+  const fetchBallDetails = async () => {
+    if (!ballId) return;
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchId}/ball-details/${ballId}`,
+      {
+        headers: { "ngrok-skip-browser-warning": "true" },
+      }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      console.log("Fetched Ball Details:", data);
+      setBallDetailsData(data.ball);
+    }
+  };
+
+  useEffect(() => {
+    fetchBallDetails();
+  }, [ballId]);
 
   // Map URLs for the specific ball across all cameras
 //   const ballMap = useMemo(() => {
@@ -167,6 +198,7 @@ useEffect(() => {
 //   console.log("📋 Current Ball Map for Player:", map);
 //   return map;
 // }, [syncData, initialBall, inningParam]);
+/* OLD ballMap — used sync-view folders (commented out, not deleted)
 const ballMap: Record<string, BallFile | null>  = useMemo(() => {
   if (!syncData?.folders) return {};
   const map: Record<string, BallFile | null> = {};
@@ -223,6 +255,36 @@ const ballMap: Record<string, BallFile | null>  = useMemo(() => {
 
   return map;
 }, [syncData, initialBall, inningParam, searchParams]);
+*/
+
+// NEW ballMap — reads presigned URLs from ball-details API (url.ball1.cameraX → cam_X)
+const ballMap: Record<string, BallFile | null> = useMemo(() => {
+  if (!ballDetailsData?.videos?.length) return {};
+
+  const videoEntry = ballDetailsData.videos[0];
+  const urlMap = videoEntry?.url?.ball1 || {};     // { camera1: "https://...", camera2: "https://...", ... }
+  const s3Keys  = videoEntry?.s3_keys?.ball1 || {};
+
+  const map: Record<string, BallFile | null> = {};
+
+  for (let i = 1; i <= 6; i++) {
+    const apiKey  = `camera${i}`;   // key in ball-details response
+    const camKey  = `cam_${i}`;     // key used by CAMERA_MAPPING
+
+    if (urlMap[apiKey]) {
+      map[camKey] = {
+        fileId: videoEntry.id,
+        file: s3Keys[apiKey] || urlMap[apiKey],
+        downloadUrl: urlMap[apiKey],             // presigned URL — ready to play
+        analyzed_id: videoEntry.analyzed_id ?? null,
+        analyzedvideo_status: videoEntry.upload_status ?? null,
+      };
+    }
+  }
+
+  console.log("📋 New Ball Map (ball-details API):", map);
+  return map;
+}, [ballDetailsData]);
 const currentFile = useMemo(() => {
   const camKey = CAMERA_MAPPING[activeView];
   return ballMap[camKey] || null;
@@ -233,17 +295,17 @@ const currentVideoUrl = useMemo(() => currentFile?.downloadUrl || null, [current
   //const currentVideoUrl = useMemo(() => ballMap[CAMERA_MAPPING[activeView]] || null, [activeView, ballMap]);
   console.log("Current Video URL for active view:", currentVideoUrl);
 
-  // AI Setup
-  useEffect(() => {
-    const setupAI = async () => {
-      const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
-      poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
-        runningMode: "VIDEO",
-      });
-    };
-    setupAI();
-  }, []);
+  // AI Setup (pose detection for Biomechanics) — disabled, not currently used.
+  // useEffect(() => {
+  //   const setupAI = async () => {
+  //     const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm");
+  //     poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
+  //       baseOptions: { modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`, delegate: "GPU" },
+  //       runningMode: "VIDEO",
+  //     });
+  //   };
+  //   setupAI();
+  // }, []);
 
   const skipTime = (amount: number) => {
     if (videoRef.current) {
@@ -272,6 +334,8 @@ const currentVideoUrl = useMemo(() => currentFile?.downloadUrl || null, [current
   }
 };
 
+// Biomechanics data fetch — disabled, not currently used.
+/*
 useEffect(() => {
   const fetchBiomechanics = async () => {
     if (!currentFile?.analyzed_id) {
@@ -362,6 +426,7 @@ useEffect(() => {
 
   fetchBiomechanics();
 }, [currentFile?.analyzed_id]);
+*/
 //   const handleSingleAnalysis = async () => {
 //   if (!currentVideoUrl) return;
 
@@ -407,6 +472,8 @@ useEffect(() => {
 // };
 // Add this state to your component: 
 // const [pollingStatus, setPollingStatus] = useState<string | null>(null);
+// Analyse View trigger/poll flow — disabled, not currently used.
+/*
 const pollAnalysisStatus = async (
   analyzedId: string,
   fileId: number
@@ -567,6 +634,7 @@ useEffect(() => {
     setPollingStatus(null);
   }
 }, [currentFile?.fileId]);
+*/
 const [currentTime, setCurrentTime] = useState(0);
 const [duration, setDuration] = useState(0);
 
@@ -588,6 +656,8 @@ useEffect(() => {
     video.removeEventListener("loadedmetadata", onLoadedMetadata);
   };
 }, [currentVideoUrl]); // Ensure this re-runs when the URL changes // Re-bind when video source changes
+// Analyse View button state — disabled, not currently used.
+/*
 const backendStatus = currentFile?.analyzedvideo_status;
 
 const activeStatus =
@@ -595,7 +665,7 @@ const activeStatus =
     ? pollingStatus || "processing"
     : backendStatus;
 
-    
+
 // Define button behavior
 const isBusy = activeStatus === "processing" ;
 const isCompleted = activeStatus === "processed" || activeStatus === "completed" ;
@@ -607,6 +677,28 @@ console.log({
   isBusy,
   isCompleted,
 });
+*/
+
+// Prepare camera options for Split View dropdown comparison
+const cameraOptions = useMemo(() => {
+  const labels: Record<string, string> = {
+    cam_1: "FRONT (Cam 1)",
+    cam_2: "SIDE (Cam 2)",
+    cam_3: "BATSMAN (Cam 3)",
+    cam_4: "BOWLER (Cam 4)",
+    cam_5: "STUMP (Cam 5)",
+    cam_6: "ARIEL (Cam 6)",
+  };
+
+  return Object.entries(ballMap)
+    .map(([camKey, ballFile]) => ({
+      label: labels[camKey] || camKey.toUpperCase(),
+      url: ballFile?.downloadUrl || "",
+    }))
+    .filter((opt) => Boolean(opt.url));
+}, [ballMap]);
+
+
 // Helper to format time
 const formatTime = (time: number) => {
   const mins = Math.floor(time / 60);
@@ -618,7 +710,10 @@ const formatTime = (time: number) => {
       {/* Breadcrumbs */}
       <div className="flex items-center flex-wrap gap-2 text-[14px] md:text-[14px] font-medium text-slate-800 mb-4 md:mb-6">
         <button onClick={() => router.back()}> <ArrowLeft className="w-4 h-4 md:w-5 md:h-5 mr-1" /></button>
-        <span>Grounds</span> <span>&gt;</span> <span>Tournament</span> <span>&gt;</span> <span>Matches</span> <span>&gt;</span> <span>Match Details</span> <span>&gt;</span> <span className="text-slate-900">Ball Analysis</span>
+        <button onClick={() => router.push('/admin/ground')} className="cursor-pointer hover:underline">Grounds</button> <span>&gt;</span>
+        <button onClick={() => goBackSteps(3, '/admin/tournament')} className="cursor-pointer hover:underline">Tournament</button> <span>&gt;</span>
+        <button onClick={() => goBackSteps(2, '/admin/tournament')} className="cursor-pointer hover:underline">Matches</button> <span>&gt;</span>
+        <button onClick={() => goBackSteps(1, '/admin/tournament')} className="cursor-pointer hover:underline">Match Details</button> <span>&gt;</span> <span className="text-slate-900">Ball Analysis</span>
       </div>
 
       <div className="flex flex-col xl:flex-row gap-6">
@@ -669,16 +764,16 @@ const formatTime = (time: number) => {
       </div>
     </div>
 
-    {/* 5. Analyse Button (Full width on mobile, auto on desktop) */}
+    {/* 5. Analyse Button — disabled, not currently used.
     <div className="w-full md:w-auto mt-2 md:mt-0">
-      <button 
+      <button
         onClick={handleButtonClick}
         disabled={isBusy }
         className={`w-full md:w-auto px-4 py-2 rounded-lg text-white text-[11px] font-bold shadow-md transition-all flex items-center justify-center gap-2 ${
-          isCompleted 
-            ? "bg-green-700 hover:bg-green-800 cursor-pointer" 
-            : isBusy 
-              ? "bg-slate-600 cursor-not-allowed" 
+          isCompleted
+            ? "bg-green-700 hover:bg-green-800 cursor-pointer"
+            : isBusy
+              ? "bg-slate-600 cursor-not-allowed"
               : "bg-slate-900 hover:bg-slate-800 active:scale-95"
         }`}
       >
@@ -686,7 +781,7 @@ const formatTime = (time: number) => {
           <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
         )}
         {!isBusy && !isCompleted && <RotateCcw className="w-3 h-3" />}
-        
+
         {
           !backendStatus
             ? "Analyse View"
@@ -698,127 +793,28 @@ const formatTime = (time: number) => {
         }
       </button>
     </div>
+    */}
   </div>
 </div>
 
-{/* Status Message Section */}
+{/* Status Message Section — disabled, not currently used.
 <div className="flex items-end justify-end mb-4">
   {analysisStatus !== "idle" && (
     <div className={`px-3 py-1.5 rounded-lg text-[10px] font-bold animate-in fade-in slide-in-from-right-4 shadow-xl ${
-      analysisStatus === "success" ? "bg-emerald-500 text-white" : 
+      analysisStatus === "success" ? "bg-emerald-500 text-white" :
       analysisStatus === "error" ? "bg-red-500 text-white" : "bg-blue-600/50 text-white"
     }`}>
       {statusMsg || "Processing..."}
     </div>
   )}
-
-
-  
 </div>
-<div ref={videoContainerRef}>
-          <div className="relative aspect-video bg-black rounded-2xl md:rounded-[32px] overflow-hidden shadow-2xl group">
-            <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" src={currentVideoUrl || undefined} crossOrigin="anonymous" playsInline muted loop preload="auto"/>
-            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-10" />
-            
-            {/* Top Overlay Labels */}
-            <div className="absolute top-4 left-4 md:top-8 md:left-8 z-20">
-              <div className="bg-black/20 backdrop-blur-md px-3 py-2 md:px-5 md:py-3 rounded-xl md:rounded-2xl border border-white/20 text-white">
-                <p className="text-[8px] md:text-[10px] uppercase tracking-widest opacity-60 font-bold mb-1">Ball {initialBall} Analytics</p>
-                <p className="text-sm md:text-xl font-bold">{outcome} Runs - {batsmanName}</p>
-              </div>
-            </div>
-
-            {/* Video Action Icons */}
-            <div className="absolute top-4 right-4 md:top-8 md:right-8 flex gap-2 md:gap-3 z-30 opacity-0 group-hover:opacity-100 transition-opacity settings-menu-container">
-                
-                {/* Speed Settings */}
-                <div className="relative">
-                    <button 
-                        onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                        className={`p-1.5 md:p-2 backdrop-blur-md rounded-lg border border-white/20 text-white transition-colors ${isSettingsOpen ? 'bg-white/20' : 'bg-white/10'}`}
-                    >
-                        <Settings className="w-4 h-4 md:w-5 md:h-5"/>
-                    </button>
-                    
-                    {isSettingsOpen && (
-  <div className="absolute top-12 right-0 bg-slate-900/90 backdrop-blur-md p-2 rounded-xl border border-white/10 shadow-2xl w-36 text-white z-50 animate-in fade-in zoom-in duration-200">
-    <div className="px-2 pt-1 pb-2">
-      <p className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-2">
-        Playback Speed
-      </p>
-      <div className="flex flex-col gap-0.5">
-        {[0.5, 0.75, 1, 1.25, 1.5].map((rate) => (
-          <button
-            key={rate}
-            onClick={() => handlePlaybackRate(rate)}
-            className={`group flex items-center justify-between text-xs px-2.5 py-2 rounded-lg transition-all duration-200 
-              ${
-                playbackRate === rate
-                  ? "bg-blue-500 text-white font-bold shadow-md"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
-              }`}
-          >
-            {rate.toFixed(2)}x
-            {playbackRate === rate && (
-              <div className="w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_8px_white]" />
-            )}
-          </button>
-        ))}
-      </div>
-    </div>
-  </div>
-)}
-                </div>
-                
-                {/* Fullscreen Toggle */}
-                <button onClick={toggleFullscreen} className="p-1.5 md:p-2 bg-white/10 backdrop-blur-md rounded-lg border border-white/20 text-white">
-                    {isFullscreen ? <Minimize className="w-4 h-4 md:w-5 md:h-5" /> : <Maximize className="w-4 h-4 md:w-5 md:h-5"/>}
-                </button>
-            </div>
-
-            {/* Center Controls */}
-            <div className="absolute inset-0 flex items-center justify-center gap-4 md:gap-10 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-               <button onClick={() => skipTime(-5)} className="w-10 h-10 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex flex-col items-center justify-center border border-white/20 text-white hover:bg-white/20">
-                 <span className="text-[8px] md:text-[10px] font-bold">-5F</span>
-               </button>
-
-               <button onClick={togglePlay} className="w-14 h-14 md:w-20 md:h-20 bg-black/30 rounded-full flex items-center justify-center shadow-2xl hover:scale-105 transition-transform">
-                 {isPlaying ? <Pause className="w-6 h-6 md:w-8 md:h-8 text-black fill-black" /> : <Play className="w-6 h-6 md:w-8 md:h-8 text-black fill-black ml-1" />}
-               </button>
-
-               <button onClick={() => skipTime(5)} className="w-10 h-10 md:w-14 md:h-14 bg-white/10 backdrop-blur-md rounded-full flex flex-col items-center justify-center border border-white/20 text-white hover:bg-white/20">
-                 <span className="text-[8px] md:text-[10px] font-bold">+5F</span>
-               </button>
-            </div>
-
-            {/* Bottom Progress Bar */}
-            {/* Bottom Progress Bar */}
-<div className="absolute bottom-4 left-4 right-4 md:bottom-8 md:left-8 md:right-8 z-20">
-    <div className="flex items-center gap-3 text-white text-[8px] md:text-[10px] font-bold mb-2">
-        <span>{formatTime(currentTime)}</span>
-        
-        <div 
-          className="flex-1 h-[2px] md:h-[3px] bg-white/20 rounded-full overflow-hidden cursor-pointer"
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const percentage = x / rect.width;
-            if (videoRef.current) {
-              videoRef.current.currentTime = percentage * duration;
-            }
-          }}
-        >
-            <div 
-              className="h-full bg-white rounded-full transition-all duration-100" 
-              style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }} 
-            />
-        </div>
-        
-        <span>{formatTime(duration)}</span>
-    </div>
-</div>
-          </div>
-</div>
+*/}
+<SplitCanvasVideoPlayer 
+  srcA={currentVideoUrl} 
+  subtitleA={`Ball ${initialBall} Analytics`}
+  titleA={`${activeView} VIEW (${outcome} Runs - ${batsmanName})`}
+  optionsB={cameraOptions}
+/>
           {/* Camera Previews */}
           <div className="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mt-6 md:mt-8">
             {Object.keys(CAMERA_MAPPING).map((view) => (
@@ -827,6 +823,7 @@ const formatTime = (time: number) => {
                   <video
   src={ballMap[CAMERA_MAPPING[view]]?.downloadUrl}
   className="w-full h-full object-cover"
+  crossOrigin="anonymous"
 />
                 </div>
                 <p className={`text-[8px] md:text-[12px] font-black text-center uppercase tracking-tighter ${activeView === view ? 'text-slate-900' : 'text-slate-700'}`}>{view} VIEW</p>
@@ -835,7 +832,8 @@ const formatTime = (time: number) => {
           </div>
         </div>
 
-        {/* Biomechanics Sidebar */}
+        {/* Biomechanics Sidebar — disabled, not currently used. */}
+        {/*
         <div className="w-full xl:w-[340px] bg-white p-4 md:p-6 rounded-2xl md:rounded-3xl border border-slate-100 shadow-xs flex flex-col shrink-0">
           <h2 className="text-lg md:text-xl font-bold text-slate-900">Biomechanics</h2>
           <p className="text-[10px] md:text-[13px] text-slate-700 mb-4">
@@ -880,7 +878,6 @@ const formatTime = (time: number) => {
             </div>
           </div>
 
-          {/* Metrics List */}
           <div className="flex-1">
             {biomechanicsMetrics.map((m, i) => (
               <div key={i} className="flex items-center justify-between py-1.5 md:py-1 group cursor-pointer">
@@ -890,18 +887,12 @@ const formatTime = (time: number) => {
                 </div>
                 <div className="flex items-center gap-2 md:gap-3">
                   <span className="text-[11px] md:text-[13px] font-bold text-slate-900">{m.value}</span>
-                  {/* <button className="text-slate-300 hover:text-slate-700">
-                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
-                  </button> */}
                 </div>
               </div>
             ))}
           </div>
-
-          {/* <button className="flex items-center justify-center gap-2 mt-4 text-[11px] md:text-[13px] font-bold text-slate-800 hover:gap-4 transition-all">
-            See more <ArrowRight className="w-3 h-3 md:w-4 md:h-4" />
-          </button> */}
         </div>
+        */}
       </div>
     </div>
   );

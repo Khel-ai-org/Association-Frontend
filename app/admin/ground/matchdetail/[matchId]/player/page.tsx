@@ -15,22 +15,38 @@ export default function PlayerStatsPage({ params }: PageProps) {
   const resolvedParams = React.use(params);
   const matchId = resolvedParams.matchId;
   const playerName = searchParams.get('name') || '';
+  
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] p-4 md:p-6">
       <div className="flex items-center gap-2 mb-6 text-sm font-medium text-slate-600">
         <button
-          onClick={() => router.back()}
+          onClick={() => router.push('/admin/ground')}
           className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0"
         >
           <ArrowLeft className="w-5 h-5 mr-1" /> Grounds
         </button>
         <span>{'>'}</span>
-        <span className="text-slate-800">Tournament</span>
+        <button
+          onClick={() => router.push('/admin/tournament')}
+          className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0"
+        >
+          Tournament
+        </button>
         <span>{'>'}</span>
-        <span className="text-slate-800">Matches</span>
+        <button
+          onClick={() => router.push('/admin/tournament')}
+          className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0"
+        >
+          Matches
+        </button>
         <span>{'>'}</span>
-        <span className="text-slate-800">Match Details</span>
+        <button
+          onClick={() => router.push(`/admin/ground/matchdetail/${matchId}`)}
+          className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0"
+        >
+          Match Details
+        </button>
         <span>{'>'}</span>
         <span className="text-slate-900 font-bold">Stats</span>
       </div>

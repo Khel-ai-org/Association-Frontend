@@ -31,6 +31,8 @@ export default function GenerateFixtureModal({
   onGenerated,
 }: GenerateFixtureModalProps) {
   const [groupCount, setGroupCount] = useState(2);
+  // Raw text so the field can be edited freely; clamped to 2-10 on blur.
+  const [groupCountInput, setGroupCountInput] = useState('2');
   const [groupAssignments, setGroupAssignments] = useState<Record<string, string[]>>({});
   const [playoffTeams, setPlayoffTeams] = useState('2');
   const [submitting, setSubmitting] = useState(false);
@@ -91,6 +93,11 @@ export default function GenerateFixtureModal({
     }
     if (!tournamentExternalId) {
       setError('This tournament is missing its scoring-service id — cannot generate fixtures yet.');
+      return;
+    }
+
+    if (isGroupMode && (Number(groupCountInput) < 2 || Number(groupCountInput) > 10)) {
+      setError('Number of groups must be between 2 and 10.');
       return;
     }
 
@@ -177,13 +184,26 @@ export default function GenerateFixtureModal({
                 <div>
                   <label className="block text-sm font-semibold text-slate-500 mb-1.5">No. of Groups</label>
                   <input
-                    type="number"
-                    min={2}
-                    max={10}
-                    value={groupCount}
-                    onChange={(e) => setGroupCount(Math.max(2, Math.min(10, Number(e.target.value) || 2)))}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={groupCountInput}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
+                      setGroupCountInput(digits);
+                      const n = Number(digits);
+                      if (n >= 2 && n <= 10) setGroupCount(n);
+                    }}
+                    onBlur={() => {
+                      const n = Math.max(2, Math.min(10, Number(groupCountInput) || 2));
+                      setGroupCount(n);
+                      setGroupCountInput(String(n));
+                    }}
                     className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700"
                   />
+                  {groupCountInput !== '' && Number(groupCountInput) < 2 && (
+                    <p className="text-red-500 text-xs mt-1">Minimum 2 groups required</p>
+                  )}
                 </div>
               ) : (
                 <div>

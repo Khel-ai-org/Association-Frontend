@@ -12,10 +12,13 @@ interface AddTeamsModalProps {
   // The scoring service's own tournament id — teams live there, not in the
   // core backend, so this must be externalTournamentId, not the core id.
   tournamentExternalId: string;
+  // Max teams allowed (set at tournament creation) and the teams already in it.
+  teamCount: number;
+  addedTeams: Team[];
   onTeamsAdded: () => void;
 }
 
-export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, onTeamsAdded }: AddTeamsModalProps) {
+export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, teamCount, addedTeams, onTeamsAdded }: AddTeamsModalProps) {
   const [manualRows, setManualRows] = useState<string[]>([]);
   const [isManualOpen, setIsManualOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -60,6 +63,27 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
 
   if (!isOpen) return successModal;
 
+  const addedNames = new Set(addedTeams.map((t) => t.name.trim().toLowerCase()));
+  const remainingSlots = Math.max(teamCount - addedTeams.length, 0);
+  const availableTeams = existingTeams.filter((t) => !addedNames.has(t.name.trim().toLowerCase()));
+
+  // Unique new team names currently queued (selected + typed), excluding ones already in the tournament.
+  const collectNewNames = (rows: string[], ids: string[]) => {
+    const selected = ids
+      .map((id) => existingTeams.find((t) => t.id === id)?.name)
+      .filter((name): name is string => !!name);
+    const typed = rows.map((n) => n.trim()).filter(Boolean);
+    const seen = new Set<string>();
+    return [...selected, ...typed].filter((name) => {
+      const key = name.toLowerCase();
+      if (seen.has(key) || addedNames.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const queuedCount = collectNewNames(manualRows, selectedTeamIds).length;
+  const limitReached = queuedCount >= remainingSlots;
+
   const resetAndClose = () => {
     setManualRows([]);
     setIsManualOpen(false);
@@ -80,12 +104,24 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
     });
   };
 
-  const addManualRow = () => setManualRows((prev) => [...prev, '']);
+  const addManualRow = () => {
+    if (manualRows.length + selectedTeamIds.length >= remainingSlots) {
+      setError(`Only ${remainingSlots} more team${remainingSlots === 1 ? '' : 's'} can be added to this tournament.`);
+      return;
+    }
+    setError('');
+    setManualRows((prev) => [...prev, '']);
+  };
   const removeManualRow = (index: number) => setManualRows((prev) => prev.filter((_, i) => i !== index));
   const updateManualRow = (index: number, value: string) =>
     setManualRows((prev) => prev.map((n, i) => (i === index ? value : n)));
 
   const toggleExistingTeam = (id: string) => {
+    if (!selectedTeamIds.includes(id) && limitReached) {
+      setError(`Only ${remainingSlots} more team${remainingSlots === 1 ? '' : 's'} can be added to this tournament.`);
+      return;
+    }
+    setError('');
     setSelectedTeamIds((prev) => (prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]));
   };
 
@@ -108,8 +144,13 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
           .filter((row, index) => index !== 0 && row?.[0] && String(row[0]).trim() !== '')
           .map((row) => String(row[0]).trim());
 
-        setManualRows(names);
-        setError('');
+        const room = Math.max(remainingSlots - selectedTeamIds.length, 0);
+        setManualRows(names.slice(0, room));
+        setError(
+          names.length > room
+            ? `Only ${remainingSlots} more team${remainingSlots === 1 ? '' : 's'} can be added — imported the first ${room}.`
+            : ''
+        );
       } catch (err) {
         console.error('Error parsing file:', err);
         setError('Could not read that file. Try a .csv, .xls, or .xlsx export.');
@@ -124,16 +165,15 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
     // Manually-typed rows and imported rows both land in manualRows already;
     // "Select Teams" picks existing teams by id, so resolve those back to
     // their names too — this endpoint takes team names only, not ids.
-    const manualNames = manualRows.map((n) => n.trim()).filter(Boolean);
-    const selectedNames = selectedTeamIds
-      .map((id) => existingTeams.find((t) => t.id === id)?.name)
-      .filter((name): name is string => !!name);
-
-    // De-dupe in case the same team was both typed manually and selected.
-    const teamNames = Array.from(new Set([...selectedNames, ...manualNames]));
+    // De-duped, and teams already in the tournament are skipped.
+    const teamNames = collectNewNames(manualRows, selectedTeamIds);
 
     if (teamNames.length === 0) {
       setError('Add or select at least one team before submitting.');
+      return;
+    }
+    if (teamNames.length > remainingSlots) {
+      setError(`You can add only ${remainingSlots} more team${remainingSlots === 1 ? '' : 's'} (limit ${teamCount}).`);
       return;
     }
     if (!tournamentExternalId) {
@@ -187,10 +227,30 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
             <Users className="w-7 h-7 text-[#5D5FEF]" />
           </div>
           <h2 className="text-2xl font-bold text-slate-900">Add Teams</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            {addedTeams.length} of {teamCount} added · {remainingSlots} slot{remainingSlots === 1 ? '' : 's'} left
+          </p>
         </div>
 
         {/* Body — independently scrollable */}
         <div className="flex-1 overflow-y-auto px-8 pb-6">
+          {addedTeams.length > 0 && (
+            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold text-slate-500 mb-2">Teams already added</p>
+              <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto">
+                {addedTeams.map((t) => (
+                  <span key={t.id} className="px-2.5 py-1 rounded-full bg-white border border-slate-200 text-xs text-slate-700">
+                    {t.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {remainingSlots === 0 && (
+            <p className="text-sm text-amber-600 text-center mb-3">This tournament already has all {teamCount} teams.</p>
+          )}
+
           {/* Import Teams */}
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -260,10 +320,10 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
 
           {isDropdownOpen && (
             <div className="max-h-[200px] overflow-y-auto border border-slate-200 rounded-xl bg-white mt-2.5">
-              {existingTeams.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-6">No existing teams found.</p>
+              {availableTeams.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">No other teams available.</p>
               ) : (
-                existingTeams.map((team) => (
+                availableTeams.map((team) => (
                   <label
                     key={team.id}
                     className="flex items-center gap-3 px-3 py-2.5 border-b border-slate-100 last:border-b-0 hover:bg-slate-50 cursor-pointer text-sm text-slate-700"
@@ -287,7 +347,7 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, o
         <div className="p-5 border-t border-slate-100 shrink-0">
           <button
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting || remainingSlots === 0}
             className="w-full bg-[#0F1117] text-white py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-50"
           >
             {submitting ? 'Adding...' : 'Done'}

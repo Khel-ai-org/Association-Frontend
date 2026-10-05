@@ -152,6 +152,12 @@ const SCORING_API_BASE = process.env.NEXT_PUBLIC_SCORING_API_URL || "http://loca
 const namesMatch = (a?: string | null, b?: string | null) =>
   !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
 
+// The tournament-player-stats API returns `{}` instead of `[]` for several
+// list fields when there's no data (confirmed from a crash: `wagon_wheel`
+// came back as `{}` for one player) — every list read off that response
+// goes through this instead of a plain `x || []`.
+const asArray = <T,>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : []);
+
 const overNumericValue = (over: string) => parseFloat(over) || 0;
 
 // The ball-by-ball `fielding_type` field carries exactly these 8 values
@@ -213,12 +219,10 @@ const findPlayerInnings = <T extends { name: string }>(
   return null;
 };
 
-// MOCK — everything below powers the "Tournament Stats" tab. There is no
-// cross-match/tournament-wide aggregation endpoint anywhere (confirmed by
-// investigation), so this whole section is demo data, per explicit request,
-// not derived from real matches. Wagon wheel rendering itself is reused
-// as-is (same component/markup as Match Stats) — only its input data here is
-// mock instead of this-match ball data.
+// SUPERSEDED — the "Tournament Stats" tab now renders real data from
+// `GET {SCORING_API_BASE}/api/v1/tournaments/:tournamentId/players/:playerId/stats`
+// (see `tournamentPlayerStats` state / `tBatting`/`tBowling` derived values
+// below). These MOCK_* constants are kept, unused, rather than deleted.
 const MOCK_TOURNAMENT_INFO = {
   name: "ICC Men's T20 World Cup 2026",
   status: 'Ongoing',
@@ -752,6 +756,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const [recentFormatFilter, setRecentFormatFilter] = useState<RecentFormatFilter>('All');
   const [recentFormBatting, setRecentFormBatting] = useState<RecentFormMatch[]>([]);
   const [recentFormBowling, setRecentFormBowling] = useState<RecentFormMatch[]>([]);
+  const [tournamentPlayerStats, setTournamentPlayerStats] = useState<any>(null);
 
   useEffect(() => {
     if (!matchId) return;
@@ -821,6 +826,35 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const playerId = providedPlayerId || battingMatch?.entry.id || bowlingMatch?.entry.id;
   const battingHand = battingMatch?.entry.batting_hand || bowlingMatch?.entry.batting_hand;
   const bowlingType = bowlingMatch?.entry.bowling_type || battingMatch?.entry.bowling_type;
+
+  // Real — the match scorecard's raw payload carries the scoring backend's
+  // own tournament id as `tournament_id` (confirmed from a real payload);
+  // that's the only source for it, no prop/route/query param involved.
+  const externalTournamentId = (scorecard as any)?.tournament_id;
+
+  // Real tournament stats (batting + bowling) for this player — wiring this
+  // up first with a console.log to confirm the response shape before the
+  // Tournament Stats tab's mock data (above) gets replaced with it.
+  console.log("Fetching player tournament stats for tournament", externalTournamentId, "player", playerId);
+  useEffect(() => {
+    if (!externalTournamentId || !playerId) return;
+    const fetchTournamentPlayerStats = async () => {
+      try {
+        const res = await fetch(
+          `${SCORING_API_BASE}/api/v1/tournaments/${externalTournamentId}/players/${playerId}/stats?match_type=all`,
+          { headers: { "ngrok-skip-browser-warning": "true" } }
+        );
+        if (res.ok) {
+          const json = await res.json();
+          console.log("Player tournament stats (batting + bowling):", json);
+          setTournamentPlayerStats(json);
+        }
+      } catch (err) {
+        console.error("Player tournament stats fetch error:", err);
+      }
+    };
+    fetchTournamentPlayerStats();
+  }, [externalTournamentId, playerId]);
 
   // Real career data — powers the Career Stats tab (bio, overview, format
   // breakdown). `history` (match-by-match log) isn't wired up yet.
@@ -908,6 +942,27 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const careerDidBowl = (playerHistory?.career_summary.total.bowling.innings ?? 0) > 0;
   const effectiveDidBat = statsTab === 'career' ? careerDidBat : didBat;
   const effectiveDidBowl = statsTab === 'career' ? careerDidBowl : didBowl;
+
+  // Real — powers the Tournament Stats tab, replacing the MOCK_* constants
+  // above (kept as-is, just unused now).
+  const tTournament = tournamentPlayerStats?.tournament;
+  const tDetails = tournamentPlayerStats?.tournament_details;
+  const tBatting = tournamentPlayerStats?.batting;
+  const tBowling = tournamentPlayerStats?.bowling;
+
+  // Real — confirmed shape: `batting.wagon_wheel` is `{ outer_sectors: [...],
+  // inner_sectors: [...] }`, each entry `{ sector, angle, runs, ... }`.
+  // `outer_sectors`' `sector` names match this file's WAGON_ZONE_LAYOUT
+  // `zone` names exactly (both say "Deep Mid Wicket", "Long On", etc.), so
+  // this just looks up runs by that name — angle/innerLabel positioning
+  // stays WAGON_ZONE_LAYOUT's own (decorative, not from the API).
+  const tournamentWagonZones = useMemo(() => {
+    const outerSectors = asArray<any>(tBatting?.wagon_wheel?.outer_sectors);
+    return WAGON_ZONE_LAYOUT.map((layout) => {
+      const match = outerSectors.find((s) => s.sector === layout.zone);
+      return { ...layout, runs: match?.runs || 0 };
+    });
+  }, [tBatting]);
 
   // Maps the existing Overall/Tests/ODI/T20/T10 filter to the real
   // career_summary shape — "Overall" reads the pre-aggregated `total`
@@ -1263,30 +1318,30 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
         </div>
 
         {statsTab === 'career' ? null : statsTab === 'tournament' ? (
-          // MOCK — no tournament-wide progress/stage endpoint exists; see note above.
+          // Real — from GET .../tournaments/:id/players/:id/stats.
           <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-bold text-slate-900">{MOCK_TOURNAMENT_INFO.name}</p>
+              <p className="text-sm font-bold text-slate-900">{tTournament?.name || '—'}</p>
               <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-[10px] font-bold uppercase">
-                {MOCK_TOURNAMENT_INFO.status}
+                {tTournament?.status_label || '—'}
               </span>
             </div>
             <div className="flex items-center justify-between text-sm mb-3">
               <div>
                 <p className="text-[10px] font-bold text-slate-600 uppercase">Matches Completed</p>
-                <p className="font-bold text-slate-900">{MOCK_TOURNAMENT_INFO.matchesCompleted} / {MOCK_TOURNAMENT_INFO.totalMatches}</p>
+                <p className="font-bold text-slate-900">{tTournament?.matches_completed ?? 0} / {tTournament?.total_matches ?? 0}</p>
               </div>
               <div className="text-right">
                 <p className="text-[10px] font-bold text-slate-600 uppercase">Current Stage</p>
-                <p className="font-bold text-indigo-600">{MOCK_TOURNAMENT_INFO.currentStage}</p>
+                <p className="font-bold text-indigo-600">{tTournament?.current_stage || '—'}</p>
               </div>
             </div>
             <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 uppercase mb-1">
               <span>Progress</span>
-              <span>{MOCK_TOURNAMENT_INFO.progressPct}%</span>
+              <span>{tTournament?.progress_percentage ?? 0}%</span>
             </div>
             <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${MOCK_TOURNAMENT_INFO.progressPct}%` }} />
+              <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${tTournament?.progress_percentage ?? 0}%` }} />
             </div>
           </div>
         ) : (
@@ -1849,12 +1904,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               <h3 className="text-lg font-bold text-slate-900 mb-4">Tournament Bowling Performance</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: 'Matches', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.matches },
-                  { label: 'Innings', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.innings },
-                  { label: 'Overs', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.overs },
-                  { label: 'Wickets', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.wickets },
-                  { label: 'Runs Conceded', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.runsConceded },
-                  { label: 'Economy', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.economy },
+                  { label: 'Matches', value: tBowling?.summary.matches ?? 0 },
+                  { label: 'Innings', value: tBowling?.summary.innings ?? 0 },
+                  { label: 'Overs', value: tBowling?.summary.overs ?? '0.0' },
+                  { label: 'Wickets', value: tBowling?.summary.wickets ?? 0 },
+                  { label: 'Runs Conceded', value: tBowling?.summary.runs_conceded ?? 0 },
+                  { label: 'Economy', value: tBowling?.summary.economy ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1864,12 +1919,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: 'Balling Average', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.bowlingAverage },
-                  { label: 'Strike Rate', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.strikeRate },
-                  { label: 'Maidens', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.maidens },
-                  { label: 'Best Bowling', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.bestBowling },
-                  { label: 'Dot Balls', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.dotBalls },
-                  { label: '5W Hauls', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.fiveWicketHauls },
+                  { label: 'Balling Average', value: tBowling?.summary.average ?? 0 },
+                  { label: 'Strike Rate', value: tBowling?.summary.strike_rate ?? 0 },
+                  { label: 'Maidens', value: tBowling?.summary.maidens ?? 0 },
+                  { label: 'Best Bowling', value: tBowling?.summary.best_bowling || 'N/A' },
+                  { label: 'Dot Balls', value: tBowling?.summary.dot_balls ?? 0 },
+                  { label: '5W Hauls', value: tBowling?.summary.five_wicket_hauls ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1879,8 +1934,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: 'Wides', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.wides },
-                  { label: 'No Balls', value: MOCK_TOURNAMENT_BOWLING_PERFORMANCE.noBalls },
+                  { label: 'Wides', value: tBowling?.summary.wides ?? 0 },
+                  { label: 'No Balls', value: tBowling?.summary.no_balls ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -1908,18 +1963,20 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_BOWLING_MATCH_BY_MATCH.map((r, i) => (
-                      <tr key={i}>
-                        <td className="py-3 pr-4 text-slate-700">{r.date}</td>
+                    {asArray<any>(tBowling?.match_by_match).length === 0 ? (
+                      <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No bowling matches in this tournament yet.</td></tr>
+                    ) : asArray<any>(tBowling?.match_by_match).map((r: any, i: number) => (
+                      <tr key={r.match_id || i}>
+                        <td className="py-3 pr-4 text-slate-700">{formatRecentDate(r.date)}</td>
                         <td className="py-3 px-4 font-semibold text-slate-900">{r.opponent}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.overs.toFixed(1)}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.runs}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.wkts}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.economy.toFixed(2)}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.best}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.dots}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.overs ?? 0}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.runs_given ?? r.runs ?? 0}</td>
+                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.wickets ?? 0}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.economy ?? 0}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.best_bowling || r.best || '—'}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.dots ?? 0}</td>
                         <td className="py-3 pl-4 text-right">
-                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${r.result === 'Won' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.result}</span>
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${/won/i.test(r.result_label || r.result || '') ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.result_label || r.result || '—'}</span>
                         </td>
                       </tr>
                     ))}
@@ -1931,26 +1988,45 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                 <h3 className="text-sm font-bold text-slate-900 mb-4">Line &amp; Length Distribution</h3>
-                <LineLengthChart rows={MOCK_LINE_LENGTH_TOURNAMENT} />
+                <LineLengthChart
+                  rows={asArray<any>(tBowling?.line_and_length?.distribution)
+                    .map((d: any) => ({ length: d.length.charAt(0).toUpperCase() + d.length.slice(1), pct: d.percentage }))
+                    .filter((d: any) => d.pct > 0)}
+                />
               </div>
 
               <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                 <h3 className="text-sm font-bold text-slate-900 mb-1">Tournament Wicket Breakdown</h3>
                 <p className="text-xs text-slate-600 mb-4">Distribution by method of dismissal.</p>
-                <div className="h-2.5 rounded-full overflow-hidden flex mb-4">
-                  {MOCK_WICKET_BREAKDOWN.map((w) => {
-                    const total = MOCK_WICKET_BREAKDOWN.reduce((sum, x) => sum + x.count, 0);
-                    return <div key={w.method} className={w.color} style={{ width: `${(w.count / total) * 100}%` }} />;
-                  })}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {MOCK_WICKET_BREAKDOWN.map((w) => (
-                    <div key={w.method} className="flex items-center gap-2 text-xs">
-                      <span className={`w-2 h-2 rounded-full ${w.color}`} />
-                      <span className="text-slate-700">{w.method}: <span className="font-bold text-slate-900">{w.count}</span></span>
-                    </div>
-                  ))}
-                </div>
+                {(() => {
+                  const wb = tBowling?.wicket_breakdown;
+                  const rows = [
+                    { method: 'Bowled', count: wb?.bowled ?? 0, color: 'bg-indigo-500' },
+                    { method: 'LBW', count: wb?.lbw ?? 0, color: 'bg-amber-500' },
+                    { method: 'Caught', count: wb?.caught ?? 0, color: 'bg-emerald-500' },
+                    { method: 'Stumped', count: wb?.stumped ?? 0, color: 'bg-red-500' },
+                    { method: 'Other', count: wb?.other ?? 0, color: 'bg-slate-400' },
+                  ];
+                  const total = wb?.total || rows.reduce((sum, x) => sum + x.count, 0);
+                  if (!total) return <p className="text-slate-600 italic text-sm">No wickets taken in this tournament yet.</p>;
+                  return (
+                    <>
+                      <div className="h-2.5 rounded-full overflow-hidden flex mb-4">
+                        {rows.filter((w) => w.count > 0).map((w) => (
+                          <div key={w.method} className={w.color} style={{ width: `${(w.count / total) * 100}%` }} />
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {rows.map((w) => (
+                          <div key={w.method} className="flex items-center gap-2 text-xs">
+                            <span className={`w-2 h-2 rounded-full ${w.color}`} />
+                            <span className="text-slate-700">{w.method}: <span className="font-bold text-slate-900">{w.count}</span></span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -1972,17 +2048,19 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_VS_BATTER_TOURNAMENT.map((r) => (
-                      <tr key={r.batsman}>
-                        <td className="py-3 pr-4 font-semibold text-slate-900">{r.batsman}</td>
-                        <td className="py-3 px-4 text-slate-700">{r.team}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.balls}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.runs}</td>
-                        <td className="py-3 px-4 text-right text-red-600 font-semibold">{r.wkts}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.fours}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.sixes}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.avg}</td>
-                        <td className="py-3 pl-4 text-right text-slate-800">{r.eco}</td>
+                    {asArray<any>(tBowling?.performance_vs_batters).length === 0 ? (
+                      <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No data yet.</td></tr>
+                    ) : asArray<any>(tBowling?.performance_vs_batters).map((r: any, i: number) => (
+                      <tr key={r.batter_id || i}>
+                        <td className="py-3 pr-4 font-semibold text-slate-900">{r.batter_name || r.batsman_name}</td>
+                        <td className="py-3 px-4 text-slate-700">{r.team_name || r.team}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.balls ?? 0}</td>
+                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.runs ?? 0}</td>
+                        <td className="py-3 px-4 text-right text-red-600 font-semibold">{r.wickets ?? 0}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.fours ?? 0}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.sixes ?? 0}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.average ?? '—'}</td>
+                        <td className="py-3 pl-4 text-right text-slate-800">{r.economy ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1996,13 +2074,13 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               <h3 className="text-sm font-bold text-slate-900 mb-4">Tournament Details</h3>
               <div className="flex flex-col gap-3 text-sm">
                 {[
-                  { label: 'Tournament', value: MOCK_TOURNAMENT_DETAILS.tournament },
-                  { label: 'Format', value: MOCK_TOURNAMENT_DETAILS.format },
-                  { label: 'Current Stage', value: MOCK_TOURNAMENT_DETAILS.currentStage },
-                  { label: 'Squad Team', value: MOCK_TOURNAMENT_DETAILS.squadTeam },
-                  { label: 'Matches Played', value: MOCK_TOURNAMENT_DETAILS.matchesPlayed },
-                  { label: 'Matches Remaining', value: MOCK_TOURNAMENT_DETAILS.matchesRemaining },
-                  { label: 'Progress', value: `${MOCK_TOURNAMENT_DETAILS.progressPct}%` },
+                  { label: 'Tournament', value: tDetails?.tournament || '—' },
+                  { label: 'Format', value: tDetails?.format || '—' },
+                  { label: 'Current Stage', value: tDetails?.current_stage || '—' },
+                  { label: 'Squad Team', value: tDetails?.squad_team?.name || '—' },
+                  { label: 'Matches Played', value: tDetails?.matches_played ?? 0 },
+                  { label: 'Matches Remaining', value: tDetails?.matches_remaining ?? 0 },
+                  { label: 'Progress', value: `${tDetails?.progress_percentage ?? 0}%` },
                 ].map((row) => (
                   <div key={row.label} className="flex items-center justify-between">
                     <span className="text-slate-600">{row.label}</span>
@@ -2013,26 +2091,28 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             </div>
 
             {[
-              { title: 'Bowling Leaderboard', rows: MOCK_BOWLING_LEADERBOARD },
-              { title: 'Bowling Economy Leaderboard', rows: MOCK_ECONOMY_LEADERBOARD },
-              { title: 'Bowling Average Leaderboard', rows: MOCK_BOWLING_AVERAGE_LEADERBOARD },
-              { title: 'Bowling Strike Rate Leaderboard', rows: MOCK_BOWLING_STRIKE_RATE_LEADERBOARD },
+              { title: 'Bowling Leaderboard', rows: tBowling?.leaderboards?.wickets, suffix: ' Wickets' },
+              { title: 'Bowling Economy Leaderboard', rows: tBowling?.leaderboards?.economy, suffix: '' },
+              { title: 'Bowling Average Leaderboard', rows: tBowling?.leaderboards?.average, suffix: '' },
+              { title: 'Bowling Strike Rate Leaderboard', rows: tBowling?.leaderboards?.strike_rate, suffix: '' },
             ].map((board) => (
               <div key={board.title} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-bold text-slate-900">{board.title}</h3>
                 </div>
                 <div className="flex flex-col gap-3">
-                  {board.rows.map((r, i) => (
-                    <div key={r.name} className={`flex items-center justify-between ${r.name === playerName ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
+                  {asArray<any>(board.rows).length === 0 ? (
+                    <p className="text-slate-600 italic text-sm">No data yet.</p>
+                  ) : asArray<any>(board.rows).map((r: any) => (
+                    <div key={r.player_id} className={`flex items-center justify-between ${r.is_current_player ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
                       <div className="flex items-center gap-3">
-                        <span className="text-xs font-bold text-slate-400 w-5">#{i + 1}</span>
+                        <span className="text-xs font-bold text-slate-400 w-5">#{r.rank}</span>
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">{r.name}</p>
-                          <p className="text-[10px] text-slate-500">{r.team}</p>
+                          <p className="text-sm font-semibold text-slate-900">{r.player_name}</p>
+                          <p className="text-[10px] text-slate-500">{r.team_short_name || r.team_name}</p>
                         </div>
                       </div>
-                      <span className="text-sm font-bold text-slate-900">{r.value}</span>
+                      <span className="text-sm font-bold text-slate-900">{r.value}{board.suffix}</span>
                     </div>
                   ))}
                 </div>
@@ -2047,12 +2127,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               <h3 className="text-lg font-bold text-slate-900 mb-4">Tournament Performance</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: 'Matches', value: MOCK_TOURNAMENT_PERFORMANCE.matches },
-                  { label: 'Innings', value: MOCK_TOURNAMENT_PERFORMANCE.innings },
-                  { label: 'Runs', value: MOCK_TOURNAMENT_PERFORMANCE.runs },
-                  { label: 'Average', value: MOCK_TOURNAMENT_PERFORMANCE.average },
-                  { label: 'Strike Rate', value: MOCK_TOURNAMENT_PERFORMANCE.strikeRate },
-                  { label: 'Highest Score', value: MOCK_TOURNAMENT_PERFORMANCE.highestScore },
+                  { label: 'Matches', value: tBatting?.summary.matches ?? 0 },
+                  { label: 'Innings', value: tBatting?.summary.innings ?? 0 },
+                  { label: 'Runs', value: tBatting?.summary.runs ?? 0 },
+                  { label: 'Average', value: tBatting?.summary.average ?? 0 },
+                  { label: 'Strike Rate', value: tBatting?.summary.strike_rate ?? 0 },
+                  { label: 'Highest Score', value: tBatting?.summary.highest_score ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -2062,12 +2142,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
                 {[
-                  { label: '50s/100s', value: MOCK_TOURNAMENT_PERFORMANCE.fiftiesHundreds },
-                  { label: 'Ball Faced', value: MOCK_TOURNAMENT_PERFORMANCE.ballsFaced },
-                  { label: 'Dot Balls', value: MOCK_TOURNAMENT_PERFORMANCE.dotBalls },
-                  { label: '4s/6s', value: MOCK_TOURNAMENT_PERFORMANCE.foursSixes },
-                  { label: 'Boundary %', value: MOCK_TOURNAMENT_PERFORMANCE.boundaryPct },
-                  { label: 'Boundary Runs', value: MOCK_TOURNAMENT_PERFORMANCE.boundaryRuns },
+                  { label: '50s/100s', value: `${tBatting?.summary.fifties ?? 0}/${tBatting?.summary.hundreds ?? 0}` },
+                  { label: 'Ball Faced', value: tBatting?.summary.balls_faced ?? 0 },
+                  { label: 'Dot Balls', value: tBatting?.summary.dot_balls ?? 0 },
+                  { label: '4s/6s', value: `${tBatting?.summary.fours ?? 0}/${tBatting?.summary.sixes ?? 0}` },
+                  { label: 'Boundary %', value: `${tBatting?.summary.boundary_percentage ?? 0}%` },
+                  { label: 'Boundary Runs', value: tBatting?.summary.boundary_runs ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -2077,8 +2157,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 {[
-                  { label: 'Not Outs', value: MOCK_TOURNAMENT_PERFORMANCE.notOuts },
-                  { label: 'Ducks', value: MOCK_TOURNAMENT_PERFORMANCE.ducks },
+                  { label: 'Not Outs', value: tBatting?.summary.not_outs ?? 0 },
+                  { label: 'Ducks', value: tBatting?.summary.ducks ?? 0 },
                 ].map((s) => (
                   <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                     <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
@@ -2106,18 +2186,20 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_MATCH_BY_MATCH.map((r) => (
-                      <tr key={r.match}>
-                        <td className="py-3 pr-4 font-semibold text-slate-900">{r.match}</td>
+                    {asArray<any>(tBatting?.match_by_match).length === 0 ? (
+                      <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No batting matches in this tournament yet.</td></tr>
+                    ) : asArray<any>(tBatting?.match_by_match).map((r: any) => (
+                      <tr key={r.match_id}>
+                        <td className="py-3 pr-4 font-semibold text-slate-900">{r.match_number ? `M${r.match_number}` : formatRecentDate(r.date)}</td>
                         <td className="py-3 px-4 text-slate-800">{r.opponent}</td>
                         <td className="py-3 px-4 text-slate-700">{r.venue}</td>
-                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.runs}</td>
+                        <td className="py-3 px-4 text-right font-bold text-slate-900">{r.runs}{r.not_out ? '*' : ''}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.balls}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.sr}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.strike_rate}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.fours}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.sixes}</td>
                         <td className="py-3 pl-4 text-right">
-                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${r.result === 'Won' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.result}</span>
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${/won/i.test(r.result_label || r.result || '') ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.result_label || r.result}</span>
                         </td>
                       </tr>
                     ))}
@@ -2138,7 +2220,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       return <line key={angle} x1="100" y1="100" x2={x} y2={y} stroke="white" strokeWidth="1.5" />;
                     })}
                     <rect x="97" y="86" width="6" height="28" rx="2" className="fill-amber-300" />
-                    {MOCK_TOURNAMENT_WAGON_ZONES.map(({ zone, angle }) => (
+                    {tournamentWagonZones.map(({ zone, angle }) => (
                       <path
                         key={`wedge-${zone}`}
                         d={wedgePath(angle, 92)}
@@ -2150,7 +2232,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     ))}
                   </svg>
                   {/* Inner position labels — kept inside the dashed infield circle, directly hoverable. */}
-                  {MOCK_TOURNAMENT_WAGON_ZONES.map(({ zone, innerLabel, angle, runs }) => {
+                  {tournamentWagonZones.map(({ zone, innerLabel, angle, runs }) => {
                     const { left, top } = polarPct(angle, 17);
                     return (
                       <div
@@ -2166,7 +2248,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     );
                   })}
                   {/* Outer zone name + runs — kept inside the green circle, near the rim, directly hoverable. */}
-                  {MOCK_TOURNAMENT_WAGON_ZONES.map(({ zone, angle, runs }) => {
+                  {tournamentWagonZones.map(({ zone, angle, runs }) => {
                     const { left, top } = polarPct(angle, 34);
                     return (
                       <div
@@ -2187,7 +2269,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
                         <p className="text-xs font-semibold text-slate-600 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
                         <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
-                          {MOCK_TOURNAMENT_WAGON_ZONES.find((z) => z.zone === hoveredWagon.zone)?.runs ?? 0} Runs
+                          {tournamentWagonZones.find((z) => z.zone === hoveredWagon.zone)?.runs ?? 0} Runs
                         </p>
                       </div>
                     </div>
@@ -2198,14 +2280,18 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                 <h3 className="text-sm font-bold text-slate-900 mb-4">Runs by Shot Type</h3>
                 <div className="flex flex-col gap-3">
-                  {MOCK_SHOT_TYPE_TOURNAMENT.map((s) => (
-                    <div key={s.shot}>
+                  {asArray<any>(tBatting?.runs_by_shot_type).length === 0 ? (
+                    <p className="text-slate-600 italic text-sm">No shot-type data available.</p>
+                  ) : asArray<any>(tBatting?.runs_by_shot_type).map((s: any, i: number) => (
+                    // The API has returned this entry's shot name under
+                    // `shot` and, elsewhere, `shot_type` — read either.
+                    <div key={s.shot || s.shot_type || i}>
                       <div className="flex justify-between text-xs mb-1">
-                        <span className="font-semibold text-slate-900">{s.shot}</span>
+                        <span className="font-semibold text-slate-900">{s.shot || s.shot_type}</span>
                         <span className="text-slate-700">{s.runs} Runs ({s.balls} Balls)</span>
                       </div>
                       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${s.pct}%` }} />
+                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${s.percentage}%` }} />
                       </div>
                     </div>
                   ))}
@@ -2231,19 +2317,21 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50 text-sm">
-                    {MOCK_VS_BOWLERS_TOURNAMENT.map((r) => (
-                      <tr key={r.bowler}>
+                    {asArray<any>(tBatting?.performance_vs_bowlers).length === 0 ? (
+                      <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No data yet.</td></tr>
+                    ) : asArray<any>(tBatting?.performance_vs_bowlers).map((r: any) => (
+                      <tr key={r.bowler_id}>
                         <td className="py-3 pr-4 font-semibold text-slate-900">
-                          {r.bowler} {r.matches > 1 && <span className="text-amber-600 font-medium">({r.matches} Matches)</span>}
+                          {r.bowler_name} {r.matches > 1 && <span className="text-amber-600 font-medium">({r.matches} Matches)</span>}
                         </td>
                         <td className="py-3 px-4 text-slate-700">{r.team}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.balls}</td>
                         <td className="py-3 px-4 text-right font-bold text-slate-900">{r.runs}</td>
-                        <td className="py-3 px-4 text-right text-red-600 font-semibold">{r.wkts}</td>
+                        <td className="py-3 px-4 text-right text-red-600 font-semibold">{r.wickets}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.fours}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.sixes}</td>
-                        <td className="py-3 px-4 text-right text-slate-800">{r.sr}</td>
-                        <td className="py-3 pl-4 text-right text-slate-800">{r.avg || '—'}</td>
+                        <td className="py-3 px-4 text-right text-slate-800">{r.strike_rate}</td>
+                        <td className="py-3 pl-4 text-right text-slate-800">{r.average || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2254,28 +2342,29 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
 
           <div className="flex flex-col gap-6">
             {[
-              { title: 'Batting Leaderboard', rows: MOCK_BATTING_LEADERBOARD },
-              { title: 'Most Sixes', rows: MOCK_MOST_SIXES },
-              { title: 'Most Fours', rows: MOCK_MOST_FOURS },
-              { title: 'Top Strike Rate', rows: MOCK_TOP_STRIKE_RATE },
-              { title: 'Highest Average', rows: MOCK_HIGHEST_AVERAGE },
+              { title: 'Batting Leaderboard', rows: tBatting?.leaderboards?.most_runs, suffix: ' Runs' },
+              { title: 'Most Sixes', rows: tBatting?.leaderboards?.most_sixes, suffix: ' Sixes' },
+              { title: 'Most Fours', rows: tBatting?.leaderboards?.most_fours, suffix: ' Fours' },
+              { title: 'Top Strike Rate', rows: tBatting?.leaderboards?.top_strike_rate, suffix: ' SR' },
+              { title: 'Highest Average', rows: tBatting?.leaderboards?.highest_average, suffix: ' Avg' },
             ].map((board) => (
               <div key={board.title} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-bold text-slate-900">{board.title}</h3>
-                  <span className="text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer">See all</span>
                 </div>
                 <div className="flex flex-col gap-3">
-                  {board.rows.map((r, i) => (
-                    <div key={r.name} className={`flex items-center justify-between ${r.name === playerName ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
+                  {asArray<any>(board.rows).length === 0 ? (
+                    <p className="text-slate-600 italic text-sm">No data yet.</p>
+                  ) : asArray<any>(board.rows).map((r: any) => (
+                    <div key={r.player_id} className={`flex items-center justify-between ${r.is_current_player ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
                       <div className="flex items-center gap-3">
-                        <span className="text-xs font-bold text-slate-400 w-5">#{i + 1}</span>
+                        <span className="text-xs font-bold text-slate-400 w-5">#{r.rank}</span>
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">{r.name}</p>
-                          <p className="text-[10px] text-slate-500">{r.team}</p>
+                          <p className="text-sm font-semibold text-slate-900">{r.player_name}</p>
+                          <p className="text-[10px] text-slate-500">{r.team_short_name || r.team_name}</p>
                         </div>
                       </div>
-                      <span className="text-sm font-bold text-slate-900">{r.value}</span>
+                      <span className="text-sm font-bold text-slate-900">{r.value}{board.suffix}</span>
                     </div>
                   ))}
                 </div>

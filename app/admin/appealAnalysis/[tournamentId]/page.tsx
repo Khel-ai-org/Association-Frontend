@@ -30,7 +30,12 @@ export default function AppealAnalysisPage() {
 
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [appeals, setAppeals] = useState<any[]>([]);
+  // The scoring backend identifies tournaments by its own id, not the
+  // association's — resolved once from the tournament record and reused
+  // for every subsequent appeal-analysis fetch (e.g. after posting a comment).
+  const [externalTournamentId, setExternalTournamentId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<any>(null);
   const [newComment, setNewComment] = useState("");
@@ -64,31 +69,82 @@ export default function AppealAnalysisPage() {
 
   const currentUserName = user?.name || "Unknown";
 
-  useEffect(() => {
-    fetchAppealData();
-  }, [tournamentId]);
-
-  const fetchAppealData = async () => {
+  // Fetches appeal analysis from the scoring backend for an already-resolved
+  // scoring tournament id. `cache: 'no-store'` skips the browser's conditional
+  // (304) revalidation path entirely, so this always gets a fresh 200 + body.
+  const fetchAppealData = async (scoringTournamentId: string) => {
     try {
       setLoading(true);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/export/tournaments/${tournamentId}/appeal-analysis`, {
-        credentials: "include",
-      });
+      setLoadError(null);
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${scoringTournamentId}/appeal-analysis`,
+        {
+          headers: { "ngrok-skip-browser-warning": "true" },
+          cache: "no-store",
+        }
+      );
+      if (!res.ok) throw new Error(`Failed to fetch appeal analysis (HTTP ${res.status})`);
       const json = await res.json();
-      console.log("Fetched appeal analysis data:", json);
-      if (json.success) {
-        setAppeals(json.data || []);
-      }
-    } catch (err) {
+      if (!json.success) throw new Error(json.message || "Appeal analysis request was not successful");
+      setAppeals(json.data || []);
+    } catch (err: any) {
       console.error("Failed to fetch appeal analysis:", err);
+      setLoadError(err.message || "Failed to load appeal analysis");
     } finally {
       setLoading(false);
     }
   };
 
+  // Single orchestrated loader: resolve the association tournament id to the
+  // scoring backend's own id, then fetch the analysis for it. Kept as one
+  // flow (not two chained effects) so there's no race and one place to retry.
+  //
+  // The singular GET /tournaments/{id} endpoint doesn't return
+  // externalTournamentId, so it's looked up from the operator-tournaments
+  // list instead (same endpoint the tournament grid already uses), which
+  // does include it per tournament.
+  const loadTournamentAndAppeals = async () => {
+    if (!tournamentId) return;
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/tournaments/my-association`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error(`Failed to fetch tournaments (HTTP ${res.status})`);
+      const tournaments = await res.json();
+      console.log("Fetched tournaments:", tournaments);
+      const list = Array.isArray(tournaments)
+        ? tournaments
+        : tournaments?.data || tournaments?.tournaments || [];
+      const matchedTournament = list.find((t: any) => t.id === tournamentId);
+      const scoringTournamentId = matchedTournament?.externalTournamentId;
+      if (!scoringTournamentId) throw new Error("This tournament has no linked scoring tournament id");
+
+      setExternalTournamentId(scoringTournamentId);
+      await fetchAppealData(scoringTournamentId);
+    } catch (err: any) {
+      console.error("Failed to resolve scoring tournament id:", err);
+      setLoadError(err.message || "Failed to load tournament");
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTournamentAndAppeals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournamentId]);
+
   const handleExport = () => {
+    // The sheet's data comes from the scoring backend keyed by
+    // externalTournamentId (same id used for the on-screen table) — sending
+    // the association tournamentId here queries the wrong source, which is
+    // why the sheet came back with headers but no rows.
+    if (!externalTournamentId) return;
     setExporting(true);
-    window.location.href = `${process.env.NEXT_PUBLIC_Backend_URL}/export/auth?tournamentId=${tournamentId}`;
+    window.location.href = `${process.env.NEXT_PUBLIC_Backend_URL}/export/auth?tournamentId=${externalTournamentId}`;
   };
 
   const handleAddComment = async () => {
@@ -139,7 +195,7 @@ export default function AppealAnalysisPage() {
         );
 
         setNewComment("");
-        fetchAppealData();
+        if (externalTournamentId) fetchAppealData(externalTournamentId);
       } else {
         alert(json.message || "Failed to post comment");
       }
@@ -201,7 +257,7 @@ export default function AppealAnalysisPage() {
         <div className="flex justify-end gap-3">
           <button
             onClick={handleExport}
-            disabled={exporting}
+            disabled={exporting || !externalTournamentId}
             className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer disabled:opacity-50"
           >
             {exporting ? (
@@ -309,6 +365,16 @@ export default function AppealAnalysisPage() {
             <Loader2 className="w-5 h-5 animate-spin" />
             <span>Loading appeals data...</span>
           </div>
+        ) : loadError ? (
+          <div className="flex flex-col items-center justify-center p-12 text-slate-500 gap-3">
+            <p className="text-sm font-medium text-red-600">{loadError}</p>
+            <button
+              onClick={loadTournamentAndAppeals}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
         ) : filteredAppeals.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-12 text-slate-400 gap-2">
             <MessageSquare className="w-8 h-8 text-slate-300" />
@@ -326,6 +392,7 @@ export default function AppealAnalysisPage() {
                 <th className="py-4 px-4">Referee</th>
                 <th className="py-4 px-4">Innings</th>
                 <th className="py-4 px-6 text-center">Cameras</th>
+                <th className="py-4 px-6 text-center">Appeal Video</th>
                 <th className="py-4 px-6 text-center">Comments</th>
               </tr>
             </thead>
@@ -373,6 +440,31 @@ export default function AppealAnalysisPage() {
                           );
                         })}
                       </div>
+                    </td>
+                    <td className="py-4 px-6">
+                      {item.coc && Object.keys(item.coc).length > 0 ? (
+                        <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-[160px] mx-auto">
+                          {Object.entries(item.coc as Record<string, string>).map(([clipKey, clipUrl]) => (
+                            <button
+                              key={clipKey}
+                              onClick={() => setSelectedVideo({
+                                matchId: item.match_id,
+                                overNumber: item.over_number,
+                                appealId: item.appeal_id,
+                                url: clipUrl || "",
+                                title: `Ball ${item.over_number} - CoC (${clipKey})`,
+                                comments: commentsList
+                              })}
+                              className="flex items-center justify-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md text-xs font-medium text-amber-700 cursor-pointer shadow-2xs"
+                            >
+                              <Play className="w-3 h-3 text-amber-500 fill-amber-500" />
+                              <span>{clipKey}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium block text-center">No Appeal Video</span>
+                      )}
                     </td>
                     <td className="py-4 px-6 text-center">
                       {commentsList.length === 0 ? (

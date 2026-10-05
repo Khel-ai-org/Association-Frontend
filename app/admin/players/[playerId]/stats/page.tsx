@@ -18,7 +18,7 @@ export default function PlayerCareerStatsPage({ params }: PageProps) {
   const resolvedParams = React.use(params);
   const playerId = resolvedParams.playerId;
   const playerName = searchParams.get('name') || '';
-
+  
   return (
     <div className="min-h-screen bg-[#F8F9FB] p-4 md:p-6">
       <div className="flex items-center gap-2 mb-6 text-sm font-medium text-slate-600">

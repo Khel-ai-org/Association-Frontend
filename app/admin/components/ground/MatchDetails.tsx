@@ -2,13 +2,15 @@
  "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2 } from 'lucide-react';
+import { Search, ChevronDown, ChevronUp, Volleyball, RefreshCwIcon, UserCheck, ChevronLeft, X, MessageSquare, ShieldAlert, Trash2, Video, Edit2, User, Check, Play, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
 // Import all separate modal components
 import { AddCommentModal, MrJudgementModal } from '../RefreeModals/AddComments';
 import { RefereeActionModal } from '../RefreeModals/ActionModals'; // <-- Import the 5-tab referee action modal
 import { ScorecardView } from './ScorecardView';
+import { WagonWheelModal } from './WagonWheelModal';
+import { buildWagonWheelDataFromApiResponse, WagonWheelApiResponse, WagonWheelData } from '@/lib/sampleWagonWheel';
 
 interface MatchAnalysisProps {
   matchId: string;
@@ -44,8 +46,17 @@ interface AppealData {
 
 interface ActiveFilter {
   id: string;
-  category: 'ball' | 'appeal';
+  category: 'ball' | 'appeal' | 'batsman';
   label: string;
+}
+
+interface CocCaseVideo {
+  id: number;
+  tag: string;
+  upload_status: string;
+  video_id: Record<string, string>;
+  url: Record<string, string>;
+  uploaded_at: string | null;
 }
 
 interface CocCase {
@@ -59,7 +70,40 @@ interface CocCase {
   description: string | null;
   created_at: string;
   updated_at: string;
+  
+over_number?: string;
+  videos?: CocCaseVideo[];
 }
+
+// One playable clip, flattened out of a CoC case's video records
+// (a record can hold multiple camera angles, e.g. video1 + video2).
+interface FlattenedCocClip {
+  key: string;
+  tag: string;
+  clipLabel: string;
+  url: string;
+  uploadStatus: string;
+  uploadedAt: string | null;
+}
+
+const flattenCocVideos = (videos: CocCaseVideo[] | undefined): FlattenedCocClip[] => {
+  if (!videos || videos.length === 0) return [];
+  const clips: FlattenedCocClip[] = [];
+  videos.forEach((record) => {
+    const clipKeys = Object.keys(record.url || {});
+    clipKeys.forEach((clipKey) => {
+      clips.push({
+        key: `${record.id}-${clipKey}`,
+        tag: record.tag,
+        clipLabel: clipKey,
+        url: record.url[clipKey],
+        uploadStatus: record.upload_status,
+        uploadedAt: record.uploaded_at,
+      });
+    });
+  });
+  return clips;
+};
 
 
 
@@ -86,6 +130,63 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [playerSearchTerm, setPlayerSearchTerm] = useState("");
   const [celebrationSearch, setCelebrationSearch] = useState("");
 
+  // Batsman Filter State
+  const [selectedBatsman, setSelectedBatsman] = useState<string>("");
+  const [isBatsmanDropdownOpen, setIsBatsmanDropdownOpen] = useState<boolean>(false);
+  const batsmanDropdownRef = useRef<HTMLDivElement>(null);
+  const [isWagonWheelOpen, setIsWagonWheelOpen] = useState<boolean>(false);
+  const [isWagonWheelLoading, setIsWagonWheelLoading] = useState<boolean>(false);
+  const [wagonWheelData, setWagonWheelData] = useState<WagonWheelData | null>(null);
+  const [wagonWheelError, setWagonWheelError] = useState<string>("");
+
+  // Fetches this batsman's real wagon-wheel data and only opens the modal
+  // once it's ready — opening first and fetching in parallel would let the
+  // 3D scene's one-time auto-play animation start (and finish) on stale
+  // sample data before the real response arrives.
+  const handleOpenWagonWheel = async () => {
+    if (!matchId || !selectedBatsman) return;
+    setWagonWheelError("");
+    setIsWagonWheelLoading(true);
+    try {
+      const innNum = activeInnings === '1st' ? 1 : 2;
+      // Scorecard batsmen now carry a stable id — look it up by name instead
+      // of sending the name itself (fragile if two players share a name).
+      const targetInning = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
+      const batsmanId = targetInning?.batsmen?.find(
+        (bm: any) => (bm.name || bm.batsman_name) === selectedBatsman
+      )?.id;
+      if (!batsmanId) {
+        throw new Error(`Could not find an id for "${selectedBatsman}" in the scorecard`);
+      }
+
+      const url = `${SCORING_API_BASE}/api/v1/matches/${matchId}/wagon-wheel?playerId=${encodeURIComponent(batsmanId)}&innings=${innNum}`;
+      const res = await fetch(url, { headers: { "ngrok-skip-browser-warning": "true" } });
+      if (!res.ok) throw new Error(`Failed to load wagon wheel (HTTP ${res.status})`);
+      const json = await res.json();
+      console.log('[WagonWheel] Raw response for', selectedBatsman, '(id:', batsmanId, '):', json);
+      // Response is wrapped in { status, data: {...} } — unwrap it.
+      const payload: WagonWheelApiResponse = json?.data ?? json;
+      setWagonWheelData(buildWagonWheelDataFromApiResponse(payload));
+      setIsWagonWheelOpen(true);
+    } catch (err: any) {
+      console.error('[WagonWheel] Failed to load:', err);
+      setWagonWheelError(err.message || 'Failed to load wagon wheel data');
+    } finally {
+      setIsWagonWheelLoading(false);
+    }
+  };
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (batsmanDropdownRef.current && !batsmanDropdownRef.current.contains(e.target as Node)) {
+        setIsBatsmanDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // Modal State Controllers
   const [isAddCommentOpen, setIsAddCommentOpen] = useState(false);
   const [isMrJudgementOpen, setIsMrJudgementOpen] = useState(false);
@@ -93,6 +194,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const [cocCases, setCocCases] = useState<CocCase[]>([]);
   const [isCocLoading, setIsCocLoading] = useState(false);
+  const [cocVideoGallery, setCocVideoGallery] = useState<{
+    isOpen: boolean;
+    title: string;
+    clips: FlattenedCocClip[];
+    activeIndex: number;
+  }>({ isOpen: false, title: '', clips: [], activeIndex: 0 });
 
   const LENGTHS = ['Yorker', 'Bouncer', 'Full', 'Half Volley', 'Good', 'Full Toss', 'Short'];
   const VARIATIONS = ['Inswinger', 'Outswinger', 'Seam Up', 'Cross Seam', 'Late in', 'Scrambled Seam', 'Late Out', 'Slower', 'Reverse Swing', 'Off Cutter', 'Leg Cutter', 'Back Off Hand', 'Knuckle', 'Split Finger', 'Beamer', 'Wide Yorker'];
@@ -314,6 +421,38 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     }));
   }, [inningBalls, superoverBalls]);
 
+  // Extract unique, sorted batsman names from active inning balls and scorecard
+  const batsmanList = useMemo(() => {
+    const names = new Set<string>();
+
+    // 1. From all balls of active inning
+    allBalls.forEach((b: any) => {
+      const bName = b.batsman_name;
+      if (bName && typeof bName === 'string' && bName.trim() && bName.trim().toUpperCase() !== 'N/A') {
+        names.add(bName.trim());
+      }
+    });
+
+    // 2. From scorecard inning batsmen if available
+    const targetInning = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
+    if (targetInning?.batsmen && Array.isArray(targetInning.batsmen)) {
+      targetInning.batsmen.forEach((bm: any) => {
+        const name = typeof bm === 'string' ? bm : (bm.name || bm.batsman_name);
+        if (name && typeof name === 'string' && name.trim() && name.trim().toUpperCase() !== 'N/A') {
+          names.add(name.trim());
+        }
+      });
+    }
+
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [allBalls, scorecard, activeInnings]);
+
+  // Reset selected batsman when switching between 1st and 2nd innings
+  useEffect(() => {
+    setSelectedBatsman("");
+    setIsBatsmanDropdownOpen(false);
+  }, [activeInnings]);
+
   const filteredBalls = useMemo(() => {
     const activeFilters = Object.keys(filters).filter(key => filters[key]);
     const activeAppealFilters = Object.keys(appealFilters).filter(key => appealFilters[key]);
@@ -321,8 +460,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     const celebSearch = celebrationSearch.trim().toLowerCase();
     const playerSearch = searchTerm.trim().toLowerCase();
     const pSearch = playerSearchTerm.trim().toLowerCase();
+    const bFilter = selectedBatsman.trim().toLowerCase();
 
     return allBalls.filter(ball => {
+      // Batsman Dropdown Filter
+      const matchesSelectedBatsman = !bFilter || ball.batsman_name?.trim().toLowerCase() === bFilter;
+
       const matchesName = !playerSearch || 
         ball.batsman_name?.toLowerCase().includes(playerSearch) || 
         ball.bowler_name?.toLowerCase().includes(playerSearch);
@@ -381,9 +524,19 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             return false;
           }));
 
-      return matchesName && matchesPlayerName && matchesCelebration && matchesStandard && matchesAppeal;
+      return matchesSelectedBatsman && matchesName && matchesPlayerName && matchesCelebration && matchesStandard && matchesAppeal;
     });
-  }, [allBalls, filters, appealFilters, appealLookup, scorecard, celebrationSearch, searchTerm, playerSearchTerm]);
+  }, [allBalls, filters, appealFilters, appealLookup, scorecard, celebrationSearch, searchTerm, playerSearchTerm, selectedBatsman]);
+
+  // When filteredBalls changes, if the selected ball is no longer in view, select the first filtered ball
+  useEffect(() => {
+    if (selectedBatsman && filteredBalls.length > 0) {
+      const currentStillValid = filteredBalls.some(b => b.id === selectedBallData?.id);
+      if (!currentStillValid) {
+        setSelectedBallData(filteredBalls[0]);
+      }
+    }
+  }, [selectedBatsman, filteredBalls]);
 
   const ballTimeline = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -483,6 +636,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const activeFiltersList = useMemo(() => {
     const active: ActiveFilter[] = []; 
+    if (selectedBatsman) {
+      active.push({ id: selectedBatsman, category: 'batsman', label: `Batsman: ${selectedBatsman}` });
+    }
     Object.entries(filters).forEach(([key, value]) => {
       if (value) active.push({ id: key, category: 'ball', label: key });
     });
@@ -490,7 +646,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       if (value) active.push({ id: key, category: 'appeal', label: key });
     });
     return active;
-  }, [filters, appealFilters]);
+  }, [filters, appealFilters, selectedBatsman]);
 
   const renderFilterContent = () => (
     <div className="space-y-1 text-slate-900">
@@ -825,6 +981,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                 className="w-full sm:w-36 md:w-44 pl-9 pr-4 py-2 text-gray-900 bg-slate-50 border border-slate-100 rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" 
               />
             </div>
+            {/* OLD: Player Search Input (commented out, not deleted)
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input 
@@ -835,6 +992,101 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                 className="w-full sm:w-44 md:w-52 pl-9 pr-4 py-2 text-gray-900 bg-slate-50 border border-slate-100 rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" 
               />
             </div>
+            */}
+
+            {/* NEW: Standard Custom Batsman Dropdown (matches exact page colors & UI) */}
+            <div className="relative w-full sm:w-auto" ref={batsmanDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsBatsmanDropdownOpen(prev => !prev)}
+                className="w-full sm:w-44 md:w-52 pl-9 pr-3 py-2 text-left text-sm bg-slate-50 border border-slate-100 rounded-lg flex items-center justify-between hover:bg-slate-100/70 transition-colors cursor-pointer outline-none focus:ring-1 ring-blue-500"
+              >
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
+                <span className={`truncate text-sm ${selectedBatsman ? "font-semibold text-slate-900" : "text-slate-400"}`}>
+                  {selectedBatsman || "All Batsmen"}
+                </span>
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-150 shrink-0 ml-1 ${isBatsmanDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {isBatsmanDropdownOpen && (
+                <div className="absolute top-full left-0 mt-1.5 w-full min-w-[200px] bg-white border border-slate-100 rounded-xl shadow-xl p-1 z-50 max-h-60 overflow-y-auto">
+                  {/* All Batsmen option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedBatsman("");
+                      setIsBatsmanDropdownOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors text-left ${
+                      !selectedBatsman
+                        ? "bg-slate-100 text-slate-900 font-bold"
+                        : "text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-normal"
+                    }`}
+                  >
+                    <span>All Batsmen</span>
+                    {!selectedBatsman && <Check className="w-3.5 h-3.5 text-slate-900 shrink-0" />}
+                  </button>
+
+                  {/* Individual batsmen */}
+                  {batsmanList.map((name) => {
+                    const isSelected = selectedBatsman.toLowerCase() === name.toLowerCase();
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBatsman(name);
+                          setIsBatsmanDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-colors text-left ${
+                          isSelected
+                            ? "bg-slate-100 text-slate-900 font-bold"
+                            : "text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-normal"
+                        }`}
+                      >
+                        <span className="truncate">{name}</span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-slate-900 shrink-0" />}
+                      </button>
+                    );
+                  })}
+
+                  {batsmanList.length === 0 && (
+                    <div className="px-3 py-2.5 text-xs text-slate-400 text-center">
+                      No batsmen recorded
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Wagon Wheel Button */}
+            <button
+              type="button"
+              onClick={handleOpenWagonWheel}
+              disabled={!selectedBatsman || isWagonWheelLoading}
+              title={!selectedBatsman ? 'Select a batsman first' : undefined}
+              className="flex items-center gap-2 px-3 md:px-4 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-100 rounded-lg text-sm font-semibold text-slate-800 transition-colors shadow-2xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isWagonWheelLoading ? (
+                <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+              ) : (
+                <svg
+                  viewBox="0 0 723 723"
+                  fill="none"
+                  className="w-4 h-4 text-indigo-600"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path d="M658.899 156.541C654.477 150.124 645.693 148.508 639.274 152.926C632.857 157.347 631.239 166.133 635.659 172.551C673.973 228.171 694.226 293.412 694.226 361.224C694.226 450.172 659.588 533.797 596.691 596.692C533.796 659.589 450.171 694.226 361.223 694.226C272.274 694.226 188.649 659.589 125.754 596.692C62.8576 533.797 28.2196 450.172 28.2196 361.224C28.2196 272.275 62.8576 188.65 125.754 125.755C188.649 62.8585 272.274 28.2206 361.223 28.2206C429.017 28.2206 494.247 48.4646 549.86 86.7642C556.276 91.1821 565.063 89.5637 569.485 83.1463C573.904 76.7275 572.284 67.9425 565.867 63.5217C505.524 21.9655 434.758 0 361.223 0C264.736 0 174.026 37.5729 105.798 105.8C37.5733 174.027 -0.000976562 264.737 -0.000976562 361.224C-0.000976562 457.71 37.5733 548.421 105.798 616.647C174.026 684.874 264.736 722.447 361.223 722.447C457.709 722.447 548.42 684.874 616.647 616.647C684.872 548.421 722.446 457.71 722.446 361.224C722.446 287.669 700.472 216.891 658.899 156.541Z" fill="currentColor" />
+                  <path d="M361.223 91.5977C254.692 91.5977 168.022 178.267 168.022 284.799V437.647C168.022 544.178 254.692 630.848 361.223 630.848C467.755 630.848 554.424 544.178 554.424 437.647V284.799C554.424 178.267 467.755 91.5977 361.223 91.5977ZM526.204 437.647C526.204 528.617 452.194 602.627 361.223 602.627C270.253 602.627 196.243 528.617 196.243 437.647V284.799C196.243 193.828 270.253 119.818 361.223 119.818C452.194 119.818 526.204 193.828 526.204 284.799V437.647Z" fill="currentColor" />
+                  <path d="M416.779 213.07H305.666C297.874 213.07 291.556 219.387 291.556 227.181V495.271C291.556 503.064 297.874 509.381 305.666 509.381H416.779C424.571 509.381 430.889 503.064 430.889 495.271V227.181C430.889 219.387 424.572 213.07 416.779 213.07ZM402.669 481.16H319.776V241.291H402.669V481.16Z" fill="currentColor" />
+                  <path d="M606.742 129.779C614.535 129.779 620.852 123.462 620.852 115.669C620.852 107.876 614.535 101.559 606.742 101.559C598.949 101.559 592.632 107.876 592.632 115.669C592.632 123.462 598.949 129.779 606.742 129.779Z" fill="currentColor" />
+                </svg>
+              )}
+              <span>{isWagonWheelLoading ? 'Loading...' : 'Wagon Wheel'}</span>
+            </button>
+            {wagonWheelError && (
+              <span className="text-xs font-medium text-red-600">{wagonWheelError}</span>
+            )}
             <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100 w-full sm:w-auto">
               {['1st', '2nd'].map((inn) => (
                 <button
@@ -1005,6 +1257,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                 const clearedAppeals = Object.keys(appealFilters).reduce((acc, k) => ({...acc, [k]: false}), {});
                 setAppealFilters(clearedAppeals);
                 setTempAppealFilters(clearedAppeals);
+                setSelectedBatsman("");
+                setPlayerSearchTerm("");
               }}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 border border-slate-200 rounded-lg"
             >
@@ -1021,7 +1275,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                       {filter.label}
                       <button 
                         onClick={() => {
-                          if (filter.category === 'ball') {
+                          if (filter.category === 'batsman') {
+                            setSelectedBatsman("");
+                          } else if (filter.category === 'ball') {
                             setFilters(prev => ({ ...prev, [filter.id]: false }));
                             setDraftFilters(prev => ({ ...prev, [filter.id]: false }));
                           } else {
@@ -1150,7 +1406,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   Take Action
                 </button>
               ) : (
-                <Link href={`/admin/analytics/${matchId}?ball=${selectedBallData?.over_number}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
+                <Link href={`/admin/analytics/${matchId}?ball=${selectedBallData?.over_number}&ballId=${selectedBallData?.id}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
                   <button className="w-full mt-8 py-3 bg-[#0F1117] text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-100 cursor-pointer">
                     Analyse Ball
                   </button>
@@ -1180,19 +1436,20 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   <th className="py-3 px-4">Details</th>
                   <th className="py-3 px-4">By</th>
                   <th className="py-3 px-4">Time</th>
+                  <th className="py-3 px-4">Videos</th>
                   <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {isCocLoading ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
+                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
                       Loading CoC actions...
                     </td>
                   </tr>
                 ) : cocCases.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
+                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
                       No CoC actions found for this match.
                     </td>
                   </tr>
@@ -1202,15 +1459,16 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                     const timeStr = formattedDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     const dateStr = formattedDateObj.toLocaleDateString();
 
-                    // Calculate Over and Ball Number from ball_id (e.g., ball_id 16 -> Over 2, Ball 4, assuming 6 balls per over)
-                    const ballOver = selectedBallData?.over ?? 0;
-const calculatedOver = Math.floor(ballOver) + 1;
-                    
+                    // Over/ball notation now comes straight from the backend per-case.
+                    const overNumberStr = item.over_number || null;
+                    const overNumFloat = overNumberStr ? parseFloat(overNumberStr) : null;
+                    const calculatedOver = overNumFloat !== null ? Math.floor(overNumFloat) + 1 : null;
+                    const cocClips = flattenCocVideos(item.videos);
 
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-4 px-4 font-bold text-slate-900">{calculatedOver}</td>
-                        <td className="py-4 px-4 font-semibold text-blue-600">{selectedBallData?.over}</td>
+                        <td className="py-4 px-4 font-bold text-slate-900">{calculatedOver ?? '—'}</td>
+                        <td className="py-4 px-4 font-semibold text-blue-600">{overNumberStr ?? '—'}</td>
                         <td className="py-4 px-4 font-medium text-slate-800">
                           {item.player || item.team ? (
                             <div>
@@ -1241,14 +1499,29 @@ const calculatedOver = Math.floor(ballOver) + 1;
                           <p className="font-medium text-slate-700 text-xs">{timeStr}</p>
                           <p className="text-[10px] text-slate-400">{dateStr}</p>
                         </td>
+                        <td className="py-4 px-4">
+                          {cocClips.length === 0 ? (
+                            <span className="text-slate-400 text-xs">—</span>
+                          ) : (
+                            <button
+                              onClick={() => setCocVideoGallery({
+                                isOpen: true,
+                                title: item.incident_category || item.player || 'Code of Conduct',
+                                clips: cocClips,
+                                activeIndex: 0,
+                              })}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Video size={12} />
+                              {cocClips.length} Clip{cocClips.length > 1 ? 's' : ''}
+                            </button>
+                          )}
+                        </td>
                         <td className="py-4 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                             <button title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer">
                               <Trash2 size={15} />
                             </button>
-                            {/* <button title="Video Review" className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer">
-                              <Video size={15} />
-                            </button> */}
                             <button title="Edit" className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer">
                               <Edit2 size={15} />
                             </button>
@@ -1297,6 +1570,65 @@ const calculatedOver = Math.floor(ballOver) + 1;
         onSaveAction={(newAction) => {
           // Optional local state update if needed
         }}
+      />
+
+      {/* --- CoC VIDEO GALLERY MODAL --- */}
+      {cocVideoGallery.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[800px] overflow-hidden relative flex flex-col p-6 text-black">
+            <button
+              onClick={() => setCocVideoGallery({ isOpen: false, title: '', clips: [], activeIndex: 0 })}
+              className="absolute top-6 right-6 text-black hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
+            >
+              <X size={18} />
+            </button>
+
+            <h3 className="text-lg font-bold text-slate-900 pr-12 mb-4">{cocVideoGallery.title}</h3>
+
+            <div className="w-full h-[400px] bg-black rounded-2xl relative overflow-hidden flex items-center justify-center mb-4">
+              {cocVideoGallery.clips[cocVideoGallery.activeIndex]?.url ? (
+                <video
+                  key={cocVideoGallery.clips[cocVideoGallery.activeIndex].key}
+                  src={cocVideoGallery.clips[cocVideoGallery.activeIndex].url}
+                  controls
+                  autoPlay
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <p className="text-slate-400 text-sm">No video source available</p>
+              )}
+            </div>
+
+            {cocVideoGallery.clips.length > 1 && (
+              <div className="flex gap-3 overflow-x-auto pb-1 custom-scrollbar">
+                {cocVideoGallery.clips.map((clip, idx) => (
+                  <button
+                    key={clip.key}
+                    onClick={() => setCocVideoGallery(prev => ({ ...prev, activeIndex: idx }))}
+                    className={`shrink-0 w-28 rounded-lg overflow-hidden border-2 transition-colors ${
+                      idx === cocVideoGallery.activeIndex ? 'border-indigo-500' : 'border-transparent'
+                    }`}
+                  >
+                    <div className="w-28 h-16 bg-slate-900 flex items-center justify-center relative">
+                      <Play size={14} className="text-white fill-white drop-shadow-md" />
+                    </div>
+                    <p className="text-[10px] font-semibold text-slate-600 mt-1 truncate">
+                      {clip.tag} · {clip.clipLabel}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Wagon Wheel 3D Modal */}
+      <WagonWheelModal
+        isOpen={isWagonWheelOpen}
+        onClose={() => setIsWagonWheelOpen(false)}
+        batsmanName={selectedBatsman || 'All Batsmen'}
+        data={wagonWheelData || undefined}
       />
 
     </div>
