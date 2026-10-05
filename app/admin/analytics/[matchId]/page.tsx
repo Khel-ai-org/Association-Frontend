@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useGoBackSteps } from "../../hooks/useGoBack";
 import { PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { Play, Pause, RotateCcw, Settings, Maximize, ArrowRight, ChevronLeft, ArrowLeft, Minimize } from "lucide-react";
 import { SplitCanvasVideoPlayer } from "@/app/admin/components/player/SplitCanvasVideoPlayer";
@@ -21,6 +22,7 @@ interface BallFile {
 const BallAnalyticsPage = () => {
   const { matchId } = useParams();
   const router = useRouter();
+  const goBackSteps = useGoBackSteps();
   const searchParams = useSearchParams();
   
   // Data from URL Parameters
@@ -708,7 +710,10 @@ const formatTime = (time: number) => {
       {/* Breadcrumbs */}
       <div className="flex items-center flex-wrap gap-2 text-[14px] md:text-[14px] font-medium text-slate-800 mb-4 md:mb-6">
         <button onClick={() => router.back()}> <ArrowLeft className="w-4 h-4 md:w-5 md:h-5 mr-1" /></button>
-        <span>Grounds</span> <span>&gt;</span> <span>Tournament</span> <span>&gt;</span> <span>Matches</span> <span>&gt;</span> <span>Match Details</span> <span>&gt;</span> <span className="text-slate-900">Ball Analysis</span>
+        <button onClick={() => router.push('/admin/ground')} className="cursor-pointer hover:underline">Grounds</button> <span>&gt;</span>
+        <button onClick={() => goBackSteps(3, '/admin/tournament')} className="cursor-pointer hover:underline">Tournament</button> <span>&gt;</span>
+        <button onClick={() => goBackSteps(2, '/admin/tournament')} className="cursor-pointer hover:underline">Matches</button> <span>&gt;</span>
+        <button onClick={() => goBackSteps(1, '/admin/tournament')} className="cursor-pointer hover:underline">Match Details</button> <span>&gt;</span> <span className="text-slate-900">Ball Analysis</span>
       </div>
 
       <div className="flex flex-col xl:flex-row gap-6">

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Search, PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { TournamentDetail, Team } from '../../types/tournament';
+import useGoBack from '../../hooks/useGoBack';
 import AddTeamsModal from './AddTeamsModal';
 import GenerateFixtureModal from './GenerateFixtureModal';
 
@@ -53,6 +54,7 @@ const AVATAR_COLORS = ['bg-red-100 text-red-700', 'bg-yellow-100 text-yellow-700
 
 export default function TeamsPage({ tournamentId }: TeamsPageProps) {
   const router = useRouter();
+  const goBack = useGoBack('/admin/tournament');
   const [tournament, setTournament] = useState<TournamentDetail | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loadingTeams, setLoadingTeams] = useState(true);
@@ -194,11 +196,11 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
     <div className="max-w-[1600px] mx-auto space-y-4">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <button onClick={() => router.push('/admin/tournament')} className="text-gray-500 cursor-pointer">
+          <button onClick={goBack} className="text-gray-500 cursor-pointer">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center text-[13px] font-medium text-slate-500">
-            Tournament <span className="mx-2 text-slate-400">{'>'}</span>
+            <button onClick={() => router.push('/admin/tournament')} className="cursor-pointer hover:underline hover:text-slate-900">Tournament</button> <span className="mx-2 text-slate-400">{'>'}</span>
             <span className="text-slate-900 font-medium">Teams</span>
           </div>
         </div>
@@ -397,6 +399,8 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
         isOpen={isAddTeamsOpen}
         onClose={() => setIsAddTeamsOpen(false)}
         tournamentExternalId={tournament?.externalTournamentId || ''}
+        teamCount={tournament?.teamCount ?? 0}
+        addedTeams={teams}
         onTeamsAdded={() => tournament?.externalTournamentId && fetchTeams(tournament.externalTournamentId)}
       />
 

@@ -279,24 +279,26 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
               <div>
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">Team Count</label>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="Enter no. of teams"
                   className={`w-full px-4 py-3 rounded-xl border ${errors.teamCount ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
                   value={formData.teamCount}
-                  onChange={(e) => setFormData({ ...formData, teamCount: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, teamCount: e.target.value.replace(/\D/g, '') })}
                 />
                 {errors.teamCount && <p className="text-red-500 text-xs mt-1">{errors.teamCount}</p>}
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">Over per Match</label>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   placeholder="e.g.- 20"
                   className={`w-full px-4 py-3 rounded-xl border ${errors.oversPerMatch ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
                   value={formData.oversPerMatch}
-                  onChange={(e) => setFormData({ ...formData, oversPerMatch: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, oversPerMatch: e.target.value.replace(/\D/g, '') })}
                 />
                 {errors.oversPerMatch && <p className="text-red-500 text-xs mt-1">{errors.oversPerMatch}</p>}
               </div>

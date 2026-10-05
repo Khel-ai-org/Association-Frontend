@@ -49,6 +49,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useGoBackSteps } from '../../../hooks/useGoBack';
 import MatchAnalysis from '../../../components/ground/MatchDetails';
 
 interface PageProps {
@@ -57,6 +58,7 @@ interface PageProps {
 
 export default function MatchDetailsPage({ params }: PageProps) {
   const router = useRouter();
+  const goBackSteps = useGoBackSteps();
   const searchParams = useSearchParams();
   const resolvedParams = React.use(params);
   const matchId = resolvedParams.matchId;
@@ -74,15 +76,15 @@ export default function MatchDetailsPage({ params }: PageProps) {
         {/* Breadcrumbs / Back Navigation */}
         <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
           <button 
-            onClick={() => router.back()} 
-            className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0"
+            onClick={() => router.push('/admin/ground')} 
+            className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0 hover:underline"
           >
             <ArrowLeft className="w-5 h-5 mr-1" /> Grounds 
           </button>
           <span>{'>'}</span>
-          <span className='text-slate-800'>Tournament</span>
+          <button onClick={() => goBackSteps(2, '/admin/tournament')} className='text-slate-800 cursor-pointer hover:underline'>Tournament</button>
           <span>{'>'}</span>
-          <span className='text-slate-800'>Matches</span>
+          <button onClick={() => goBackSteps(1, '/admin/tournament')} className='text-slate-800 cursor-pointer hover:underline'>Matches</button>
           <span>{'>'}</span>
           <span className="text-slate-900 font-bold">Match Details & Match Referee</span>
         </div>
