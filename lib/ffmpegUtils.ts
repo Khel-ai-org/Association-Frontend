@@ -1,31 +1,56 @@
 /**
- * ffmpegUtils — server-side frame extraction utilities.
+ * ffmpegUtils — server-side video preparation for the canvas player.
  *
- * Cache strategy (mirrors Z4 Python backend):
- *   - Frames stored as JPEG on disk: /tmp/assoc-frames/{urlHash}/%06d.jpg
- *   - First request  = on-demand extract + cache (~300-800ms)
- *   - After preload  = read from disk (< 5ms)
- *   - Preload        = extract ALL frames in one ffmpeg pass (background)
+ * The player decodes video in the browser through a native <video>
+ * element (see PlayerEngine.ts) instead of fetching per-frame JPEGs.
+ * The camera files themselves aren't browser-friendly, though: HEVC
+ * 10-bit (no Firefox support, patchy elsewhere), ~65 Mbps, and one
+ * keyframe per 200 frames — so seeking to a frame can mean decoding up to
+ * 199 frames before it. ensureStreamable() converts each clip ONCE into
+ * H.264 8-bit with a short keyframe interval, cached on local disk and
+ * served by /api/video/stream with HTTP Range support. probeVideo() reads
+ * the converted file's fps/frame count, which <video> can't report.
+ *
+ * extractSingleFrame()/startBulkExtraction()/the frame disk-cache helpers
+ * are DEAD CODE — kept only because /api/video/frame and /api/video/preload
+ * (no longer called by the player) still import them. Safe to delete those
+ * two routes and that code once this approach is confirmed to be a keeper.
  */
 
 import ffmpegLib from 'fluent-ffmpeg';
 import { createHash } from 'crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { existsSync, mkdirSync, readFileSync, chmodSync } from 'fs';
+import {
+  existsSync, mkdirSync, readFileSync, chmodSync,
+  renameSync, unlinkSync, readdirSync, statSync, utimesSync,
+} from 'fs';
 
 // -------------------------------------------------------------------- //
 // Binary setup                                                          //
-// ffmpeg-static uses __dirname which Next.js rewrites to /ROOT/ in dev. //
-// Use process.cwd() — always the real project root at runtime.         //
+//                                                                       //
+// Both ffmpeg-static and ffprobe-static resolve their bundled binary's  //
+// path via __dirname internally — which Next.js/Turbopack rewrites to a //
+// fake "/ROOT/" in dev (confirmed by testing both directly: ffprobe-    //
+// static's own `.path` export came back as "/ROOT/node_modules/...").  //
+// process.cwd() is the real project root both in dev and in a deployed  //
+// build, so paths are built manually from it instead of trusting either //
+// package's own export.                                                 //
+//                                                                       //
+// This also fixes the previous hardcoded "darwin" path segment for      //
+// ffprobe, which pointed at a nonexistent file on any Linux deployment  //
+// (ffprobe-static installs Linux's binary under bin/linux/…, never      //
+// bin/darwin/…, no matter what OS actually requested the install) —     //
+// process.platform/process.arch are used instead, matching exactly how  //
+// ffprobe-static names its own per-platform folders.                    //
 // -------------------------------------------------------------------- //
 
-const ARCH = process.arch === 'arm64' ? 'arm64' : 'x64';
-const SYSTEM_FFMPEG = '/opt/homebrew/bin/ffmpeg';
-const STATIC_FFMPEG = join(process.cwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg');
-
-const FFMPEG_BIN = existsSync(SYSTEM_FFMPEG) ? SYSTEM_FFMPEG : STATIC_FFMPEG;
-const FFPROBE_BIN = join(process.cwd(), 'node_modules', 'ffprobe-static', 'bin', 'darwin', ARCH, 'ffprobe');
+const FFMPEG_BIN  = join(process.cwd(), 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+const FFPROBE_BIN = join(
+  process.cwd(), 'node_modules', 'ffprobe-static', 'bin',
+  process.platform, process.arch,
+  process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe',
+);
 
 if (existsSync(FFMPEG_BIN)) {
   try { chmodSync(FFMPEG_BIN, 0o755); } catch {}
@@ -38,6 +63,7 @@ if (existsSync(FFMPEG_BIN)) {
 if (existsSync(FFPROBE_BIN)) {
   try { chmodSync(FFPROBE_BIN, 0o755); } catch {}
   ffmpegLib.setFfprobePath(FFPROBE_BIN);
+  console.log('[ffprobe] using binary:', FFPROBE_BIN);
 } else {
   console.warn('[ffprobe] binary not found at', FFPROBE_BIN, '— falling back to system ffprobe');
 }
@@ -111,6 +137,182 @@ export function probeVideo(url: string): Promise<VideoInfo> {
       resolve({ duration, width, height, fps, frameCount });
     });
   });
+}
+
+// -------------------------------------------------------------------- //
+// Streamable conversion — one-time, cached per clip                     //
+// -------------------------------------------------------------------- //
+
+const STREAMABLE_DIR = join(tmpdir(), 'assoc-streamable');
+const MAX_CONCURRENT_CONVERSIONS = 2;
+const STREAMABLE_CACHE_MAX_BYTES = 5 * 1024 ** 3;
+// 25 frames = 125ms at 200fps: a seek decodes at most 24 frames before the
+// target, instead of up to 199 in the camera originals.
+const KEYFRAME_INTERVAL = 25;
+
+// The server fetches whatever URL it's handed, so restrict it to S3 (where
+// ball-details' presigned links point). Otherwise any caller could make this
+// server request internal hosts or cloud metadata endpoints via ffmpeg.
+export function parseAllowedVideoUrl(raw: string): URL {
+  let u: URL;
+  try { u = new URL(raw); } catch { throw new Error('Invalid video URL'); }
+  if (u.protocol !== 'https:' || !u.hostname.endsWith('.amazonaws.com')) {
+    throw new Error('Video URL host not allowed');
+  }
+  return u;
+}
+
+// Keyed on the S3 object path, not the full URL: ball-details re-signs the
+// URLs on every fetch, so the query string changes on every page load.
+function streamableKey(u: URL): string {
+  return createHash('md5').update(u.origin + u.pathname).digest('hex').slice(0, 16);
+}
+
+const inFlight = new Map<string, Promise<string>>();
+let activeConversions = 0;
+const waitingForSlot: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  if (activeConversions < MAX_CONCURRENT_CONVERSIONS) {
+    activeConversions++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waitingForSlot.push(resolve));
+}
+
+function releaseSlot() {
+  const next = waitingForSlot.shift();
+  if (next) next(); // hand the slot straight over, so a new caller can't jump the queue
+  else activeConversions--;
+}
+
+/**
+ * Returns a local path to a browser-seekable copy of the clip, converting
+ * it first if needed. Concurrent requests for the same clip share one
+ * conversion; different clips queue behind MAX_CONCURRENT_CONVERSIONS.
+ */
+export function ensureStreamable(u: URL): Promise<string> {
+  const key = streamableKey(u);
+  const out = join(STREAMABLE_DIR, `${key}.mp4`);
+
+  if (existsSync(out)) {
+    const now = new Date();
+    try { utimesSync(out, now, now); } catch {} // mtime drives LRU eviction
+    return Promise.resolve(out);
+  }
+
+  let job = inFlight.get(key);
+  if (!job) {
+    job = (async () => {
+      await acquireSlot();
+      try {
+        if (existsSync(out)) return out; // finished while we waited for a slot
+        await convertToStreamable(u.toString(), out);
+        evictStreamableCache(out);
+        return out;
+      } finally {
+        releaseSlot();
+      }
+    })().finally(() => inFlight.delete(key));
+    inFlight.set(key, job);
+  }
+  return job;
+}
+
+// Measured on a real 5s/200fps camera clip on an M1: Apple's hardware
+// encoder took ~10s CPU vs ~55s for x264, at comparable quality (SSIM 0.971
+// vs 0.974, 17MB vs 14MB). It only exists on macOS, so x264 covers other
+// platforms and is the retry if a hardware encode session fails.
+const VIDEOTOOLBOX_ENCODER = ['-c:v', 'h264_videotoolbox', '-q:v', '55', '-profile:v', 'high'];
+// -bf 0: no B-frames (VideoToolbox emits none either), so the browser's
+// FrameDecoder decodes each GOP in display order with no reordering delay.
+const X264_ENCODER = [
+  '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-bf', '0',
+  '-keyint_min', String(KEYFRAME_INTERVAL), '-sc_threshold', '0',
+];
+
+async function convertToStreamable(srcUrl: string, outPath: string): Promise<void> {
+  if (process.platform === 'darwin') {
+    try {
+      return await runConversion(srcUrl, outPath, VIDEOTOOLBOX_ENCODER);
+    } catch (err: any) {
+      console.warn('[ffmpeg] hardware encode failed, retrying with libx264:', err.message);
+    }
+  }
+  return runConversion(srcUrl, outPath, X264_ENCODER);
+}
+
+function runConversion(srcUrl: string, outPath: string, encoderArgs: string[]): Promise<void> {
+  mkdirSync(STREAMABLE_DIR, { recursive: true });
+  // Written under a temp name and renamed when complete, so a half-written
+  // file is never served to a request that arrives mid-conversion.
+  const partPath = `${outPath}.${process.pid}.part`;
+
+  return new Promise((resolve, reject) => {
+    ffmpegLib(srcUrl)
+      .inputOptions([
+        // Hardware decode where available (VideoToolbox on macOS: ~10x faster
+        // than software for these HEVC 10-bit files), software otherwise.
+        // VideoToolbox failed on the last frame of a test clip and dropped it —
+        // accepted, as it doesn't shift any earlier frame numbers.
+        '-hwaccel', 'auto',
+        '-protocol_whitelist', 'https,tls,tcp',
+        '-rw_timeout', '30000000', // fail after 30s without data instead of holding a slot forever
+      ])
+      .outputOptions([
+        '-map', '0:v:0',
+        '-an',
+        // Default timing mode duplicated the last frame on a real camera
+        // clip (999 out vs 998 in); passthrough keeps output frames 1:1 with
+        // the source so frame numbers match.
+        '-fps_mode', 'passthrough',
+        ...encoderArgs,
+        '-pix_fmt', 'yuv420p', // 8-bit: browsers can't decode 10-bit H.264
+        '-g', String(KEYFRAME_INTERVAL),
+        '-movflags', '+faststart',
+      ])
+      .format('mp4')
+      .output(partPath)
+      .on('end', () => {
+        try {
+          renameSync(partPath, outPath);
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      })
+      .on('error', (err, _stdout, stderr) => {
+        try { unlinkSync(partPath); } catch {}
+        reject(new Error(`ffmpeg convert failed: ${err.message} | stderr: ${stderr?.slice(-300)}`));
+      })
+      .run();
+  });
+}
+
+function evictStreamableCache(keep: string) {
+  let entries: { path: string; size: number; mtime: number }[];
+  try {
+    entries = readdirSync(STREAMABLE_DIR)
+      .filter((f) => f.endsWith('.mp4'))
+      .map((f) => {
+        const path = join(STREAMABLE_DIR, f);
+        const st = statSync(path);
+        return { path, size: st.size, mtime: st.mtimeMs };
+      });
+  } catch {
+    return;
+  }
+
+  let total = entries.reduce((sum, e) => sum + e.size, 0);
+  entries.sort((a, b) => a.mtime - b.mtime);
+  for (const e of entries) {
+    if (total <= STREAMABLE_CACHE_MAX_BYTES) break;
+    if (e.path === keep) continue;
+    try {
+      unlinkSync(e.path); // safe even mid-stream: open file handles keep reading the unlinked data
+      total -= e.size;
+    } catch {}
+  }
 }
 
 // -------------------------------------------------------------------- //

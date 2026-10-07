@@ -1,27 +1,49 @@
 /**
  * GET /api/video/info?url={encodedS3Url}
  *
- * Returns video metadata: duration, fps, frameCount, width, height.
- * Used by PlayerEngine on load (equivalent of Z4's clip.video metadata).
+ * Ensures a browser-seekable copy of the clip exists (converting it on the
+ * first request — see ensureStreamable), then returns its metadata:
+ * duration, fps, frameCount, width, height, plus `streamable`.
+ *
+ * If conversion fails, falls back to probing the raw source with
+ * `streamable: false`, so the player can still stream the original file
+ * directly with the right fps instead of failing outright.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { probeVideo } from '@/lib/ffmpegUtils';
+import { parseAllowedVideoUrl, ensureStreamable, probeVideo } from '@/lib/ffmpegUtils';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
-  const url = req.nextUrl.searchParams.get('url');
-  if (!url) {
+  const raw = req.nextUrl.searchParams.get('url');
+  if (!raw) {
     return NextResponse.json({ error: 'url param required' }, { status: 400 });
   }
 
+  let src: URL;
   try {
-    const info = await probeVideo(decodeURIComponent(url));
-    return NextResponse.json(info, {
-      headers: { 'Cache-Control': 'public, max-age=3600' },
-    });
+    src = parseAllowedVideoUrl(raw);
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 400 });
+  }
+
+  try {
+    const info = await probeVideo(await ensureStreamable(src));
+    return NextResponse.json(
+      { ...info, streamable: true },
+      { headers: { 'Cache-Control': 'private, max-age=3600' } },
+    );
+  } catch (convertErr: any) {
+    console.error('[video/info] conversion failed, probing raw source instead:', convertErr.message);
+    try {
+      const info = await probeVideo(src.toString());
+      return NextResponse.json(
+        { ...info, streamable: false },
+        { headers: { 'Cache-Control': 'no-store' } },
+      );
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
   }
 }
