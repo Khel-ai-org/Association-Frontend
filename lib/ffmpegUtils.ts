@@ -11,6 +11,11 @@
  * served by /api/video/stream with HTTP Range support. probeVideo() reads
  * the converted file's fps/frame count, which <video> can't report.
  *
+ * ffmpeg/ffprobe only ever read LOCAL files: Node downloads the source
+ * first. The static Linux builds shipped by ffmpeg-static/ffprobe-static
+ * crash (SIGSEGV) when they open an https URL themselves — seen on the
+ * Debian deploy server, while the same binaries handle local files fine.
+ *
  * extractSingleFrame()/startBulkExtraction()/the frame disk-cache helpers
  * are DEAD CODE — kept only because /api/video/frame and /api/video/preload
  * (no longer called by the player) still import them. Safe to delete those
@@ -22,9 +27,11 @@ import { createHash } from 'crypto';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  existsSync, mkdirSync, readFileSync, chmodSync,
+  existsSync, mkdirSync, readFileSync, chmodSync, createWriteStream,
   renameSync, unlinkSync, readdirSync, statSync, utimesSync,
 } from 'fs';
+import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 
 // -------------------------------------------------------------------- //
 // Binary setup                                                          //
@@ -45,8 +52,10 @@ import {
 // ffprobe-static names its own per-platform folders.                    //
 // -------------------------------------------------------------------- //
 
-const FFMPEG_BIN  = join(process.cwd(), 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-const FFPROBE_BIN = join(
+// FFMPEG_PATH / FFPROBE_PATH override the bundled binaries (e.g. to use a
+// distro-packaged ffmpeg if a bundled build misbehaves on some server).
+const FFMPEG_BIN  = process.env.FFMPEG_PATH || join(process.cwd(), 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+const FFPROBE_BIN = process.env.FFPROBE_PATH || join(
   process.cwd(), 'node_modules', 'ffprobe-static', 'bin',
   process.platform, process.arch,
   process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe',
@@ -207,7 +216,7 @@ export function ensureStreamable(u: URL): Promise<string> {
       await acquireSlot();
       try {
         if (existsSync(out)) return out; // finished while we waited for a slot
-        await convertToStreamable(u.toString(), out);
+        await convertToStreamable(u, out);
         evictStreamableCache(out);
         return out;
       } finally {
@@ -231,33 +240,72 @@ const X264_ENCODER = [
   '-keyint_min', String(KEYFRAME_INTERVAL), '-sc_threshold', '0',
 ];
 
-async function convertToStreamable(srcUrl: string, outPath: string): Promise<void> {
-  if (process.platform === 'darwin') {
-    try {
-      return await runConversion(srcUrl, outPath, VIDEOTOOLBOX_ENCODER);
-    } catch (err: any) {
-      console.warn('[ffmpeg] hardware encode failed, retrying with libx264:', err.message);
+async function convertToStreamable(u: URL, outPath: string): Promise<void> {
+  mkdirSync(STREAMABLE_DIR, { recursive: true });
+  const sourcePath = `${outPath}.${process.pid}.source`;
+  try {
+    await downloadToFile(u, sourcePath);
+    if (process.platform === 'darwin') {
+      try {
+        return await runConversion(sourcePath, outPath, VIDEOTOOLBOX_ENCODER);
+      } catch (err: any) {
+        console.warn('[ffmpeg] hardware encode failed, retrying with libx264:', err.message);
+      }
     }
+    return await runConversion(sourcePath, outPath, X264_ENCODER);
+  } finally {
+    try { unlinkSync(sourcePath); } catch {}
   }
-  return runConversion(srcUrl, outPath, X264_ENCODER);
 }
 
-function runConversion(srcUrl: string, outPath: string, encoderArgs: string[]): Promise<void> {
+// Gives up if no data arrives for this long, rather than holding a conversion slot forever.
+const DOWNLOAD_IDLE_TIMEOUT_MS = 30_000;
+
+async function downloadToFile(u: URL, dest: string): Promise<void> {
+  const controller = new AbortController();
+  let timer = setTimeout(() => controller.abort(), DOWNLOAD_IDLE_TIMEOUT_MS);
+  try {
+    const res = await fetch(u, { signal: controller.signal });
+    if (!res.ok || !res.body) throw new Error(`source download failed: HTTP ${res.status}`);
+    const body = Readable.fromWeb(res.body as any);
+    body.on('data', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => controller.abort(), DOWNLOAD_IDLE_TIMEOUT_MS);
+    });
+    await pipeline(body, createWriteStream(dest));
+  } catch (err) {
+    try { unlinkSync(dest); } catch {}
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Probes a clip that couldn't be converted, by downloading it to a temp file first. */
+export async function probeRemoteVideo(u: URL): Promise<VideoInfo> {
   mkdirSync(STREAMABLE_DIR, { recursive: true });
+  const tmpPath = join(STREAMABLE_DIR, `${streamableKey(u)}.${process.pid}.${Date.now()}.probe`);
+  try {
+    await downloadToFile(u, tmpPath);
+    return await probeVideo(tmpPath);
+  } finally {
+    try { unlinkSync(tmpPath); } catch {}
+  }
+}
+
+function runConversion(sourcePath: string, outPath: string, encoderArgs: string[]): Promise<void> {
   // Written under a temp name and renamed when complete, so a half-written
   // file is never served to a request that arrives mid-conversion.
   const partPath = `${outPath}.${process.pid}.part`;
 
   return new Promise((resolve, reject) => {
-    ffmpegLib(srcUrl)
+    ffmpegLib(sourcePath)
       .inputOptions([
         // Hardware decode where available (VideoToolbox on macOS: ~10x faster
         // than software for these HEVC 10-bit files), software otherwise.
         // VideoToolbox failed on the last frame of a test clip and dropped it —
         // accepted, as it doesn't shift any earlier frame numbers.
         '-hwaccel', 'auto',
-        '-protocol_whitelist', 'https,tls,tcp',
-        '-rw_timeout', '30000000', // fail after 30s without data instead of holding a slot forever
       ])
       .outputOptions([
         '-map', '0:v:0',

@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { parseAllowedVideoUrl, ensureStreamable, probeVideo } from '@/lib/ffmpegUtils';
+import { parseAllowedVideoUrl, ensureStreamable, probeVideo, probeRemoteVideo } from '@/lib/ffmpegUtils';
 
 export const runtime = 'nodejs';
 
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   } catch (convertErr: any) {
     console.error('[video/info] conversion failed, probing raw source instead:', convertErr.message);
     try {
-      const info = await probeVideo(src.toString());
+      const info = await probeRemoteVideo(src);
       return NextResponse.json(
         { ...info, streamable: false },
         { headers: { 'Cache-Control': 'no-store' } },
