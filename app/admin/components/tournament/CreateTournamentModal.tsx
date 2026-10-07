@@ -11,13 +11,24 @@ interface CreateTournamentModalProps {
   onCreated: () => void;
 }
 
+// Mirrors scoring-frontend's own create-match modal
+// (app/components/dashboard/FriendlyMatchList.tsx): T10/T20/ODI have a
+// fixed overs count, TEST uses days instead of overs, CUSTOM leaves overs
+// to the user. Keep these in sync with the backend's
+// `TournamentMatchFormat` enum (Tournament.ts).
+const MATCH_TYPES = ['T10', 'T20', 'ODI', 'TEST', 'CUSTOM'] as const;
+type MatchType = typeof MATCH_TYPES[number];
+const MATCH_TYPE_OVERS: Partial<Record<MatchType, number>> = { T10: 10, T20: 20, ODI: 50 };
+
 const initialFormData = {
   name: '',
   location: '',
   groundIds: [] as string[],
   category: '',
   teamCount: '',
+  matchType: '' as MatchType | '',
   oversPerMatch: '',
+  testDays: '',
   startDate: '',
   endDate: '',
 };
@@ -31,11 +42,16 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
   const [isGroundDropdownOpen, setIsGroundDropdownOpen] = useState(false);
   const [groundSearch, setGroundSearch] = useState('');
   const groundDropdownRef = useRef<HTMLDivElement>(null);
+  const [isMatchTypeDropdownOpen, setIsMatchTypeDropdownOpen] = useState(false);
+  const matchTypeDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (groundDropdownRef.current && !groundDropdownRef.current.contains(e.target as Node)) {
         setIsGroundDropdownOpen(false);
+      }
+      if (matchTypeDropdownRef.current && !matchTypeDropdownRef.current.contains(e.target as Node)) {
+        setIsMatchTypeDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -69,7 +85,22 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
     setErrors({});
     setIsGroundDropdownOpen(false);
     setGroundSearch('');
+    setIsMatchTypeDropdownOpen(false);
     onClose();
+  };
+
+  // Selecting a match type resets overs/days the same way scoring-frontend's
+  // CreateMatchModal does: fixed types get their fixed overs filled in,
+  // CUSTOM clears overs for manual entry, TEST clears overs and defaults
+  // days to 5 (1-5 is a standard Test match's day range).
+  const handleMatchTypeChange = (value: MatchType) => {
+    setFormData((prev) => ({
+      ...prev,
+      matchType: value,
+      oversPerMatch: value === 'TEST' || value === 'CUSTOM' ? '' : String(MATCH_TYPE_OVERS[value] ?? ''),
+      testDays: value === 'TEST' ? '5' : '',
+    }));
+    setIsMatchTypeDropdownOpen(false);
   };
 
   const validateForm = () => {
@@ -85,7 +116,14 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
     if (!formData.teamCount || isNaN(Number(formData.teamCount)) || Number(formData.teamCount) <= 0) {
       newErrors.teamCount = 'Must be a valid number greater than 0';
     }
-    if (!formData.oversPerMatch || isNaN(Number(formData.oversPerMatch)) || Number(formData.oversPerMatch) <= 0) {
+    if (!formData.matchType) {
+      newErrors.matchType = 'Please select a match type';
+    } else if (formData.matchType === 'TEST') {
+      const days = Number(formData.testDays);
+      if (!formData.testDays || isNaN(days) || days < 1 || days > 5) {
+        newErrors.testDays = 'Must be a number between 1 and 5';
+      }
+    } else if (!formData.oversPerMatch || isNaN(Number(formData.oversPerMatch)) || Number(formData.oversPerMatch) <= 0) {
       newErrors.oversPerMatch = 'Must be a valid number greater than 0';
     }
     if (!formData.startDate) newErrors.startDate = 'Required';
@@ -115,7 +153,11 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
           location: formData.location.trim(),
           category: formData.category.trim(),
           teamCount: parseInt(formData.teamCount, 10),
-          oversPerMatch: parseInt(formData.oversPerMatch, 10),
+          // `match_type`/`test_days` — snake_case, matching Tournament.ts's
+          // own column names (unlike its other, camelCase columns).
+          match_type: formData.matchType,
+          test_days: formData.matchType === 'TEST' ? parseInt(formData.testDays, 10) : null,
+          oversPerMatch: formData.matchType === 'TEST' ? 0 : parseInt(formData.oversPerMatch, 10),
           startDate: formData.startDate,
           endDate: formData.endDate,
           groundIds: formData.groundIds,
@@ -289,19 +331,67 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
                 />
                 {errors.teamCount && <p className="text-red-500 text-xs mt-1">{errors.teamCount}</p>}
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-500 mb-1.5">Over per Match</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  placeholder="e.g.- 20"
-                  className={`w-full px-4 py-3 rounded-xl border ${errors.oversPerMatch ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
-                  value={formData.oversPerMatch}
-                  onChange={(e) => setFormData({ ...formData, oversPerMatch: e.target.value.replace(/\D/g, '') })}
-                />
-                {errors.oversPerMatch && <p className="text-red-500 text-xs mt-1">{errors.oversPerMatch}</p>}
+
+              <div className="relative" ref={matchTypeDropdownRef}>
+                <label className="block text-sm font-semibold text-slate-500 mb-1.5">Match Type</label>
+                <div
+                  onClick={() => setIsMatchTypeDropdownOpen((prev) => !prev)}
+                  className={`w-full px-4 py-3 rounded-xl border ${errors.matchType ? 'border-red-500' : 'border-slate-200'} bg-white text-sm cursor-pointer flex justify-between items-center outline-none transition-all`}
+                >
+                  <span className={formData.matchType ? 'text-gray-700' : 'text-gray-400'}>
+                    {formData.matchType || 'Select Match Type'}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isMatchTypeDropdownOpen ? 'rotate-180' : ''}`} />
+                </div>
+                {errors.matchType && <p className="text-red-500 text-xs mt-1">{errors.matchType}</p>}
+
+                {isMatchTypeDropdownOpen && (
+                  <div className="absolute left-0 w-full mt-2 bg-white border border-slate-100 rounded-xl shadow-xl z-50 p-2.5 space-y-0.5">
+                    {MATCH_TYPES.map((t) => (
+                      <div
+                        key={t}
+                        onClick={() => handleMatchTypeChange(t)}
+                        className={`px-2.5 py-2 rounded-lg hover:bg-slate-50 cursor-pointer text-sm ${formData.matchType === t ? 'text-blue-600 font-semibold' : 'text-slate-700'}`}
+                      >
+                        {t}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {!formData.matchType ? null : formData.matchType === 'TEST' ? (
+                <div>
+                  <label className="block text-sm font-semibold text-slate-500 mb-1.5">Test Days (1-5)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="e.g.- 5"
+                    className={`w-full px-4 py-3 rounded-xl border ${errors.testDays ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
+                    value={formData.testDays}
+                    onChange={(e) => setFormData({ ...formData, testDays: e.target.value.replace(/\D/g, '') })}
+                  />
+                  {errors.testDays && <p className="text-red-500 text-xs mt-1">{errors.testDays}</p>}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-semibold text-slate-500 mb-1.5">
+                    Over per Match {formData.matchType === 'CUSTOM' ? '' : '(Fixed)'}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="e.g.- 20"
+                    disabled={formData.matchType !== 'CUSTOM'}
+                    className={`w-full px-4 py-3 rounded-xl border ${errors.oversPerMatch ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm ${formData.matchType === 'CUSTOM' ? 'text-gray-700' : 'bg-slate-100 text-slate-500 cursor-not-allowed'}`}
+                    value={formData.oversPerMatch}
+                    onChange={(e) => setFormData({ ...formData, oversPerMatch: e.target.value.replace(/\D/g, '') })}
+                  />
+                  {errors.oversPerMatch && <p className="text-red-500 text-xs mt-1">{errors.oversPerMatch}</p>}
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">Start Date</label>

@@ -648,7 +648,7 @@ const ActivePlayers = () => {
                       <div className="flex items-center gap-3.5">
 
                         <div>
-                          <div className="font-bold text-sm text-gray-900">{fullName}</div>
+                          <div className="font-bold text-sm text-blue-600 hover:underline">{fullName}</div>
                           <div className="text-sm text-gray-500">{player.email || "rahul@gmail.com"}</div>
                         </div>
                       </div>

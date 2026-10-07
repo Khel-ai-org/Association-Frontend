@@ -1402,7 +1402,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             <button
               key={t}
               onClick={() => setStatsTab(t)}
-              className={`pb-1 text-sm font-bold capitalize border-b-2 transition-colors ${statsTab === t ? 'text-slate-900 border-slate-900' : 'text-slate-600 border-transparent'}`}
+              className={`pb-1 text-sm font-bold capitalize border-b-2 transition-colors cursor-pointer ${statsTab === t ? 'text-slate-900 border-slate-900' : 'text-slate-600 border-transparent'}`}
             >
               {t} Stats
             </button>
@@ -1412,14 +1412,14 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
           <button
             onClick={() => setView('batting')}
             disabled={!effectiveDidBat}
-            className={`px-6 py-2.5 text-xs font-bold rounded-xl transition-all ${view === 'batting' ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'}`}
+            className={`px-6 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${view === 'batting' ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'}`}
           >
             Batting
           </button>
           <button
             onClick={() => setView('bowling')}
             disabled={!effectiveDidBowl}
-            className={`px-6 py-2.5 text-xs font-bold rounded-xl transition-all ${view === 'bowling' ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'}`}
+            className={`px-6 py-2.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${view === 'bowling' ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed'}`}
           >
             Bowling
           </button>
@@ -1965,8 +1965,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <tbody className="divide-y divide-slate-50 text-sm">
                     {asArray<any>(tBowling?.match_by_match).length === 0 ? (
                       <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No bowling matches in this tournament yet.</td></tr>
-                    ) : asArray<any>(tBowling?.match_by_match).map((r: any, i: number) => (
-                      <tr key={r.match_id || i}>
+                    ) : (
+                      // Index always appended, not `||`-ed in: the API has
+                      // returned the same match_id twice in this list, and
+                      // `id || i` only guards a missing id, not a duplicate one.
+                      asArray<any>(tBowling?.match_by_match).map((r: any, i: number) => (
+                      <tr key={`${r.match_id}-${i}`}>
                         <td className="py-3 pr-4 text-slate-700">{formatRecentDate(r.date)}</td>
                         <td className="py-3 px-4 font-semibold text-slate-900">{r.opponent}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.overs ?? 0}</td>
@@ -1979,7 +1983,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                           <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${/won/i.test(r.result_label || r.result || '') ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>{r.result_label || r.result || '—'}</span>
                         </td>
                       </tr>
-                    ))}
+                    )))}
                   </tbody>
                 </table>
               </div>
@@ -2051,7 +2055,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                     {asArray<any>(tBowling?.performance_vs_batters).length === 0 ? (
                       <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No data yet.</td></tr>
                     ) : asArray<any>(tBowling?.performance_vs_batters).map((r: any, i: number) => (
-                      <tr key={r.batter_id || i}>
+                      <tr key={`${r.batter_id}-${i}`}>
                         <td className="py-3 pr-4 font-semibold text-slate-900">{r.batter_name || r.batsman_name}</td>
                         <td className="py-3 px-4 text-slate-700">{r.team_name || r.team}</td>
                         <td className="py-3 px-4 text-right text-slate-800">{r.balls ?? 0}</td>
@@ -2103,8 +2107,11 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 <div className="flex flex-col gap-3">
                   {asArray<any>(board.rows).length === 0 ? (
                     <p className="text-slate-600 italic text-sm">No data yet.</p>
-                  ) : asArray<any>(board.rows).map((r: any) => (
-                    <div key={r.player_id} className={`flex items-center justify-between ${r.is_current_player ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
+                  ) : asArray<any>(board.rows).map((r: any, i: number) => (
+                    // Composite key: the API has occasionally returned the
+                    // same player_id twice in one leaderboard — `rank`/index
+                    // guarantees uniqueness even when that happens.
+                    <div key={`${r.player_id}-${r.rank ?? i}`} className={`flex items-center justify-between ${r.is_current_player ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-bold text-slate-400 w-5">#{r.rank}</span>
                         <div>
@@ -2188,8 +2195,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <tbody className="divide-y divide-slate-50 text-sm">
                     {asArray<any>(tBatting?.match_by_match).length === 0 ? (
                       <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No batting matches in this tournament yet.</td></tr>
-                    ) : asArray<any>(tBatting?.match_by_match).map((r: any) => (
-                      <tr key={r.match_id}>
+                    ) : asArray<any>(tBatting?.match_by_match).map((r: any, i: number) => (
+                      <tr key={`${r.match_id}-${i}`}>
                         <td className="py-3 pr-4 font-semibold text-slate-900">{r.match_number ? `M${r.match_number}` : formatRecentDate(r.date)}</td>
                         <td className="py-3 px-4 text-slate-800">{r.opponent}</td>
                         <td className="py-3 px-4 text-slate-700">{r.venue}</td>
@@ -2285,7 +2292,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   ) : asArray<any>(tBatting?.runs_by_shot_type).map((s: any, i: number) => (
                     // The API has returned this entry's shot name under
                     // `shot` and, elsewhere, `shot_type` — read either.
-                    <div key={s.shot || s.shot_type || i}>
+                    <div key={`${s.shot || s.shot_type}-${i}`}>
                       <div className="flex justify-between text-xs mb-1">
                         <span className="font-semibold text-slate-900">{s.shot || s.shot_type}</span>
                         <span className="text-slate-700">{s.runs} Runs ({s.balls} Balls)</span>
@@ -2319,8 +2326,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <tbody className="divide-y divide-slate-50 text-sm">
                     {asArray<any>(tBatting?.performance_vs_bowlers).length === 0 ? (
                       <tr><td colSpan={9} className="py-8 text-center text-slate-600 italic">No data yet.</td></tr>
-                    ) : asArray<any>(tBatting?.performance_vs_bowlers).map((r: any) => (
-                      <tr key={r.bowler_id}>
+                    ) : asArray<any>(tBatting?.performance_vs_bowlers).map((r: any, i: number) => (
+                      <tr key={`${r.bowler_id}-${i}`}>
                         <td className="py-3 pr-4 font-semibold text-slate-900">
                           {r.bowler_name} {r.matches > 1 && <span className="text-amber-600 font-medium">({r.matches} Matches)</span>}
                         </td>
@@ -2355,8 +2362,11 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 <div className="flex flex-col gap-3">
                   {asArray<any>(board.rows).length === 0 ? (
                     <p className="text-slate-600 italic text-sm">No data yet.</p>
-                  ) : asArray<any>(board.rows).map((r: any) => (
-                    <div key={r.player_id} className={`flex items-center justify-between ${r.is_current_player ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
+                  ) : asArray<any>(board.rows).map((r: any, i: number) => (
+                    // Composite key: the API has occasionally returned the
+                    // same player_id twice in one leaderboard — `rank`/index
+                    // guarantees uniqueness even when that happens.
+                    <div key={`${r.player_id}-${r.rank ?? i}`} className={`flex items-center justify-between ${r.is_current_player ? 'bg-indigo-50 -mx-2 px-2 py-1.5 rounded-lg' : ''}`}>
                       <div className="flex items-center gap-3">
                         <span className="text-xs font-bold text-slate-400 w-5">#{r.rank}</span>
                         <div>
