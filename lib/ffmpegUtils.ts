@@ -153,8 +153,23 @@ export function probeVideo(url: string): Promise<VideoInfo> {
 // -------------------------------------------------------------------- //
 
 const STREAMABLE_DIR = join(tmpdir(), 'assoc-streamable');
-const MAX_CONCURRENT_CONVERSIONS = 2;
-const STREAMABLE_CACHE_MAX_BYTES = 5 * 1024 ** 3;
+
+// Tuned for a small server (2 vCPU / 2 GB: one conversion alone takes both
+// cores for ~50 s and ~500 MB, so two at once swap and starve the other app
+// on the box). Raise these on bigger machines.
+//   VIDEO_MAX_CONVERSIONS   conversions running at once (others queue)
+//   VIDEO_FFMPEG_THREADS    threads per ffmpeg (1 leaves a core free)
+//   VIDEO_CACHE_MAX_GB      converted-clip cache size before the least
+//                           recently viewed clips are deleted
+function positiveNumber(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+const MAX_CONCURRENT_CONVERSIONS = Math.max(1, Math.floor(positiveNumber('VIDEO_MAX_CONVERSIONS', 1)));
+const FFMPEG_THREADS = Math.max(1, Math.floor(positiveNumber('VIDEO_FFMPEG_THREADS', 1)));
+const STREAMABLE_CACHE_MAX_BYTES = positiveNumber('VIDEO_CACHE_MAX_GB', 5) * 1024 ** 3;
+// A killed conversion (server restart, crash) leaves its temp files behind.
+const STALE_TEMP_FILE_AGE_MS = 60 * 60 * 1000;
 // 25 frames = 125ms at 200fps: a seek decodes at most 24 frames before the
 // target, instead of up to 199 in the camera originals.
 const KEYFRAME_INTERVAL = 25;
@@ -216,6 +231,7 @@ export function ensureStreamable(u: URL): Promise<string> {
       await acquireSlot();
       try {
         if (existsSync(out)) return out; // finished while we waited for a slot
+        removeStaleTempFiles();
         await convertToStreamable(u, out);
         evictStreamableCache(out);
         return out;
@@ -306,8 +322,10 @@ function runConversion(sourcePath: string, outPath: string, encoderArgs: string[
         // VideoToolbox failed on the last frame of a test clip and dropped it —
         // accepted, as it doesn't shift any earlier frame numbers.
         '-hwaccel', 'auto',
+        '-threads', String(FFMPEG_THREADS), // decoder
       ])
       .outputOptions([
+        '-threads', String(FFMPEG_THREADS), // encoder
         '-map', '0:v:0',
         '-an',
         // Default timing mode duplicated the last frame on a real camera
@@ -335,6 +353,22 @@ function runConversion(sourcePath: string, outPath: string, encoderArgs: string[
       })
       .run();
   });
+}
+
+// Only temp files older than an hour: with the slot held, nothing in this
+// process is still writing to them, and a live download or conversion never
+// goes that long without touching its file.
+function removeStaleTempFiles() {
+  let names: string[];
+  try { names = readdirSync(STREAMABLE_DIR); } catch { return; }
+  const cutoff = Date.now() - STALE_TEMP_FILE_AGE_MS;
+  for (const name of names) {
+    if (!/\.(part|source|probe)$/.test(name)) continue;
+    const path = join(STREAMABLE_DIR, name);
+    try {
+      if (statSync(path).mtimeMs < cutoff) unlinkSync(path);
+    } catch {}
+  }
 }
 
 function evictStreamableCache(keep: string) {
