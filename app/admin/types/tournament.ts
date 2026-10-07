@@ -22,6 +22,10 @@ export interface TournamentDetail {
   category?: string;
   teamCount: number;
   oversPerMatch?: number;
+  // Snake_case — matches the Tournament entity's own column names (its other
+  // columns here are camelCase; these two aren't).
+  match_type?: string;
+  test_days?: number | null;
   startDate: string;
   endDate: string;
   grounds?: Ground[];

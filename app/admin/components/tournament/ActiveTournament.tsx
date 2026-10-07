@@ -5,8 +5,9 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import stadiumImage from '../../../../public/stadium.png';
-import { ChevronLeft, ChevronRight, PlusSquare } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PlusSquare, Edit3 } from 'lucide-react';
 import CreateTournamentModal from './CreateTournamentModal';
+import EditTournamentModal from './EditTournamentModal';
 
 interface Tournament {
   id: string;
@@ -23,6 +24,7 @@ export default function ActiveTournaments() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editTournamentId, setEditTournamentId] = useState<string | null>(null);
 
   // Pagination & Search States
   const [currentPage, setCurrentPage] = useState(1);
@@ -185,10 +187,23 @@ export default function ActiveTournaments() {
                 </div>
                 
                 <div className="p-4 flex flex-col flex-grow">
-                  <h3 className="text-md font-semibold text-slate-800 leading-tight mb-3 group-hover:text-blue-600 transition-colors">
-                    {t.name}
-                  </h3>
-                  
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <h3 className="text-md font-semibold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors truncate">
+                      {t.name}
+                    </h3>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setEditTournamentId(t.id);
+                      }}
+                      className="p-1 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+                      title="Edit Tournament"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
                   <div  >
                     <div className="flex items-center justify-between text-xs text-slate-700">
                       <div className="flex items-center gap-1.5">
@@ -265,6 +280,13 @@ export default function ActiveTournaments() {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onCreated={fetchTournaments}
+      />
+
+      <EditTournamentModal
+        isOpen={!!editTournamentId}
+        onClose={() => setEditTournamentId(null)}
+        onUpdated={fetchTournaments}
+        tournamentId={editTournamentId || ''}
       />
     </div>
   );
