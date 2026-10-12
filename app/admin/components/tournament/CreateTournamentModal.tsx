@@ -397,9 +397,10 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">Start Date</label>
                 <input
                   type="date"
-                  className={`w-full px-4 py-3 rounded-xl border ${errors.startDate ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
+                  className={`w-full px-4 py-3 rounded-xl border ${errors.startDate ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700 cursor-pointer`}
                   value={formData.startDate}
                   onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  onClick={(e) => e.currentTarget.showPicker?.()}
                 />
                 {errors.startDate && <p className="text-red-500 text-xs mt-1">{errors.startDate}</p>}
               </div>
@@ -407,9 +408,10 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">End Date</label>
                 <input
                   type="date"
-                  className={`w-full px-4 py-3 rounded-xl border ${errors.endDate ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
+                  className={`w-full px-4 py-3 rounded-xl border ${errors.endDate ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700 cursor-pointer`}
                   value={formData.endDate}
                   onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                  onClick={(e) => e.currentTarget.showPicker?.()}
                 />
                 {errors.endDate && <p className="text-red-500 text-xs mt-1">{errors.endDate}</p>}
               </div>

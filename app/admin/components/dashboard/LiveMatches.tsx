@@ -10,6 +10,7 @@ interface TournamentSummary {
   id: string;
   name: string;
   externalTournamentId?: string;
+  endDate?: string;
 }
 
 // One row per tournament fixture, flattened for display — built entirely
@@ -22,7 +23,7 @@ interface DashboardMatch {
   teamA: string;
   teamB: string;
   scheduledDate: string | null;
-  status: 'Live' | 'Upcoming';
+  status: 'Live' | 'Upcoming' | 'Expired';
   tournamentId: string;
   tournamentName: string;
 }
@@ -93,7 +94,7 @@ export default function LiveMatches() {
             })
         );
 
-        // 4. Flatten, derive Live/Upcoming status, drop anything Finished.
+        // 4. Flatten, derive Live/Upcoming/Expired status, drop anything Finished.
         const withStatus = fixtureResults.flat().map(({ fixture, tournament }) => {
           const isLinked = !!(fixture.match && fixture.match_id);
           const liveStatus = isLinked && typeof fixture.match?.status === 'string'
@@ -103,18 +104,41 @@ export default function LiveMatches() {
         });
 
         const flattened: DashboardMatch[] = withStatus
-          .filter(({ liveStatus }) => liveStatus !== 'completed' && liveStatus !== 'finished')
-          .map(({ fixture, tournament, isLinked, liveStatus }) => ({
-            key: fixture.id,
-            linkId: isLinked ? fixture.match_id : null,
-            matchNumber: fixture.match_number,
-            teamA: fixture.home_team?.name || 'TBD',
-            teamB: fixture.away_team?.name || 'TBD',
-            scheduledDate: fixture.scheduled_date,
-            status: (liveStatus === 'in_progress' || liveStatus === 'live' ? 'Live' : 'Upcoming') as DashboardMatch['status'],
-            tournamentId: tournament.id,
-            tournamentName: tournament.name,
-          }))
+          // This widget only has 3 states (Live/Upcoming/Expired) — any
+          // fixture with a real, already-settled status (Completed, Finished,
+          // Abandoned, Cancelled, No Result, ...) doesn't fit any of them and
+          // is done anyway, so it's dropped here rather than being
+          // misclassified as "Expired" just because its date has passed.
+          .filter(({ liveStatus }) => liveStatus === '' || liveStatus === 'in_progress' || liveStatus === 'live')
+          .map(({ fixture, tournament, isLinked, liveStatus }) => {
+            // Never went Live but its scheduled date has already passed (or
+            // the tournament itself has ended) — show it as Expired instead
+            // of leaving it mislabeled Upcoming.
+            const tournamentEnded = !!tournament.endDate && new Date(tournament.endDate) < new Date();
+            const isOverdue = (!!fixture.scheduled_date && new Date(fixture.scheduled_date) < new Date()) || tournamentEnded;
+            const status: DashboardMatch['status'] =
+              liveStatus === 'in_progress' || liveStatus === 'live'
+                ? 'Live'
+                : isOverdue
+                ? 'Expired'
+                : 'Upcoming';
+            return {
+              key: fixture.id,
+              linkId: isLinked ? fixture.match_id : null,
+              matchNumber: fixture.match_number,
+              teamA: fixture.home_team?.name || 'TBD',
+              teamB: fixture.away_team?.name || 'TBD',
+              scheduledDate: fixture.scheduled_date,
+              status,
+              tournamentId: tournament.id,
+              tournamentName: tournament.name,
+            };
+          })
+          // This widget only shows what still needs playing — Expired
+          // (overdue, never-scheduled) matches are computed above for their
+          // own sake but don't belong here; they're dropped same as
+          // Completed/Finished were.
+          .filter((m) => m.status !== 'Expired')
           .sort((a, b) => {
             if (!a.scheduledDate) return 1;
             if (!b.scheduledDate) return -1;
@@ -188,7 +212,7 @@ export default function LiveMatches() {
             const card = (
               <div className="p-3 rounded-[20px] border border-slate-100 relative bg-gray-50/30 cursor-pointer hover:border-blue-200 hover:shadow-md transition-all h-full">
                 <span className={`absolute top-4 left-1/2 -translate-x-1/2 text-white text-[10px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider ${
-                  isLive ? 'bg-[#D11B1B]' : 'bg-green-500'
+                  isLive ? 'bg-[#D11B1B]' : m.status === 'Expired' ? 'bg-amber-600' : 'bg-green-500'
                 }`}>
                   {m.status}
                 </span>

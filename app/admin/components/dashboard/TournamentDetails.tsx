@@ -1,6 +1,8 @@
  "use client";
 
 import { useEffect, useState } from "react";
+import { CalendarDays } from "lucide-react";
+import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from "../../utils/tournamentStatus";
 
 interface Tournament {
   id: string;
@@ -77,15 +79,24 @@ export default function TournamentDetails() {
           tournaments.map((t, index) => {
             const progress = calculateProgress(t.startDate, t.endDate);
             const styles = styleConfig[index % styleConfig.length];
+            const lifecycleStatus = getTournamentLifecycleStatus(t.startDate, t.endDate);
 
             return (
               <div key={t.id} className="snap-start pb-2">
-                <div className="flex justify-between items-center mb-2">
+                <div className="flex justify-between items-center mb-1.5">
                   <p className="text-md font-medium text-slate-800 truncate pr-2">
                     {t.name}
                   </p>
                   <p className="text-md font-bold text-black">{progress}%</p>
-                  
+                </div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                    <CalendarDays className="w-3 h-3 shrink-0" />
+                    {formatTournamentDateRange(t.startDate, t.endDate)}
+                  </span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${TOURNAMENT_STATUS_BADGE[lifecycleStatus]}`}>
+                    {lifecycleStatus}
+                  </span>
                 </div>
                 <div className="flex gap-1">
                   {Array.from({ length: 20 }).map((_, i) => (

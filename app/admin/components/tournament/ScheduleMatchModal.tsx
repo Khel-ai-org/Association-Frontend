@@ -154,9 +154,10 @@ export default function ScheduleMatchModal({
               <label className="block text-sm font-semibold text-slate-500 mb-1.5">Schedule Date</label>
               <input
                 type="date"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700 cursor-pointer"
                 value={scheduleDate}
                 onChange={(e) => setScheduleDate(e.target.value)}
+                onClick={(e) => e.currentTarget.showPicker?.()}
               />
             </div>
             <div className="relative">

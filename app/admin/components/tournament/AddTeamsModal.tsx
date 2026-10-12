@@ -28,7 +28,17 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, t
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  // Captured right before the form resets, so the success popup can still
+  // say how many teams were actually submitted.
+  const [addedCount, setAddedCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const manualRowRefs = useRef<(HTMLInputElement | null)[]>([]);
+  // Whenever a new manual row appears (via the + button, Enter, or opening
+  // the section for the first time), move focus straight into it instead of
+  // leaving the cursor on whatever was last clicked.
+  useEffect(() => {
+    if (isManualOpen) manualRowRefs.current[manualRows.length - 1]?.focus();
+  }, [manualRows.length, isManualOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -56,8 +66,12 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, t
       isOpen={showSuccess}
       onClose={() => setShowSuccess(false)}
       type="success"
-      title="Team Added"
-      message="New Team Has been Added to the Tournament"
+      title={addedCount === 1 ? 'Team Added' : 'Teams Added'}
+      message={
+        addedCount === 1
+          ? '1 team has been added to the tournament.'
+          : `${addedCount} teams have been added to the tournament.`
+      }
     />
   );
 
@@ -194,6 +208,7 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, t
       );
 
       if (response.ok) {
+        setAddedCount(teamNames.length);
         onTeamsAdded();
         resetAndClose();
         setShowSuccess(true);
@@ -285,11 +300,20 @@ export default function AddTeamsModal({ isOpen, onClose, tournamentExternalId, t
               {manualRows.map((name, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <input
+                    ref={(el) => { manualRowRefs.current[i] = el; }}
                     type="text"
                     placeholder="Team Name"
                     className="flex-1 px-3 py-2.5 rounded-lg border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700"
                     value={name}
                     onChange={(e) => updateManualRow(i, e.target.value)}
+                    onKeyDown={(e) => {
+                      // Enter on the last row adds a new one and jumps the
+                      // cursor into it, same as clicking the + button.
+                      if (e.key === 'Enter' && i === manualRows.length - 1) {
+                        e.preventDefault();
+                        addManualRow();
+                      }
+                    }}
                   />
                   <button
                     onClick={addManualRow}

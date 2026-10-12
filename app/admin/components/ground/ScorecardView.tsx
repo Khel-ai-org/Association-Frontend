@@ -134,6 +134,9 @@ export interface PartnershipData {
   total_balls: number;
   extras: number;
   overs: string;
+  // Real field, confirmed from a live payload — the partnership's combined
+  // strike rate (runs per 100 balls), not runs-per-over.
+  strike_rate?: number;
 }
 
 export interface Extras {
@@ -195,6 +198,10 @@ const formatExtras = (extras?: Extras) => {
   return `${e.total ?? 0} (b ${e.byes ?? 0}, lb ${e.leg_byes ?? 0}, w ${e.wides ?? 0}, nb ${e.no_balls ?? 0}, p ${e.penalty_runs ?? 0})`;
 };
 
+// (runs / balls) * 100 — the standard strike-rate formula, used both for a
+// whole partnership and for each individual player within it.
+const calcStrikeRate = (runs: number, balls: number) => (balls > 0 ? ((runs / balls) * 100).toFixed(2) : "0.00");
+
 const buildPartnershipRows = (innings?: Innings) => (innings?.partnerships || []).map((p, idx) => {
   const player1 = p.players?.[0] || { name: "—", runs: 0, balls: 0 };
   const player2 = p.players?.[1] || { name: "—", runs: 0, balls: 0 };
@@ -204,20 +211,23 @@ const buildPartnershipRows = (innings?: Innings) => (innings?.partnerships || []
   const player1Pct = total > 0 ? Math.round((player1.runs / total) * 100) : 0;
   const player2Pct = total > 0 ? Math.round((player2.runs / total) * 100) : 0;
   const extrasPct = total > 0 ? Math.max(0, 100 - player1Pct - player2Pct) : 0;
-  const rpo = p.total_balls > 0 ? ((p.total_runs / p.total_balls) * 6).toFixed(2) : "0.00";
+  // Prefer the API's own strike_rate; fall back to computing it if absent.
+  const strikeRate = p.strike_rate != null ? p.strike_rate.toFixed(2) : calcStrikeRate(p.total_runs, p.total_balls);
   return {
     key: idx,
     label: `${ORDINALS[idx] || `${idx + 1}TH`} WICKET`,
     overs: p.overs,
     player1,
     player2,
+    player1SR: calcStrikeRate(player1.runs, player1.balls),
+    player2SR: calcStrikeRate(player2.runs, player2.balls),
     player1Pct,
     player2Pct,
     extrasPct,
     totalRuns: p.total_runs,
     totalBalls: p.total_balls,
     extras: p.extras,
-    rpo,
+    strikeRate,
   };
 });
 
@@ -379,14 +389,14 @@ const PartnershipsCard: React.FC<{ innings?: Innings; heading: string }> = ({ in
                   <p className="text-[11px] text-slate-700 font-semibold">Over {p.overs}</p>
                 </div>
                 <p className="text-sm font-bold text-blue-600 md:text-right">
-                  {p.player1.name} {p.player1.runs}({p.player1.balls})
+                  {p.player1.name} {p.player1.runs}({p.player1.balls}) <span className="text-[11px] font-semibold text-blue-400">SR {p.player1SR}</span>
                 </p>
                 <div className="text-center">
                   <p className="font-bold text-slate-900 text-lg leading-tight">{p.totalRuns} runs</p>
-                  <p className="text-[11px] text-slate-600 font-medium">{p.totalBalls} BALLS &middot; {p.rpo} RPO</p>
+                  <p className="text-[11px] text-slate-600 font-medium">{p.totalBalls} BALLS &middot; {p.strikeRate} SR</p>
                 </div>
                 <p className="text-sm font-bold text-amber-500">
-                  {p.player2.runs}({p.player2.balls}) {p.player2.name}
+                  <span className="text-[11px] font-semibold text-amber-400">SR {p.player2SR}</span> {p.player2.runs}({p.player2.balls}) {p.player2.name}
                 </p>
                 <span className="text-[11px] font-bold text-slate-600 uppercase md:text-right">
                   Extras <span className="ml-2 text-slate-700 text-sm">{p.extras}</span>

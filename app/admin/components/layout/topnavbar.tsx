@@ -12,7 +12,25 @@ interface UserData {
   name: string;
   email: string;
   profileImage?: string;
+  // Only set once profile setup picked a role (admin/operator/referee/
+  // umpire/scorer/video_analyst) — a Business Admin account has neither.
+  role?: string;
+  userType?: string;
 }
+
+// "video_analyst" -> "Video Analyst". Business Admin has no `role` at all —
+// falls back to `userType` for that case.
+const formatUserRole = (user: UserData | null): string => {
+  if (!user) return '';
+  if (user.role) {
+    return user.role
+      .split('_')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+  if (user.userType === 'business_admin') return 'Business Admin';
+  return '';
+};
 
 const Navbar: React.FC = () => {
   const [user, setUser] = useState<UserData | null>(null);
@@ -238,7 +256,14 @@ const handleMarkAllRead = async () => {
                   )}
                 </div>
                 <div className="hidden sm:block text-left">
-                    <p className="text-sm font-bold text-[#0D0D12] leading-tight">{user?.name || 'Loading...'}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-bold text-[#0D0D12] leading-tight">{user?.name || 'Loading...'}</p>
+                      {formatUserRole(user) && (
+                        <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 shrink-0">
+                          {formatUserRole(user)}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-gray-700 truncate max-w-[120px]">{user?.email || 'Please wait'}</p>
                 </div>
                 <ChevronDown size={16} className={`text-gray-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
@@ -311,7 +336,14 @@ const handleMarkAllRead = async () => {
               <div className="flex items-center gap-3 mb-6">
                 <img src={profilePic} className="w-10 h-10 rounded-full border bg-gray-50" alt="User" />
                 <div>
-                  <p className="text-sm font-bold text-black">{user?.name || 'Loading...'}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-bold text-black">{user?.name || 'Loading...'}</p>
+                    {formatUserRole(user) && (
+                      <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 shrink-0">
+                        {formatUserRole(user)}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[11px] text-gray-400">{user?.email || 'Loading...'}</p>
                 </div>
               </div>

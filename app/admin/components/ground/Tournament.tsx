@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Search, ChevronLeft, ChevronRight, Users, MapPin } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Users, MapPin, CalendarDays } from 'lucide-react';
 import stadiumImage from '../../../../public/stadium.png'; // Ensure this path is correct
+import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
 
 interface Tournament {
   id: string;
@@ -55,8 +56,14 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
               return 2;                                // Past
             };
 
-            return getWeight(aStart, aEnd) - getWeight(bStart, bEnd) || 
-                   aStart.getTime() - bStart.getTime();
+            const weightA = getWeight(aStart, aEnd);
+            const weightB = getWeight(bStart, bEnd);
+            if (weightA !== weightB) return weightA - weightB;
+            // Completed (weight 2): most recently ended first. Live/Upcoming:
+            // unchanged — soonest to start first.
+            return weightA === 2
+              ? bEnd.getTime() - aEnd.getTime()
+              : aStart.getTime() - bStart.getTime();
           });
 
           setTournaments(sorted);
@@ -124,11 +131,8 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
             <div className="col-span-full py-20 text-center text-slate-400 animate-pulse">Loading tournaments...</div>
           ) : currentItems.length > 0 ? (
             currentItems.map((t) => {
-              const now = new Date();
-              const start = new Date(t.startDate);
-              const end = new Date(t.endDate);
-              const isLive = now >= start && now <= end;
-              const isPast = now > end;
+              const lifecycleStatus = getTournamentLifecycleStatus(t.startDate, t.endDate);
+              const isLive = lifecycleStatus === 'LIVE';
               const progress = getProgress(t.startDate, t.endDate);
 
               return (
@@ -146,11 +150,9 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-between">
                       <div className="flex justify-end">
-                        <span className={`text-[10px] font-bold px-2 py-1 rounded-[6px] flex items-center gap-1 ${
-                          isLive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'
-                        }`}>
+                        <span className={`text-[10px] font-bold px-2 py-1 rounded-[6px] flex items-center gap-1 ${TOURNAMENT_STATUS_BADGE[lifecycleStatus]}`}>
                           {isLive && <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>}
-                          {isLive ? 'LIVE' : (isPast ? 'COMPLETED' : 'UPCOMING')}
+                          {lifecycleStatus}
                         </span>
                       </div>
                       <p className="text-xs font-semibold text-white/90 uppercase tracking-wider">{t.category || 'T20'}</p>
@@ -172,6 +174,11 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
                           <LocationIcon  />
                           <span className="truncate max-w-[80px]">{t.location || "N/A"}</span>
                         </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-2">
+                        <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{formatTournamentDateRange(t.startDate, t.endDate)}</span>
                       </div>
 
                       <div className="pt-2">

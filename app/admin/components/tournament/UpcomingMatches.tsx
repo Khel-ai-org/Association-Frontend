@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock, CalendarDays } from 'lucide-react';
 import { Fixture, Ground } from '../../types/tournament';
 import ScheduleMatchModal from './ScheduleMatchModal';
+import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
 
 interface TournamentDetails {
   name: string;
@@ -62,7 +63,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   const [scheduleFixture, setScheduleFixture] = useState<Fixture | null>(null);
 
   const itemsPerPage = 12;
-  const filters = ['All', 'Live', 'Upcoming', 'Finished'];
+  const filters = ['All', 'Live', 'Upcoming', 'Expired', 'Finished', 'Abandoned'];
 
   // --- Fetch Tournament Details ---
   useEffect(() => {
@@ -181,9 +182,30 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
           statusLabel = 'Completed';
           badgeColor = 'bg-emerald-600';
           type = 'Finished';
+        } else if (normalized === 'abandoned') {
+          statusLabel = 'Abandoned';
+          badgeColor = 'bg-gray-700';
+          type = 'Abandoned';
         } else if (typeof liveStatus === 'string' && liveStatus) {
+          // Any other real, already-known status (Cancelled, No Result,
+          // etc.) — not "never happened", so it must NOT fall into the
+          // Expired check below. `type` has to move off 'Upcoming' here too,
+          // not just `statusLabel`, or the date check below clobbers it.
           statusLabel = formatMatchType(liveStatus);
+          badgeColor = 'bg-slate-500';
+          type = statusLabel;
         }
+      }
+      // Still sitting as "Upcoming" (no real status was ever recorded) but
+      // either its own scheduled date has passed, or the whole tournament
+      // has already ended — surface that as its own state instead of
+      // silently calling it "Upcoming" forever.
+      const tournamentEnded = !!tournament?.endDate && new Date(tournament.endDate) < new Date();
+      const matchDatePassed = !!fixture.scheduled_date && new Date(fixture.scheduled_date) < new Date();
+      if (type === 'Upcoming' && (matchDatePassed || tournamentEnded)) {
+        statusLabel = 'Expired';
+        badgeColor = 'bg-amber-600';
+        type = 'Expired';
       }
 
       return {
@@ -205,7 +227,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
     });
 
     return fixtureRows;
-  }, [fixtures]);
+  }, [fixtures, tournament?.endDate]);
 
   // Search & Filter Logic
   const filtered = rows.filter((r) => {
@@ -221,28 +243,36 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
     <div className="space-y-6">
       {/* Tournament Header */}
       {tournament && (
-       <div className="w-full bg-white rounded-xl border border-slate-200 p-4 shadow-xs grid grid-cols-1 md:flex md:flex-row items-center gap-4">
-  <div className="w-full md:flex-1 min-w-0">
-    <h1 className="text-lg font-bold text-slate-900 truncate">{tournament.name}</h1>
-  </div>
-  <div className="hidden md:block h-8 w-[1px] bg-slate-200" />
-  <div className="flex flex-wrap items-center justify-center gap-4 md:gap-6 flex-1 w-full">
-    <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap">
-      <Users className="w-5 h-5 text-slate-400" />
-      <span className="text-sm font-medium">{tournament.teamCount} Teams</span>
-    </div>
-    <div className="text-slate-300 hidden sm:block">•</div>
-    <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap">
-      <MapPin className="w-5 h-5 text-slate-400" />
-      <span className="text-sm font-medium">{tournament.location}</span>
-    </div>
-  </div>
-  <div className="hidden md:block h-8 w-[1px] bg-slate-200" />
-  <div className="w-full md:flex-1 flex justify-between md:justify-end items-center gap-2 border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
-    <span className="text-sm font-medium text-slate-700 whitespace-nowrap">Tournament Progress -</span>
-    <span className="text-md font-bold text-green-600">{calculateProgress()}% Complete</span>
-  </div>
-</div>
+        <div className="w-full bg-white rounded-xl border border-slate-200 p-4 shadow-xs overflow-x-auto">
+          <div className="flex items-center gap-4 flex-nowrap w-max min-w-full">
+            <div className="flex items-center gap-2 shrink-0">
+              <h1 className="text-lg font-bold text-slate-900 whitespace-nowrap">{tournament.name}</h1>
+              <span className={`text-[10px] font-bold px-2 py-1 rounded-md shrink-0 ${TOURNAMENT_STATUS_BADGE[getTournamentLifecycleStatus(tournament.startDate, tournament.endDate)]}`}>
+                {getTournamentLifecycleStatus(tournament.startDate, tournament.endDate)}
+              </span>
+            </div>
+            <div className="h-8 w-[1px] bg-slate-200 shrink-0" />
+            <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap shrink-0">
+              <Users className="w-5 h-5 text-slate-400" />
+              <span className="text-sm font-medium">{tournament.teamCount} Teams</span>
+            </div>
+            <div className="text-slate-300 shrink-0">•</div>
+            <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap shrink-0">
+              <MapPin className="w-5 h-5 text-slate-400" />
+              <span className="text-sm font-medium">{tournament.location}</span>
+            </div>
+            <div className="text-slate-300 shrink-0">•</div>
+            <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap shrink-0">
+              <CalendarDays className="w-5 h-5 text-slate-400" />
+              <span className="text-sm font-medium">{formatTournamentDateRange(tournament.startDate, tournament.endDate)}</span>
+            </div>
+            <div className="h-8 w-[1px] bg-slate-200 shrink-0" />
+            <div className="flex items-center gap-2 whitespace-nowrap shrink-0 ml-auto">
+              <span className="text-sm font-medium text-slate-700">Tournament Progress -</span>
+              <span className="text-md font-bold text-green-600">{calculateProgress()}% Complete</span>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Matches Content */}
@@ -349,6 +379,8 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                       <td className="py-4 px-3">
                         {row.isLinked ? (
                           <span className="text-emerald-600 text-xs font-semibold">Already Scheduled</span>
+                        ) : row.type === 'Expired' ? (
+                          <span className="text-slate-400 text-xs font-semibold">Expired — no longer schedulable</span>
                         ) : (
                           <button
                             onClick={(e) => {
