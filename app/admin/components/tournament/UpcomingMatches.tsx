@@ -465,6 +465,8 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         tournamentId={tournamentId || ''}
         tournamentExternalId={tournament?.externalTournamentId || ''}
         grounds={tournament?.grounds || []}
+        tournamentStartDate={tournament?.startDate}
+        tournamentEndDate={tournament?.endDate}
         onScheduled={() => {
           if (tournament?.externalTournamentId) fetchFixtures(tournament.externalTournamentId);
         }}

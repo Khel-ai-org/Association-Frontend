@@ -953,14 +953,27 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   // Real — confirmed shape: `batting.wagon_wheel` is `{ outer_sectors: [...],
   // inner_sectors: [...] }`, each entry `{ sector, angle, runs, ... }`.
   // `outer_sectors`' `sector` names match this file's WAGON_ZONE_LAYOUT
-  // `zone` names exactly (both say "Deep Mid Wicket", "Long On", etc.), so
-  // this just looks up runs by that name — angle/innerLabel positioning
-  // stays WAGON_ZONE_LAYOUT's own (decorative, not from the API).
+  // `zone` names exactly (both say "Deep Mid Wicket", "Long On", etc.);
+  // `inner_sectors`' names match `innerLabel` except for a hyphen
+  // ("Mid-On" vs "Mid On") — stripped before comparing.
+  //
+  // These are two DIFFERENT physical fielding positions (e.g. the deep
+  // boundary "Long On" vs the close-in "Mid-On"), not two readings of the
+  // same spot — summing them into one number was wrong, it put runs hit to
+  // Mid-On on display as if they were hit to Long On. Each ring keeps its
+  // own real value: `outerRuns` shown on the rim, `innerRuns` shown inside.
+  // Angle/innerLabel positioning stays WAGON_ZONE_LAYOUT's own (decorative,
+  // not from the API).
   const tournamentWagonZones = useMemo(() => {
     const outerSectors = asArray<any>(tBatting?.wagon_wheel?.outer_sectors);
+    const innerSectors = asArray<any>(tBatting?.wagon_wheel?.inner_sectors);
+    const stripHyphen = (s: string) => s.replace(/-/g, ' ');
     return WAGON_ZONE_LAYOUT.map((layout) => {
-      const match = outerSectors.find((s) => s.sector === layout.zone);
-      return { ...layout, runs: match?.runs || 0 };
+      const outerMatch = outerSectors.find((s) => s.sector === layout.zone);
+      const innerMatch = innerSectors.find((s) => stripHyphen(s.sector) === stripHyphen(layout.innerLabel));
+      const outerRuns = outerMatch?.runs || 0;
+      const innerRuns = innerMatch?.runs || 0;
+      return { ...layout, runs: outerRuns, outerRuns, innerRuns };
     });
   }, [tBatting]);
 
@@ -1082,12 +1095,28 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   }, [battingBalls]);
 
   const wagonWheelZones = useMemo(() => {
-    const runsByZone: Record<string, number> = {};
+    // Real — confirmed from live ball data: `fielding_type` actually carries
+    // BOTH the 8 outer (deep) position names ("Deep Cover", "Long On", ...)
+    // AND the 8 inner (close-in) ones ("Mid-On", "Square Leg", ...), not just
+    // the outer 8 as previously assumed — reading only `z.zone` silently
+    // dropped every inner-position ball's runs. `outerRuns` matches exactly
+    // against `zone`; `innerRuns` matches `innerLabel` with hyphens stripped
+    // ("Mid-On" vs "Mid On").
+    const runsByKey: Record<string, number> = {};
     battingBalls.forEach((b) => {
       if (!b.fielding_type) return;
-      runsByZone[b.fielding_type] = (runsByZone[b.fielding_type] || 0) + (b.batsman_runs ?? b.total_runs);
+      runsByKey[b.fielding_type] = (runsByKey[b.fielding_type] || 0) + (b.batsman_runs ?? b.total_runs);
     });
-    return WAGON_ZONE_LAYOUT.map((z) => ({ ...z, runs: runsByZone[z.zone] || 0 }));
+    const stripHyphen = (s: string) => s.replace(/-/g, ' ');
+    const findInnerRuns = (innerLabel: string) => {
+      const key = Object.keys(runsByKey).find((k) => stripHyphen(k) === stripHyphen(innerLabel));
+      return key ? runsByKey[key] : 0;
+    };
+    return WAGON_ZONE_LAYOUT.map((z) => {
+      const outerRuns = runsByKey[z.zone] || 0;
+      const innerRuns = findInnerRuns(z.innerLabel);
+      return { ...z, runs: outerRuns, outerRuns, innerRuns };
+    });
   }, [battingBalls]);
 
   const vsBowlerRows = useMemo(() => {
@@ -1242,6 +1271,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const finalResult = superOvers.length > 0
     ? (superOvers[superOvers.length - 1]?.result || scorecard?.result)
     : scorecard?.result;
+  const isAbandoned = /abandoned/i.test(finalResult || '');
 
   if (loading) {
     return (
@@ -1268,12 +1298,9 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   if (!matchId && !careerDidBat && !careerDidBowl && playerHistory) {
     return (
       <div className="flex flex-col gap-6">
-        <button onClick={() => router.back()} className="flex items-center gap-1 text-sm font-medium text-slate-700 hover:text-slate-900 w-fit">
-          <ArrowLeft className="w-4 h-4" /> Back
-        </button>
         <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center shadow-xs">
           <h2 className="text-xl font-bold text-slate-900 mb-2">{playerName}</h2>
-          <p className="text-slate-600 italic">This player has no career batting or bowling record.</p>
+          <p className="text-slate-600 italic">No career records.</p>
         </div>
       </div>
     );
@@ -1293,19 +1320,39 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             {playerName.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()}
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">{playerName}</h1>
+            <h1 className="text-2xl font-bold text-blue-800">{playerName}</h1>
             <div className="flex flex-wrap gap-x-6 gap-y-1 mt-2 text-xs">
               <div>
-                <p className="text-slate-600 uppercase font-bold text-[10px]">Age</p>
-                <p className="font-semibold text-slate-900">{playerHistory?.player.age ? `${playerHistory.player.age} yrs` : '— yrs'}</p>
+                <p className="text-slate-800 uppercase font-bold text-xs mb-0.5">Age</p>
+                <span className="inline-block px-2 py-0.5 rounded-md text-xs font-bold bg-blue-50 text-blue-700">
+                  {playerHistory?.player.age ? `${playerHistory.player.age} yrs` : '— yrs'}
+                </span>
               </div>
               <div>
-                <p className="text-slate-600 uppercase font-bold text-[10px]">Batting Style</p>
-                <p className="font-semibold text-slate-900">{playerHistory?.player.batting_hand || battingHand || '—'}</p>
+                <p className="text-slate-800 uppercase font-bold text-xs mb-0.5">Batting Style</p>
+                {(() => {
+                  const hand = playerHistory?.player.batting_hand || battingHand;
+                  if (!hand) return <p className="font-semibold text-slate-900">—</p>;
+                  const isLeft = /left/i.test(hand);
+                  return (
+                    <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold ${isLeft ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
+                      {hand}
+                    </span>
+                  );
+                })()}
               </div>
               <div>
-                <p className="text-slate-600 uppercase font-bold text-[10px]">Bowling Style</p>
-                <p className="font-semibold text-slate-900">{playerHistory?.player.bowling_type || bowlingType || (didBowl ? '—' : 'N/A')}</p>
+                <p className="text-slate-800 uppercase font-bold text-xs mb-0.5">Bowling Style</p>
+                {(() => {
+                  const style = playerHistory?.player.bowling_type || bowlingType;
+                  if (!style) return <p className="font-semibold text-slate-900">{didBowl ? '—' : 'N/A'}</p>;
+                  const isLeft = /left/i.test(style);
+                  return (
+                    <span className={`inline-block px-2 py-0.5 rounded-md text-xs font-bold ${isLeft ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
+                      {style}
+                    </span>
+                  );
+                })()}
               </div>
             </div>
             <div className="flex items-center gap-2 mt-3 flex-wrap">
@@ -1348,8 +1395,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
           <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-bold text-slate-900">Match Summary</p>
-              <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase">
-                {scorecard?.innings_1 && scorecard?.innings_2 ? 'Completed' : ''}
+              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${isAbandoned ? 'bg-gray-100 text-gray-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                {isAbandoned ? 'Abandoned' : scorecard?.innings_1 && scorecard?.innings_2 ? 'Completed' : ''}
               </span>
             </div>
             <div className="flex items-center justify-between text-sm">
@@ -2238,8 +2285,10 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       />
                     ))}
                   </svg>
-                  {/* Inner position labels — kept inside the dashed infield circle, directly hoverable. */}
-                  {tournamentWagonZones.map(({ zone, innerLabel, angle, runs }) => {
+                  {/* Inner position labels — kept inside the dashed infield circle, directly hoverable.
+                      This is a genuinely different fielding position from the outer rim below
+                      (e.g. "Mid-On" vs "Long On"), so it shows its own real runs, not the outer zone's. */}
+                  {tournamentWagonZones.map(({ zone, innerLabel, angle, innerRuns }) => {
                     const { left, top } = polarPct(angle, 17);
                     return (
                       <div
@@ -2250,7 +2299,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                         onMouseLeave={() => setHoveredWagon(null)}
                       >
                         <p className="text-[8px] font-semibold text-black uppercase leading-tight whitespace-nowrap">{innerLabel}</p>
-                        {runs > 0 && <p className="text-[8px] font-bold text-blue-600 leading-tight">{runs}</p>}
+                        {innerRuns > 0 && <p className="text-[8px] font-bold text-blue-600 leading-tight">{innerRuns}</p>}
                       </div>
                     );
                   })}
@@ -2270,17 +2319,25 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       </div>
                     );
                   })}
-                  {/* Hover popup — shows whichever label (inner or outer) was hovered, and its runs, large, centered over the wheel. */}
-                  {hoveredWagon && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
-                        <p className="text-xs font-semibold text-slate-600 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
-                        <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
-                          {tournamentWagonZones.find((z) => z.zone === hoveredWagon.zone)?.runs ?? 0} Runs
-                        </p>
+                  {/* Hover popup — shows whichever label (inner or outer) was hovered, and ITS OWN
+                      runs (not the other ring's) — the match is keyed off `zone`, but we still need
+                      to tell which ring triggered it: `label` is the zone name for an outer hover,
+                      the innerLabel for an inner hover. */}
+                  {hoveredWagon && (() => {
+                    const matched = tournamentWagonZones.find((z) => z.zone === hoveredWagon.zone);
+                    const isInnerHover = matched && hoveredWagon.label === matched.innerLabel;
+                    const popupRuns = isInnerHover ? matched?.innerRuns : matched?.outerRuns;
+                    return (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
+                          <p className="text-xs font-semibold text-slate-600 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
+                          <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
+                            {popupRuns ?? 0} Runs
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -2416,9 +2473,9 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       { label: 'Strike Rate', value: activeBatsman.SR, sub: '' },
                     ].map((s) => (
                       <div key={s.label} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
-                        <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{s.label}</p>
+                        <p className="text-xs font-bold text-slate-800 uppercase mb-1">{s.label}</p>
                         <p className="text-xl font-bold text-slate-900">{s.value}</p>
-                        {s.sub && <p className="text-[10px] text-slate-600 mt-1">{s.sub}</p>}
+                        {s.sub && <p className="text-xs text-slate-800 mt-1">{s.sub}</p>}
                       </div>
                     ))}
                   </div>
@@ -2429,7 +2486,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-100">
+                        <tr className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100">
                           <th className="py-2 pr-4">Bowler</th>
                           <th className="py-2 px-4 text-right">B</th>
                           <th className="py-2 px-4 text-right">R</th>
@@ -2461,7 +2518,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-100">
+                        <tr className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100">
                           <th className="py-2 pr-4">Type</th>
                           <th className="py-2 px-4 text-right">Overs Played</th>
                           <th className="py-2 px-4 text-right">Runs</th>
@@ -2474,7 +2531,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       </thead>
                       <tbody className="divide-y divide-slate-50 text-sm">
                         {paceSpinRows.length === 0 && (
-                          <tr><td colSpan={8} className="py-6 text-center text-slate-600 italic">No pace vs spin data available.</td></tr>
+                          <tr><td colSpan={8} className="py-6 text-center text-slate-800 italic">No pace vs spin data available.</td></tr>
                         )}
                         {paceSpinRows.map((r) => (
                           <tr key={r.type}>
@@ -2516,8 +2573,10 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                           />
                         ))}
                       </svg>
-                      {/* Inner position labels — kept inside the dashed infield circle, directly hoverable. */}
-                      {wagonWheelZones.map(({ zone, innerLabel, angle, runs }) => {
+                      {/* Inner position labels — kept inside the dashed infield circle, directly hoverable.
+                          This is a genuinely different fielding position from the outer rim below
+                          (e.g. "Mid-On" vs "Long On"), so it shows its own real runs. */}
+                      {wagonWheelZones.map(({ zone, innerLabel, angle, innerRuns }) => {
                         const { left, top } = polarPct(angle, 17);
                         return (
                           <div
@@ -2528,7 +2587,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                             onMouseLeave={() => setHoveredWagon(null)}
                           >
                             <p className="text-[8px] font-semibold text-black uppercase leading-tight whitespace-nowrap">{innerLabel}</p>
-                            {runs > 0 && <p className="text-[8px] font-bold text-blue-600 leading-tight">{runs}</p>}
+                            {innerRuns > 0 && <p className="text-[8px] font-bold text-blue-600 leading-tight">{innerRuns}</p>}
                           </div>
                         );
                       })}
@@ -2544,28 +2603,35 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                             onMouseLeave={() => setHoveredWagon(null)}
                           >
                             <p className="text-[9px] font-semibold text-black leading-[1.15]">{zone}</p>
-                            <p className="text-[10px] font-extrabold text-blue-600 leading-tight">{runs} Runs</p>
+                            <p className="text-xs font-extrabold text-blue-600 leading-tight">{runs} Runs</p>
                           </div>
                         );
                       })}
-                      {/* Hover popup — shows whichever label (inner or outer) was hovered, and its runs, large, centered over the wheel. */}
-                      {hoveredWagon && (
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
-                            <p className="text-xs font-semibold text-slate-600 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
-                            <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
-                              {wagonWheelZones.find((z) => z.zone === hoveredWagon.zone)?.runs ?? 0} Runs
-                            </p>
+                      {/* Hover popup — shows whichever label (inner or outer) was hovered, and ITS OWN
+                          runs: `label` is the zone name for an outer hover, the innerLabel for an
+                          inner hover, so that's what picks which ring's value to show. */}
+                      {hoveredWagon && (() => {
+                        const matched = wagonWheelZones.find((z) => z.zone === hoveredWagon.zone);
+                        const isInnerHover = matched && hoveredWagon.label === matched.innerLabel;
+                        const popupRuns = isInnerHover ? matched?.innerRuns : matched?.outerRuns;
+                        return (
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
+                              <p className="text-xs font-semibold text-slate-800 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
+                              <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
+                                {popupRuns ?? 0} Runs
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   </div>
 
                   <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                     <h3 className="text-sm font-bold text-slate-900 mb-4">Runs by Shot Type</h3>
                     {shotTypeRows.length === 0 ? (
-                      <p className="text-slate-600 italic text-sm">No shot-type data available.</p>
+                      <p className="text-slate-800 italic text-sm">No shot-type data available.</p>
                     ) : (
                       <div className="flex flex-col gap-3">
                         {shotTypeRows.map((s) => (
@@ -2603,7 +2669,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       <React.Fragment key={s.label}>
                         {i > 0 && <div className="w-px h-9 border-l border-dashed border-slate-200 shrink-0" />}
                         <div className="text-center px-2 shrink-0">
-                          <p className="text-[10px] font-bold text-slate-600 uppercase mb-1 whitespace-nowrap">{s.label}</p>
+                          <p className="text-xs font-bold text-slate-800 uppercase mb-1 whitespace-nowrap">{s.label}</p>
                           <p className="text-xl font-bold text-slate-900">{s.value}</p>
                         </div>
                       </React.Fragment>
@@ -2616,7 +2682,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-100">
+                        <tr className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100">
                           <th className="py-2 pr-4">Batter</th>
                           <th className="py-2 px-4 text-right">B</th>
                           <th className="py-2 px-4 text-right">R</th>
@@ -2655,7 +2721,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-100">
+                        <tr className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100">
                           <th className="py-2 pr-4">Batsman</th>
                           <th className="py-2 px-4 text-right">Overs</th>
                           <th className="py-2 px-4 text-right">Runs</th>
@@ -2668,7 +2734,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       </thead>
                       <tbody className="divide-y divide-slate-50 text-sm">
                         {handSplitRows.length === 0 && (
-                          <tr><td colSpan={8} className="py-6 text-center text-slate-600 italic">No batting-hand data available.</td></tr>
+                          <tr><td colSpan={8} className="py-6 text-center text-slate-800 italic">No batting-hand data available.</td></tr>
                         )}
                         {handSplitRows.map((r) => (
                           <tr key={r.hand}>
@@ -2689,9 +2755,9 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
 
                 <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                   <h3 className="text-sm font-bold text-slate-900 mb-1">Bowling Manhattan</h3>
-                  <p className="text-xs text-slate-600 mb-4">Runs conceded per over</p>
+                  <p className="text-xs text-slate-800 mb-4">Runs conceded per over</p>
                   {manhattanOvers.length === 0 ? (
-                    <p className="text-slate-600 italic text-sm">No over-by-over data available.</p>
+                    <p className="text-slate-800 italic text-sm">No over-by-over data available.</p>
                   ) : (() => {
                     const maxRuns = Math.max(...manhattanOvers.map((o) => o.runs), 1);
                     const niceMax = Math.ceil((maxRuns + 1) / 2) * 2;
@@ -2749,7 +2815,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                         </svg>
                         {hovered && (
                           <div
-                            className="absolute bg-slate-900 text-white text-[11px] rounded-lg px-3 py-2 shadow-lg pointer-events-none -translate-x-1/2 -translate-y-[calc(100%+10px)] whitespace-nowrap"
+                            className="absolute bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-lg pointer-events-none -translate-x-1/2 -translate-y-[calc(100%+10px)] whitespace-nowrap"
                             style={{
                               left: `${((pad.left + (hovered.over - 0.5) * slotW) / chartW) * 100}%`,
                               top: `${(yAt(hovered.isMaiden ? 0 : hovered.runs) / chartH) * 100}%`,
@@ -2765,7 +2831,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       </div>
                     );
                   })()}
-                  <div className="flex items-center gap-4 mt-3 text-xs text-slate-600">
+                  <div className="flex items-center gap-4 mt-3 text-xs text-slate-800">
                     <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-400 inline-block" /> Maiden Over</span>
                     <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block" /> Wicket</span>
                   </div>
@@ -2774,7 +2840,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                     <h3 className="text-sm font-bold text-slate-900 mb-1">Types of runs</h3>
-                    <p className="text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-1.5 mb-4 inline-block">Total runs given: {activeBowler.runs_given}</p>
+                    <p className="text-xs text-slate-800 bg-slate-50 rounded-lg px-3 py-1.5 mb-4 inline-block">Total runs given: {activeBowler.runs_given}</p>
                     {(() => {
                       const legendColors: Record<string, string> = { Dots: 'bg-indigo-500', '1s': 'bg-amber-400', '2s': 'bg-yellow-400', '3s': 'bg-teal-400', '4s': 'bg-emerald-500', '6s': 'bg-red-500' };
                       const maxPct = Math.max(...typesOfRuns.map((t) => t.pct), 10);
@@ -2783,8 +2849,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       return (
                         <>
                           <div className="flex gap-2">
-                            <p className="text-[10px] font-semibold text-slate-500 whitespace-nowrap [writing-mode:vertical-lr] rotate-180 self-stretch text-center py-1">Percentage (%)</p>
-                            <div className="flex flex-col-reverse justify-between h-40 pb-1 text-[10px] text-slate-600 font-semibold text-right">
+                            <p className="text-xs font-semibold text-slate-500 whitespace-nowrap [writing-mode:vertical-lr] rotate-180 self-stretch text-center py-1">Percentage (%)</p>
+                            <div className="flex flex-col-reverse justify-between h-40 pb-1 text-xs text-slate-800 font-semibold text-right">
                               {ticks.map((t) => <span key={t}>{t}</span>)}
                             </div>
                             <div className="relative flex-1">
@@ -2803,12 +2869,12 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                               </div>
                               <div className="flex justify-between gap-3 mt-1">
                                 {typesOfRuns.map((t) => (
-                                  <span key={t.label} className="flex-1 text-center text-[10px] font-semibold text-slate-700">{t.label}</span>
+                                  <span key={t.label} className="flex-1 text-center text-xs font-semibold text-slate-700">{t.label}</span>
                                 ))}
                               </div>
                             </div>
                           </div>
-                          <div className="flex flex-wrap gap-3 mt-4 text-xs text-slate-600">
+                          <div className="flex flex-wrap gap-3 mt-4 text-xs text-slate-800">
                             {typesOfRuns.map((t) => (
                               <span key={t.label} className="flex items-center gap-1.5"><span className={`w-2.5 h-2.5 rounded-full ${legendColors[t.label]}`} /> {t.label}: <span className="font-bold text-slate-900">{t.count}</span></span>
                             ))}
@@ -2832,7 +2898,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <h3 className="text-sm font-bold text-slate-900 mb-4">Key Moments</h3>
               {(view === 'batting' ? battingKeyMoments : bowlingKeyMoments).length === 0 ? (
-                <p className="text-slate-600 italic text-sm">No key moments recorded.</p>
+                <p className="text-slate-800 italic text-sm">No key moments recorded.</p>
               ) : (
                 <div className="relative flex flex-col gap-5 pl-4 border-l-2 border-slate-100">
                   {(view === 'batting' ? battingKeyMoments : bowlingKeyMoments).map((m, i) => (
@@ -2840,7 +2906,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                       <span className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-indigo-50" />
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-xs font-bold text-slate-900">{m.label}</p>
-                        <span className="text-[10px] text-slate-600 whitespace-nowrap">{m.over}</span>
+                        <span className="text-xs text-slate-800 whitespace-nowrap">{m.over}</span>
                       </div>
                       <p className="text-xs text-slate-700 mt-0.5">{m.sub}</p>
                     </div>
@@ -2852,18 +2918,18 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
               <h3 className="text-sm font-bold text-slate-900 mb-4">Recent Performances</h3>
               {matchRecentPerformances.length === 0 ? (
-                <p className="text-slate-600 italic text-sm">No recent performances.</p>
+                <p className="text-slate-800 italic text-sm">No recent performances.</p>
               ) : (
                 <div className="flex flex-col gap-3">
                   {matchRecentPerformances.map((p, i) => (
                     <div key={i} className="flex justify-between items-center gap-3 border-b border-slate-50 pb-3 last:border-b-0 last:pb-0">
                       <div>
                         <p className="text-sm font-bold text-slate-900">{p.score}</p>
-                        <p className="text-[11px] text-slate-600">{p.detail}</p>
+                        <p className="text-xs text-slate-800">{p.detail}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs font-semibold text-slate-700">{p.matchName}</p>
-                        <p className="text-[11px] text-slate-600">{formatRecentDate(p.date)}</p>
+                        <p className="text-xs text-slate-800">{formatRecentDate(p.date)}</p>
                       </div>
                     </div>
                   ))}

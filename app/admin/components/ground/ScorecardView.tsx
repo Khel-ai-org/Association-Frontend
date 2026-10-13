@@ -243,14 +243,15 @@ const getSoInnings = (main: MatchLikeScorecard | null, so: MatchLikeScorecard, s
   return side === '1st' ? so.innings_1 : so.innings_2;
 };
 
-type PlayerFlags = Pick<Batsman, 'status' | 'is_substituted' | 'is_captain' | 'is_vice_captain'>;
+type PlayerFlags = Pick<Batsman, 'status' | 'is_substituted' | 'is_captain' | 'is_wicket_keeper'>;
 
-// Badges: C / VC for leadership, IP for impact player, SUB for substitutes.
+// Badges: C for captain, WK for wicket-keeper (from `is_wicket_keeper`, not
+// the `role` string), IP for impact player, SUB for substitutes. VC removed.
 const getPlayerBadges = (p: PlayerFlags): string[] => {
   const status = (p.status || '').toLowerCase();
   const badges: string[] = [];
   if (p.is_captain) badges.push('C');
-  if (p.is_vice_captain) badges.push('VC');
+  if (p.is_wicket_keeper) badges.push('WK');
   if (status === 'impact_player') badges.push('IP');
   if (status === 'substitute') badges.push('SUB');
   return badges;

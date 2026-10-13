@@ -16,6 +16,9 @@ interface ScheduleMatchModalProps {
   tournamentExternalId: string;
   grounds: Ground[];
   onScheduled: () => void;
+  // Tournament's own date range — the match can't be scheduled outside it.
+  tournamentStartDate?: string;
+  tournamentEndDate?: string;
 }
 
 export default function ScheduleMatchModal({
@@ -26,8 +29,13 @@ export default function ScheduleMatchModal({
   tournamentExternalId,
   grounds,
   onScheduled,
+  tournamentStartDate,
+  tournamentEndDate,
 }: ScheduleMatchModalProps) {
   const [scheduleDate, setScheduleDate] = useState('');
+  // `<input type="date">` needs a plain "YYYY-MM-DD", not a full ISO timestamp.
+  const minDate = tournamentStartDate ? tournamentStartDate.slice(0, 10) : undefined;
+  const maxDate = tournamentEndDate ? tournamentEndDate.slice(0, 10) : undefined;
   const [selectedGroundId, setSelectedGroundId] = useState('');
   const [groundDropdownOpen, setGroundDropdownOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -64,6 +72,14 @@ export default function ScheduleMatchModal({
   const handleSubmit = async () => {
     if (!scheduleDate) {
       setError('Please pick a schedule date.');
+      return;
+    }
+    if (minDate && scheduleDate < minDate) {
+      setError(`Schedule date can't be before the tournament's start date (${minDate}).`);
+      return;
+    }
+    if (maxDate && scheduleDate > maxDate) {
+      setError(`Schedule date can't be after the tournament's end date (${maxDate}).`);
       return;
     }
     if (!selectedGroundId) {
@@ -154,11 +170,20 @@ export default function ScheduleMatchModal({
               <label className="block text-sm font-semibold text-slate-500 mb-1.5">Schedule Date</label>
               <input
                 type="date"
+                min={minDate}
+                max={maxDate}
                 className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700 cursor-pointer"
                 value={scheduleDate}
                 onChange={(e) => setScheduleDate(e.target.value)}
                 onClick={(e) => e.currentTarget.showPicker?.()}
               />
+              {(minDate || maxDate) && (
+                <p className="text-[11px] text-slate-600 mt-1">
+                  Must be between the tournament's start and end date
+                  <br />
+                  ({[minDate, maxDate].filter(Boolean).join(' – ')})
+                </p>
+              )}
             </div>
             <div className="relative">
               <label className="block text-sm font-semibold text-slate-500 mb-1.5">Ground</label>
