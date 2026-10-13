@@ -190,17 +190,19 @@ export default function ActiveTournaments() {
                     <h3 className="text-md font-semibold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors truncate">
                       {t.name}
                     </h3>
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setEditTournamentId(t.id);
-                      }}
-                      className="p-1 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors shrink-0 cursor-pointer"
-                      title="Edit Tournament"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
+                    {lifecycleStatus !== 'COMPLETED' && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setEditTournamentId(t.id);
+                        }}
+                        className="p-1 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors shrink-0 cursor-pointer"
+                        title="Edit Tournament"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   <div  >

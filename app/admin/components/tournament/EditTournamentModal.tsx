@@ -50,6 +50,7 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
   const groundDropdownRef = useRef<HTMLDivElement>(null);
   const [isMatchTypeDropdownOpen, setIsMatchTypeDropdownOpen] = useState(false);
   const matchTypeDropdownRef = useRef<HTMLDivElement>(null);
+  const [fixturesExist, setFixturesExist] = useState(false);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -85,6 +86,28 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
       }
     };
 
+    // Fixtures live in the scoring service, keyed by the tournament's
+    // externalTournamentId — once they exist, team count can no longer
+    // change (same rule TeamsPage.tsx enforces for Add Teams/Generate Fixture).
+    const checkFixturesExist = async (externalId: string) => {
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${externalId}/matches`,
+          {
+            method: 'GET',
+            headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const list = Array.isArray(data) ? data : data?.matches || [];
+          setFixturesExist(list.length > 0);
+        }
+      } catch (error) {
+        console.error('Error checking existing fixtures:', error);
+      }
+    };
+
     const fetchTournament = async () => {
       setLoading(true);
       try {
@@ -106,6 +129,9 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
             startDate: toDateInputValue(data.startDate),
             endDate: toDateInputValue(data.endDate),
           });
+          if (data.externalTournamentId) {
+            checkFixturesExist(data.externalTournamentId);
+          }
         } else {
           setErrors({ submit: 'Failed to load tournament details' });
         }
@@ -127,6 +153,7 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
     setIsGroundDropdownOpen(false);
     setGroundSearch('');
     setIsMatchTypeDropdownOpen(false);
+    setFixturesExist(false);
     onClose();
   };
 
@@ -366,27 +393,44 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
                   inputMode="numeric"
                   pattern="[0-9]*"
                   placeholder="Enter no. of teams"
-                  className={`w-full px-4 py-3 rounded-xl border ${errors.teamCount ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
+                  disabled={fixturesExist}
+                  className={`w-full px-4 py-3 rounded-xl border text-sm ${
+                    fixturesExist
+                      ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200'
+                      : `text-gray-700 focus:border-blue-500 ${errors.teamCount ? 'border-red-500' : 'border-slate-200'}`
+                  } outline-none`}
                   value={formData.teamCount}
                   onChange={(e) => setFormData({ ...formData, teamCount: e.target.value.replace(/\D/g, '') })}
                 />
-                {errors.teamCount && <p className="text-red-500 text-xs mt-1">{errors.teamCount}</p>}
+                {fixturesExist ? (
+                  <p className="text-[11px] text-slate-600 mt-1">Fixture is already generated — team count can't be changed.</p>
+                ) : (
+                  errors.teamCount && <p className="text-red-500 text-xs mt-1">{errors.teamCount}</p>
+                )}
               </div>
 
               <div className="relative" ref={matchTypeDropdownRef}>
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">Match Type</label>
                 <div
-                  onClick={() => setIsMatchTypeDropdownOpen((prev) => !prev)}
-                  className={`w-full px-4 py-3 rounded-xl border ${errors.matchType ? 'border-red-500' : 'border-slate-200'} bg-white text-sm cursor-pointer flex justify-between items-center outline-none transition-all`}
+                  onClick={() => !fixturesExist && setIsMatchTypeDropdownOpen((prev) => !prev)}
+                  className={`w-full px-4 py-3 rounded-xl border text-sm flex justify-between items-center outline-none transition-all ${
+                    fixturesExist
+                      ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200'
+                      : `bg-white cursor-pointer ${errors.matchType ? 'border-red-500' : 'border-slate-200'}`
+                  }`}
                 >
-                  <span className={formData.matchType ? 'text-gray-700' : 'text-gray-400'}>
+                  <span className={formData.matchType && !fixturesExist ? 'text-gray-700' : fixturesExist ? '' : 'text-gray-400'}>
                     {formData.matchType || 'Select Match Type'}
                   </span>
                   <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isMatchTypeDropdownOpen ? 'rotate-180' : ''}`} />
                 </div>
-                {errors.matchType && <p className="text-red-500 text-xs mt-1">{errors.matchType}</p>}
+                {fixturesExist ? (
+                  <p className="text-[11px] text-slate-600 mt-1">Fixture is already generated — match type can't be changed.</p>
+                ) : (
+                  errors.matchType && <p className="text-red-500 text-xs mt-1">{errors.matchType}</p>
+                )}
 
-                {isMatchTypeDropdownOpen && (
+                {isMatchTypeDropdownOpen && !fixturesExist && (
                   <div className="absolute left-0 w-full mt-2 bg-white border border-slate-100 rounded-xl shadow-xl z-50 p-2.5 space-y-0.5">
                     {MATCH_TYPES.map((t) => (
                       <div
@@ -409,11 +453,20 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
                     inputMode="numeric"
                     pattern="[0-9]*"
                     placeholder="e.g.- 5"
-                    className={`w-full px-4 py-3 rounded-xl border ${errors.testDays ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
+                    disabled={fixturesExist}
+                    className={`w-full px-4 py-3 rounded-xl border text-sm outline-none ${
+                      fixturesExist
+                        ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200'
+                        : `text-gray-700 focus:border-blue-500 ${errors.testDays ? 'border-red-500' : 'border-slate-200'}`
+                    }`}
                     value={formData.testDays}
                     onChange={(e) => setFormData({ ...formData, testDays: e.target.value.replace(/\D/g, '') })}
                   />
-                  {errors.testDays && <p className="text-red-500 text-xs mt-1">{errors.testDays}</p>}
+                  {fixturesExist ? (
+                    <p className="text-[11px] text-slate-600 mt-1">Fixture is already generated — test days can't be changed.</p>
+                  ) : (
+                    errors.testDays && <p className="text-red-500 text-xs mt-1">{errors.testDays}</p>
+                  )}
                 </div>
               ) : (
                 <div>
@@ -425,12 +478,16 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
                     inputMode="numeric"
                     pattern="[0-9]*"
                     placeholder="e.g.- 20"
-                    disabled={formData.matchType !== 'CUSTOM'}
-                    className={`w-full px-4 py-3 rounded-xl border ${errors.oversPerMatch ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm ${formData.matchType === 'CUSTOM' ? 'text-gray-700' : 'bg-slate-100 text-slate-500 cursor-not-allowed'}`}
+                    disabled={fixturesExist || formData.matchType !== 'CUSTOM'}
+                    className={`w-full px-4 py-3 rounded-xl border ${errors.oversPerMatch ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm ${formData.matchType === 'CUSTOM' && !fixturesExist ? 'text-gray-700' : 'bg-slate-100 text-slate-500 cursor-not-allowed'}`}
                     value={formData.oversPerMatch}
                     onChange={(e) => setFormData({ ...formData, oversPerMatch: e.target.value.replace(/\D/g, '') })}
                   />
-                  {errors.oversPerMatch && <p className="text-red-500 text-xs mt-1">{errors.oversPerMatch}</p>}
+                  {fixturesExist ? (
+                    <p className="text-[11px] text-slate-600 mt-1">Fixture is already generated — overs per match can't be changed.</p>
+                  ) : (
+                    errors.oversPerMatch && <p className="text-red-500 text-xs mt-1">{errors.oversPerMatch}</p>
+                  )}
                 </div>
               )}
 

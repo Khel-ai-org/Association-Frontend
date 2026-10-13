@@ -378,7 +378,18 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                       </td>
                       <td className="py-4 px-3">
                         {row.isLinked ? (
-                          <span className="text-emerald-600 text-xs font-semibold">Already Scheduled</span>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (tournament?.externalTournamentId) {
+                                window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/tournament/${tournament.externalTournamentId}`;
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 underline text-xs font-semibold"
+                          >
+                            <CalendarClock className="w-3.5 h-3.5" /> Start Scoring →
+                          </button>
                         ) : row.type === 'Expired' ? (
                           <span className="text-slate-400 text-xs font-semibold">Expired — no longer schedulable</span>
                         ) : (
