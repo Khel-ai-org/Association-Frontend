@@ -16,7 +16,7 @@ import {
   Play, Pause, Settings, Maximize, Minimize, ZoomIn, ZoomOut,
   Columns, Square, Layers, RefreshCw, Link as LinkIcon, Unlink
 } from "lucide-react";
-import { PlayerEngine, PlayerState, SPEEDS } from "./PlayerEngine";
+import { PlayerEngine, PlayerState, LoadProgress, SPEEDS } from "./PlayerEngine";
 import { MarkerMenu } from "./MarkerMenu";
 import { AnnotationTool, Point } from "./AnnotationLayer";
 
@@ -90,6 +90,8 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
   const [loadingA, setLoadingA] = useState(false);
   const [loadingB, setLoadingB] = useState(false);
+  const [progressA, setProgressA] = useState<LoadProgress | null>(null);
+  const [progressB, setProgressB] = useState<LoadProgress | null>(null);
   const [errorA, setErrorA]     = useState<string | null>(null);
   const [errorB, setErrorB]     = useState<string | null>(null);
 
@@ -119,6 +121,7 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
       eA.on('seek',      (st: PlayerState) => setStateA({ ...st }));
       eA.on('clip',      (st: PlayerState) => setStateA({ ...st }));
       eA.on('preload',   () => setStateA(prev => ({ ...prev, preloadStatus: eA.preloadStatus })));
+      eA.on('loading',   (p: LoadProgress) => setProgressA(p));
     }
 
     return () => {
@@ -141,11 +144,14 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         eB.on('seek',      (st: PlayerState) => setStateB({ ...st }));
         eB.on('clip',      (st: PlayerState) => setStateB({ ...st }));
         eB.on('preload',   () => setStateB(prev => ({ ...prev, preloadStatus: eB.preloadStatus })));
+        eB.on('loading',   (p: LoadProgress) => setProgressB(p));
 
         if (activeSrcB) {
+          prevSrcBRef.current = activeSrcB;
           setLoadingB(true);
           eB.loadVideo(activeSrcB)
             .then(() => {
+              if (prevSrcBRef.current !== activeSrcB) return; // a newer camera load took over
               setLoadingB(false);
               // Instantly sync Engine B frame & UI state to current Engine A frame upon loading
               if (engineARef.current) {
@@ -154,7 +160,9 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
                 setStateB(eB.state());
               }
             })
-            .catch(() => setLoadingB(false));
+            .catch(() => {
+              if (prevSrcBRef.current === activeSrcB) setLoadingB(false);
+            });
         }
       }
     }, 50);
@@ -205,12 +213,18 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
     setErrorA(null);
     engineARef.current.loadVideo(srcA)
       .then(() => {
+        // A newer camera load took over: don't hide its spinner or restore this camera's drawings onto it
+        if (prevSrcARef.current !== srcA) return;
         setLoadingA(false);
         // Restore saved annotations for this camera (or empty array if new)
         const saved = annotationsStoreRef.current.get(srcA) || [];
         engineARef.current?.annotations.setShapes(saved);
       })
-      .catch((err) => { setLoadingA(false); setErrorA(err.message); });
+      .catch((err) => {
+        if (prevSrcARef.current !== srcA) return;
+        setLoadingA(false);
+        setErrorA(err.message);
+      });
   }, [srcA]);
 
   // Handle Load Video B with per-camera saved drawings
@@ -230,12 +244,17 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
     setErrorB(null);
     engineBRef.current.loadVideo(activeSrcB)
       .then(() => {
+        if (prevSrcBRef.current !== activeSrcB) return; // a newer camera load took over
         setLoadingB(false);
         // Restore saved annotations for this camera (or empty array if new)
         const saved = annotationsStoreRef.current.get(activeSrcB) || [];
         engineBRef.current?.annotations.setShapes(saved);
       })
-      .catch((err) => { setLoadingB(false); setErrorB(err.message); });
+      .catch((err) => {
+        if (prevSrcBRef.current !== activeSrcB) return;
+        setLoadingB(false);
+        setErrorB(err.message);
+      });
   }, [activeSrcB]);
 
   // Window resize trigger for canvas bounds update
@@ -513,24 +532,26 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
       className="relative w-full aspect-video bg-[#0b0e13] rounded-2xl md:rounded-[32px] overflow-hidden shadow-2xl group text-white flex flex-col"
     >
       {/* ---- Loading overlay ---- */}
-      {(loadingA || loadingB) && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-sm">
-          <div className="w-9 h-9 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-          <p className="text-xs font-semibold text-slate-300 tracking-wide">
-            {loadingA && loadingB ? "Loading videos…" : loadingA ? "Loading Camera A…" : "Loading Camera B…"}
-          </p>
-        </div>
-      )}
-
-      {/* ---- Extraction progress banner ---- */}
-      {(stateA.preloadStatus === 'extracting' || stateB.preloadStatus === 'extracting') && !loadingA && !loadingB && (
-        <div className="absolute top-0 left-0 right-0 z-40 flex items-center gap-2 px-4 py-2 bg-blue-600/20 backdrop-blur-md border-b border-blue-500/20">
-          <div className="w-3 h-3 border-2 border-blue-400/40 border-t-blue-400 rounded-full animate-spin flex-shrink-0" />
-          <p className="text-[10px] font-bold text-blue-300 tracking-wide">
-            Extracting frames into server cache — first-time only, subsequent loads are instant
-          </p>
-        </div>
-      )}
+      {(loadingA || loadingB) && (() => {
+        const progress = loadingA ? progressA : progressB;
+        const percent = progress?.phase === 'downloading' && progress.total
+          ? Math.floor(((progress.loaded ?? 0) / progress.total) * 100)
+          : null;
+        const camera = loadingA && loadingB ? "videos" : loadingA ? "Camera A" : "Camera B";
+        return (
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-sm">
+            <div className="w-9 h-9 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+            <p className="text-xs font-semibold text-slate-300 tracking-wide">
+              {percent !== null ? `Loading ${camera}… ${percent}%` : `Preparing ${camera}…`}
+            </p>
+            {percent === null && (
+              <p className="text-[10px] text-slate-500 max-w-xs text-center">
+                First view of a clip prepares it for frame-by-frame playback — later views open instantly
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Top Header Toolbar */}
       <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between pointer-events-none">

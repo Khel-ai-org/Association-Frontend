@@ -263,7 +263,15 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
             </div>
             <button
               onClick={() => setIsAddTeamsOpen(true)}
-              className="flex items-center gap-2 bg-[#0F1117] text-white px-4 py-2.5 rounded-xl font-semibold text-sm hover:bg-slate-800 transition-colors whitespace-nowrap"
+              disabled={teams.length >= (tournament?.teamCount ?? 0) || fixturesExist}
+              title={
+                fixturesExist
+                  ? 'The fixture has already been generated — teams can no longer be added'
+                  : teams.length >= (tournament?.teamCount ?? 0)
+                  ? 'All teams have already been added'
+                  : undefined
+              }
+              className="flex items-center gap-2 bg-[#0F1117] text-white px-4 py-2.5 rounded-xl font-semibold text-sm hover:bg-slate-800 transition-colors whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-[#0F1117]"
             >
               <PlusCircle className="w-4 h-4" />
               Add Teams
@@ -333,12 +341,22 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
 
         <div className="flex flex-col items-center gap-2">
           <button
-            disabled={teams.length === 0 || fixturesExist}
+            disabled={teams.length === 0 || teams.length < (tournament?.teamCount ?? 0) || fixturesExist}
             onClick={() => setIsGenerateFixtureOpen(true)}
+            title={
+              !fixturesExist && teams.length < (tournament?.teamCount ?? 0)
+                ? `Add all ${tournament?.teamCount ?? 0} teams before generating the fixture (${teams.length} added so far)`
+                : undefined
+            }
             className="bg-[#0F1117] text-white px-8 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Generate Fixture
           </button>
+          {!fixturesExist && teams.length > 0 && teams.length < (tournament?.teamCount ?? 0) && (
+            <p className="text-xs text-amber-600 font-medium">
+              Add all {tournament?.teamCount ?? 0} teams before generating the fixture — {teams.length} added so far.
+            </p>
+          )}
           {fixturesExist && (
             <button
               onClick={() => router.push(`/admin/tournament/${tournamentId}/matches`)}

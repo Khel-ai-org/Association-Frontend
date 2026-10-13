@@ -1159,7 +1159,8 @@ const ActivePlayers = () => {
                     type="date"
                     value={registerForm.dob}
                     onChange={(e) => setRegisterForm({ ...registerForm, dob: e.target.value })}
-                    className={`w-full p-4 bg-[#FAFBFF] border ${registerErrors.dob ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl text-sm text-gray-900 outline-none focus:border-[#4B70C3]`}
+                    onClick={(e) => e.currentTarget.showPicker?.()}
+                    className={`w-full p-4 bg-[#FAFBFF] border ${registerErrors.dob ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl text-sm text-gray-900 outline-none focus:border-[#4B70C3] cursor-pointer`}
                   />
                   {registerErrors.dob && <p className="text-red-500 text-xs mt-1">{registerErrors.dob}</p>}
                 </div>

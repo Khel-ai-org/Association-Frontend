@@ -15,7 +15,7 @@ export default function AuthLayout({
       {/* Top Navbar */}
       <header className="w-full h-16 bg-white border-b border-gray-100 flex items-center px-6 z-20">
         <div className="flex items-center gap-2">
-          <Image src="/Logo.png" alt="Khel.ai" width={32} height={32} />
+          <Image src="/Logo.png" alt="Khel.ai" width={32} height={32} className="w-8 h-8" />
           <span className="text-black font-semibold text-lg">Khel.ai</span>
         </div>
       </header>

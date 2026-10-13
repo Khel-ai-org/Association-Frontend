@@ -5,9 +5,10 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import stadiumImage from '../../../../public/stadium.png';
-import { ChevronLeft, ChevronRight, PlusSquare, Edit3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PlusSquare, Edit3, CalendarDays } from 'lucide-react';
 import CreateTournamentModal from './CreateTournamentModal';
 import EditTournamentModal from './EditTournamentModal';
+import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
 
 interface Tournament {
   id: string;
@@ -61,8 +62,11 @@ export default function ActiveTournaments() {
         const weightA = getStatusWeight(aStart, aEnd);
         const weightB = getStatusWeight(bStart, bEnd);
 
-        return weightA !== weightB
-          ? weightA - weightB
+        if (weightA !== weightB) return weightA - weightB;
+        // Completed (weight 2): most recently ended first. Live/Upcoming:
+        // unchanged — soonest to start first.
+        return weightA === 2
+          ? bEnd.getTime() - aEnd.getTime()
           : aStart.getTime() - bStart.getTime();
       });
 
@@ -153,11 +157,8 @@ export default function ActiveTournaments() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {currentItems.length > 0 ? (
           currentItems.map((t) => {
-            const now = new Date();
-            const start = new Date(t.startDate);
-            const end = new Date(t.endDate);
-            const isLive = now >= start && now <= end;
-            const isPast = now > end;
+            const lifecycleStatus = getTournamentLifecycleStatus(t.startDate, t.endDate);
+            const isLive = lifecycleStatus === 'LIVE';
             const progress = getProgress(t.startDate, t.endDate);
 
             return (
@@ -175,11 +176,9 @@ export default function ActiveTournaments() {
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-between">
                     <div className="flex justify-end">
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded-[6px] flex items-center gap-1 ${
-                        isLive ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'
-                      }`}>
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded-[6px] flex items-center gap-1 ${TOURNAMENT_STATUS_BADGE[lifecycleStatus]}`}>
                         {isLive && <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>}
-                        {isLive ? 'LIVE' : (isPast ? 'COMPLETED' : 'UPCOMING')}
+                        {lifecycleStatus}
                       </span>
                     </div>
                     <p className="text-xs font-semibold text-white/90 uppercase tracking-wider">{t.category || 'T20'}</p>
@@ -214,6 +213,11 @@ export default function ActiveTournaments() {
                         <LocationIcon />
                         <span className="truncate max-w-[80px]">{t.location}</span>
                       </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-2">
+                      <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{formatTournamentDateRange(t.startDate, t.endDate)}</span>
                     </div>
 
                     <div className="pt-2">
