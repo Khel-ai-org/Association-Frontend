@@ -34,6 +34,7 @@ export default function LiveMatches() {
   const [dashboardMatches, setDashboardMatches] = useState<DashboardMatch[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState<'Live' | 'Upcoming'>('Live');
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -157,6 +158,7 @@ export default function LiveMatches() {
 
   const filteredMatches = useMemo(() => {
     return dashboardMatches.filter((m) => {
+      if (m.status !== activeTab) return false;
       const searchTerm = searchQuery.toLowerCase();
       return (
         m.teamA.toLowerCase().includes(searchTerm) ||
@@ -164,7 +166,10 @@ export default function LiveMatches() {
         m.matchNumber?.toString().includes(searchTerm)
       );
     });
-  }, [dashboardMatches, searchQuery]);
+  }, [dashboardMatches, searchQuery, activeTab]);
+
+  const liveCount = useMemo(() => dashboardMatches.filter((m) => m.status === 'Live').length, [dashboardMatches]);
+  const upcomingCount = useMemo(() => dashboardMatches.filter((m) => m.status === 'Upcoming').length, [dashboardMatches]);
 
   const uniqueTournamentIds = Array.from(new Set(dashboardMatches.map((m) => m.tournamentId)));
   const viewAllHref = uniqueTournamentIds.length === 1
@@ -202,7 +207,23 @@ export default function LiveMatches() {
         </div>
       </div>
 
-      <div className="overflow-x-auto scrollbar-hide pb-2">
+      <div className="flex bg-slate-50 rounded-xl border border-slate-100 p-1 w-full sm:w-fit mb-4">
+        {(['Live', 'Upcoming'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 sm:flex-none px-4 py-1.5 text-sm font-medium transition-all rounded-lg cursor-pointer ${
+              activeTab === tab
+                ? 'bg-white shadow-sm text-slate-700 border border-slate-100'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {tab} ({tab === 'Live' ? liveCount : upcomingCount})
+          </button>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto scrollbar-hide py-2">
         <div className="flex flex-nowrap gap-4 md:gap-6">
           {filteredMatches.map((m) => {
             const isLive = m.status === 'Live';
@@ -266,7 +287,7 @@ export default function LiveMatches() {
 
           {filteredMatches.length === 0 && (
              <div className="w-full py-10 text-center text-slate-400 italic">
-                {searchQuery ? `No matches found matching "${searchQuery}"` : "No active or upcoming matches found."}
+                {searchQuery ? `No matches found matching "${searchQuery}"` : `No ${activeTab.toLowerCase()} matches found.`}
              </div>
           )}
         </div>

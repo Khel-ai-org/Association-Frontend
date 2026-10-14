@@ -216,9 +216,14 @@ interface LoginFormProps {
   // approval — the backend returns a 403 with one of these codes instead of
   // a user object, so there's no "user" to route on here.
   onPendingApproval: (role: string | null) => void;
+  // Same idea for an unverified email: once the user abandons the OTP
+  // screen the first time, logging back in with the right password still
+  // 403s here (no user object to read `isEmailVerified` off of) — so this
+  // is how the parent gets sent back to the OTP screen instead of alert()ing.
+  onUnverifiedEmail: (email: string) => void;
 }
 
-export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormProps) {
+export default function LoginForm({ onSuccess, onPendingApproval, onUnverifiedEmail }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -287,6 +292,11 @@ export default function LoginForm({ onSuccess, onPendingApproval }: LoginFormPro
           onPendingApproval(null);
         } else if (data.code === "BUSINESS_ADMIN_EMAIL" || isBusinessAdminUser(data.user)) {
           setShowBusinessAdminNotice(true);
+        } else if (
+          data.code === "EMAIL_NOT_VERIFIED" ||
+          /verify/i.test(data.message || "")
+        ) {
+          onUnverifiedEmail(email);
         } else if (data.message === "Invalid credentials") {
           setPasswordError("Incorrect email or password");
         } else if (data.message === "Use Google login for this account") {

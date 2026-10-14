@@ -120,10 +120,29 @@ export default function LoginPage() {
     setStep("pending");
   };
 
+  // Login itself can also 403 as "email not verified" — this happens when a
+  // user abandoned the OTP screen the first time and comes back to log in
+  // again. There's no fresh user object here (login never succeeded), so
+  // the old OTP is likely gone/expired too — fire off a new one as the OTP
+  // screen opens instead of making them hunt for "Resend Code".
+  const handleUnverifiedEmail = (email: string) => {
+    setUserEmail(email);
+    setStep("otp");
+    fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/auth/resend-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    }).catch((err) => console.error("Failed to resend OTP", err));
+  };
+
   return (
     <AuthLayout>
       {step === "login" && (
-        <LoginForm onSuccess={handleLoginSuccess} onPendingApproval={handleLoginPending} />
+        <LoginForm
+          onSuccess={handleLoginSuccess}
+          onPendingApproval={handleLoginPending}
+          onUnverifiedEmail={handleUnverifiedEmail}
+        />
       )}
       {step === "otp" && (
         <OTPVerification

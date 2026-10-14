@@ -154,7 +154,7 @@ const handleMarkAllRead = async () => {
 
   const navLinks = [
     { name: "Home", path: "/admin/dashboard" },
-    { name: "Tournament", path: "/admin/tournament" },
+    { name: "Tournaments", path: "/admin/tournament" },
     { name: "Grounds", path: "/admin/ground" },
     {name:"Players", path:"/admin/players"},
 
@@ -236,9 +236,10 @@ const handleMarkAllRead = async () => {
   {isNotificationsOpen && (
     <div className="absolute right-0 mt-3 w-[400px] bg-white rounded-[32px] shadow-2xl border border-gray-100 overflow-hidden z-[60] animate-in fade-in slide-in-from-top-2 duration-200">
       {/* Pass the data directly */}
-      <Notifications 
-        notifications={notifications} 
-        onClose={() => setIsNotificationsOpen(false)} 
+      <Notifications
+        notifications={notifications}
+        onClose={() => setIsNotificationsOpen(false)}
+        canReceiveApprovals={user?.role === 'admin' || user?.userType === 'business_admin'}
       />
     </div>
   )}

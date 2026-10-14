@@ -174,15 +174,22 @@ interface NotificationItem {
 interface NotificationProps {
   notifications: NotificationItem[];
   onClose: () => void;
+  // Approval notifications only ever get created for whoever can approve
+  // (an Association Admin or the Business Admin) — nobody else ever
+  // receives one, so the tab itself is only shown to them.
+  canReceiveApprovals?: boolean;
 }
 
-const Notifications: React.FC<NotificationProps> = ({ notifications, onClose }) => {
+const Notifications: React.FC<NotificationProps> = ({ notifications, onClose, canReceiveApprovals }) => {
   const [filter, setFilter] = useState('All');
-  const categories = ['All', 'Matches', 'Grounds', 'Tournament'];
+  const categories = canReceiveApprovals
+    ? ['All', 'Matches', 'Grounds', 'Tournament', 'Approvals']
+    : ['All', 'Matches', 'Grounds', 'Tournament'];
 
   // Logic to classify messages into tabs
   const getCategory = (msg: string) => {
     const m = msg.toLowerCase();
+    if (m.includes('approval')) return 'Approvals';
     if (m.includes('ground')) return 'Grounds';
     if (m.includes('tournament')) return 'Tournament';
     if (m.includes('match') || m.includes('rain') || m.includes('score')) return 'Matches';

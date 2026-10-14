@@ -12,9 +12,31 @@ interface PendingApprovalProps {
 
 export default function PendingApproval({ role, onApproved }: PendingApprovalProps) {
   const [checking, setChecking] = useState(false);
+  const [resending, setResending] = useState(false);
   const [message, setMessage] = useState("");
 
   const approverLabel = role === "admin" ? "The Business Admin" : "Your Association's Admin";
+
+  const handleResend = async () => {
+    setResending(true);
+    setMessage("");
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/user/resend-approval`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        setMessage(`A fresh approval email has been sent to ${approverLabel}.`);
+      } else {
+        setMessage(data?.message || "Could not resend the approval email. Please try again.");
+      }
+    } catch {
+      setMessage("Could not resend the approval email. Please try again.");
+    } finally {
+      setResending(false);
+    }
+  };
 
   const handleCheckStatus = async () => {
     setChecking(true);
@@ -62,9 +84,17 @@ export default function PendingApproval({ role, onApproved }: PendingApprovalPro
       <button
         onClick={handleCheckStatus}
         disabled={checking}
-        className="w-full bg-[#0D0D12] text-white py-3 rounded-lg font-medium hover:bg-black transition disabled:opacity-50 flex items-center justify-center gap-2"
+        className="w-full bg-[#0D0D12] text-white py-3 rounded-lg font-medium hover:bg-black transition disabled:opacity-50 flex items-center justify-center gap-2 mb-3"
       >
         {checking ? <Loader2 className="animate-spin" size={18} /> : "Check Status"}
+      </button>
+
+      <button
+        onClick={handleResend}
+        disabled={resending}
+        className="w-full bg-white text-[#0D0D12] border border-gray-300 py-3 rounded-lg font-medium hover:bg-gray-50 transition disabled:opacity-50 flex items-center justify-center gap-2"
+      >
+        {resending ? <Loader2 className="animate-spin" size={18} /> : "Resend Approval Email"}
       </button>
     </div>
   );

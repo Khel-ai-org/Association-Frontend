@@ -377,21 +377,50 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                         </span>
                       </td>
                       <td className="py-4 px-3">
-                        {row.isLinked ? (
+                        {row.type === 'Live' ? (
+                          // Match is actually in progress — go straight to scoring-frontend's
+                          // scorer page, not its matches list.
                           <button
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              if (tournament?.externalTournamentId) {
-                                window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/tournament/${tournament.externalTournamentId}`;
-                              }
+                              const isTest = String(row.fixture?.match?.match_type || '').toLowerCase() === 'test';
+                              window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/${isTest ? 'testScorer' : 'scorer'}/${row.fixture?.match_id}`;
                             }}
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 underline text-xs font-semibold"
                           >
                             <CalendarClock className="w-3.5 h-3.5" /> Start Scoring →
                           </button>
+                        ) : row.type === 'Finished' || row.type === 'Abandoned' ? (
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const isTest = String(row.fixture?.match?.match_type || '').toLowerCase() === 'test';
+                              window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/${isTest ? 'testScoreboard' : 'scoreboard'}/${row.fixture?.match_id}`;
+                            }}
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 underline text-xs font-semibold"
+                          >
+                            <CalendarClock className="w-3.5 h-3.5" /> View Scoreboard →
+                          </button>
                         ) : row.type === 'Expired' ? (
                           <span className="text-slate-400 text-xs font-semibold">Expired — no longer schedulable</span>
+                        ) : row.isLinked ? (
+                          // Scheduled (ground/date set, match record exists) but toss hasn't
+                          // been recorded yet — send them to scoring-frontend's matches page
+                          // with a signal to open that match's Toss modal directly.
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (tournament?.externalTournamentId) {
+                                window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/tournament/${tournament.externalTournamentId}?openToss=${row.fixture?.match_id}`;
+                              }
+                            }}
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 underline text-xs font-semibold"
+                          >
+                            <CalendarClock className="w-3.5 h-3.5" /> Start Match →
+                          </button>
                         ) : (
                           <button
                             onClick={(e) => {

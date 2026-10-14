@@ -49,6 +49,14 @@ export default function OTPVerification({ email, onSuccess, onBack }: OTPProps) 
     // Auto-focus next
     if (value && index < 5) inputRefs.current[index + 1]?.focus();
   };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Backspace on an already-empty box moves focus back instead of doing
+    // nothing — matches the forward auto-focus behavior on entry.
+    if (e.key === "Backspace" && !otp[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
 const handleVerify = async () => {
     const code = otp.join("");
     try {
@@ -137,6 +145,7 @@ const handleVerify = async () => {
             maxLength={1}
             value={digit}
             onChange={(e) => handleChange(index, e.target.value)}
+            onKeyDown={(e) => handleKeyDown(index, e)}
             ref={(el) => { inputRefs.current[index] = el; }}
             className="w-14 h-16 text-black text-center text-2xl font-semibold border border-gray-300 rounded-lg focus:border-black focus:outline-none"
           />
