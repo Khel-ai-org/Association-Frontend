@@ -46,7 +46,7 @@ interface AppealData {
 
 interface ActiveFilter {
   id: string;
-  category: 'ball' | 'appeal' | 'batsman';
+  category: 'ball' | 'appeal' | 'batsman' | 'moment';
   label: string;
 }
 
@@ -378,7 +378,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           const soBalls = data.superover_balls || [];
           setInningBalls(balls);
           setSuperoverBalls(soBalls);
-          if (balls.length > 0) setSelectedBallData(balls[0]);
+          setSelectedBallData(balls.length > 0 ? balls[0] : null);
         }
       } catch (err) {
         console.error("Ball Fetch Error:", err);
@@ -453,12 +453,18 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     setIsBatsmanDropdownOpen(false);
   }, [activeInnings]);
 
+  // "1,3" (or "1.3") in the over search = that exact ball, using the same
+  // "over.ball" numbering as ball.over_number (1.3 = 2nd over, 3rd ball).
+  const exactBallQuery = useMemo(() => {
+    const m = searchTerm.trim().match(/^(\d+)\s*[,.]\s*(\d+)$/);
+    return m ? { over: parseInt(m[1], 10), ball: parseInt(m[2], 10) } : null;
+  }, [searchTerm]);
+
   const filteredBalls = useMemo(() => {
     const activeFilters = Object.keys(filters).filter(key => filters[key]);
     const activeAppealFilters = Object.keys(appealFilters).filter(key => appealFilters[key]);
 
     const celebSearch = celebrationSearch.trim().toLowerCase();
-    const playerSearch = searchTerm.trim().toLowerCase();
     const pSearch = playerSearchTerm.trim().toLowerCase();
     const bFilter = selectedBatsman.trim().toLowerCase();
 
@@ -466,9 +472,16 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       // Batsman Dropdown Filter
       const matchesSelectedBatsman = !bFilter || ball.batsman_name?.trim().toLowerCase() === bFilter;
 
-      const matchesName = !playerSearch || 
-        ball.batsman_name?.toLowerCase().includes(playerSearch) || 
-        ball.bowler_name?.toLowerCase().includes(playerSearch);
+      // The "Search over..." box only narrows the timeline rows (see
+      // filteredTimelineKeys) — it must not also filter balls by player name,
+      // or typing an over number empties every row.
+      const matchesName = true;
+
+      const matchesExactBall = !exactBallQuery || (() => {
+        if (ball.isSuperOver) return false;
+        const [o, b] = String(ball.over_number).split('.').map(Number);
+        return o === exactBallQuery.over && b === exactBallQuery.ball;
+      })();
       
       const matchesPlayerName = !pSearch || 
         ball.batsman_name?.toLowerCase().includes(pSearch) || 
@@ -524,9 +537,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             return false;
           }));
 
-      return matchesSelectedBatsman && matchesName && matchesPlayerName && matchesCelebration && matchesStandard && matchesAppeal;
+      return matchesSelectedBatsman && matchesName && matchesExactBall && matchesPlayerName && matchesCelebration && matchesStandard && matchesAppeal;
     });
-  }, [allBalls, filters, appealFilters, appealLookup, scorecard, celebrationSearch, searchTerm, playerSearchTerm, selectedBatsman]);
+  }, [allBalls, filters, appealFilters, appealLookup, scorecard, celebrationSearch, playerSearchTerm, selectedBatsman, exactBallQuery]);
 
   // When filteredBalls changes, if the selected ball is no longer in view, select the first filtered ball
   useEffect(() => {
@@ -537,6 +550,11 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       }
     }
   }, [selectedBatsman, filteredBalls]);
+
+  // Jump the Ball Details panel to the ball that an exact "over,ball" search found.
+  useEffect(() => {
+    if (exactBallQuery && filteredBalls.length > 0) setSelectedBallData(filteredBalls[0]);
+  }, [exactBallQuery, filteredBalls]);
 
   const ballTimeline = useMemo(() => {
     const map: Record<string, any[]> = {};
@@ -566,12 +584,19 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const filteredTimelineKeys = useMemo(() => {
     const allKeys = sortedTimelineKeys;
-    if (!searchTerm.trim()) return allKeys;
+    // Exact-ball search already narrowed the balls themselves.
+    if (exactBallQuery) return allKeys;
+    const wanted = searchTerm.replace(/\D/g, '');
+    if (!wanted) return allKeys;
+    // Exact over number ("1" -> Over 1 only, not Over 10/11...); super-over
+    // rows are matched only when the query starts with "so".
+    const wantSuper = searchTerm.trim().toLowerCase().startsWith('so');
     return allKeys.filter(key => {
-      const keyNumber = key.replace(/\D/g, ''); 
-      return keyNumber.includes(searchTerm.trim());
+      const isSuper = key.startsWith('SO');
+      if (isSuper !== wantSuper) return false;
+      return String(parseInt(key.replace(/\D/g, ''), 10)) === String(parseInt(wanted, 10));
     });
-  }, [sortedTimelineKeys, searchTerm]);
+  }, [sortedTimelineKeys, searchTerm, exactBallQuery]);
 
   const getBallDisplay = (ball: any) => {
     let label = ball.total_runs.toString();
@@ -639,6 +664,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     if (selectedBatsman) {
       active.push({ id: selectedBatsman, category: 'batsman', label: `Batsman: ${selectedBatsman}` });
     }
+    if (celebrationSearch.trim()) {
+      active.push({ id: celebrationSearch, category: 'moment', label: `Key Moment: ${celebrationSearch.split('_').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}` });
+    }
     Object.entries(filters).forEach(([key, value]) => {
       if (value) active.push({ id: key, category: 'ball', label: key });
     });
@@ -646,7 +674,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       if (value) active.push({ id: key, category: 'appeal', label: key });
     });
     return active;
-  }, [filters, appealFilters, selectedBatsman]);
+  }, [filters, appealFilters, selectedBatsman, celebrationSearch]);
 
   const renderFilterContent = () => (
     <div className="space-y-1 text-slate-900">
@@ -873,7 +901,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             {superOvers.length > 0 && (
               <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold uppercase tracking-wider">Super Over</span>
             )}
-            <span>{finalResult || 'South Africa Defeated England By 4 Wickets'}</span>
+            {finalResult && <span>{finalResult}</span>}
           </div>
 
           <div className="h-8 w-[1px] bg-slate-200 hidden lg:block" />
@@ -911,6 +939,14 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             >
               {isViewMore ? 'View Less' : 'View More'} 
               {isViewMore ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="flex items-center gap-1 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 w-full sm:w-auto justify-center cursor-pointer"
+            >
+              <RefreshCwIcon className="w-4 h-4" />
+              Refresh
             </button>
           </div>
         </div>
@@ -975,7 +1011,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input 
                 type="text" 
-                placeholder="Search over..." 
+                placeholder="Search over (e.g. 1,3)" 
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full sm:w-36 md:w-44 pl-9 pr-4 py-2 text-gray-900 bg-slate-50 border border-slate-100 rounded-lg text-sm outline-none focus:ring-1 ring-blue-500" 
@@ -1215,8 +1251,18 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                     setShowSuggestions(true);
                   }}
                   onFocus={() => setShowSuggestions(true)}
-                  className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 ring-blue-500 text-gray-900"
+                  className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 ring-blue-500 text-gray-900"
                 />
+                {(displayValue || celebrationSearch) && (
+                  <button
+                    type="button"
+                    aria-label="Clear key moment search"
+                    onClick={() => { setCelebrationSearch(""); setDisplayValue(""); setShowSuggestions(false); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               {showSuggestions && (
@@ -1259,6 +1305,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                 setTempAppealFilters(clearedAppeals);
                 setSelectedBatsman("");
                 setPlayerSearchTerm("");
+                setCelebrationSearch("");
+                setDisplayValue("");
+                setShowSuggestions(false);
               }}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-500 hover:text-slate-900 border border-slate-200 rounded-lg"
             >
@@ -1277,6 +1326,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                         onClick={() => {
                           if (filter.category === 'batsman') {
                             setSelectedBatsman("");
+                          } else if (filter.category === 'moment') {
+                            setCelebrationSearch("");
+                            setDisplayValue("");
                           } else if (filter.category === 'ball') {
                             setFilters(prev => ({ ...prev, [filter.id]: false }));
                             setDraftFilters(prev => ({ ...prev, [filter.id]: false }));
@@ -1352,6 +1404,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               )}
 
               <h3 className="font-bold text-slate-900 mb-6">Ball Details</h3>
+              {!selectedBallData ? (
+                <p className="py-10 text-center text-sm text-slate-400 italic">
+                  No ball data yet — details appear once scoring begins.
+                </p>
+              ) : (
+              <>
               <div className="flex justify-between items-center mb-8 border-b border-gray-100 pb-4">
                 <div>
                   <p className="text-md text-slate-600 mb-1">
@@ -1359,7 +1417,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                     <span className="text-lg font-semibold text-slate-900">
                       {selectedBallData?.isSuperOver 
                         ? ` : SO${selectedBallData?.superover_number || '1'} (${selectedBallData?.over_number})` 
-                        : ` : ${selectedBallData?.over_number || '0.1'}`
+                        : ` : ${selectedBallData?.over_number || '—'}`
                       }
                     </span>
                   </p>
@@ -1372,22 +1430,21 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
               <div className="flex items-center justify-between bg-slate-50/50 p-4 rounded-xl mb-6 border-b border-gray-100">
                 <div className="text-center">
-                  <p className="text-[10px] text-slate-600 uppercase font-bold mb-1">Batsman</p>
-                  <p className="font-bold text-slate-900">{selectedBallData?.batsman_name || 'R. Sharma'}</p>
+                  <p className="text-[10px] text-slate-600 uppercase font-bold mb-1">Bowler</p>
+                  <p className="font-bold text-slate-900">{selectedBallData?.bowler_name || '—'}</p>
                 </div>
                 <span className="text-slate-600 font-bold italic">VS</span>
                 <div className="text-center">
-                  <p className="text-[10px] text-slate-600 uppercase font-bold mb-1">Bowler</p>
-                  <p className="font-bold text-slate-900">{selectedBallData?.bowler_name || 'M. Starc'}</p>
+                  <p className="text-[10px] text-slate-600 uppercase font-bold mb-1">Batsman</p>
+                  <p className="font-bold text-slate-900">{selectedBallData?.batsman_name || '—'}</p>
                 </div>
               </div>
 
               <div className="space-y-4">
                 {[
-                  { l: 'Variation', v: selectedBallData?.balling_variation || '145.2 Km/h' },
-                  { l: 'Length', v: selectedBallData?.balling_length || 'Good Length' },
-                  { l: 'Area', v: selectedBallData?.fielding_type || 'Outside Off' },
-                  { l: 'Shot Type', v: selectedBallData?.shot_type || 'Square Cut' },
+                  { l: 'Length', v: selectedBallData?.balling_length || '—' },
+                  { l: 'Area', v: selectedBallData?.fielding_type || '—' },
+                  { l: 'Shot Type', v: selectedBallData?.shot_type || '—' },
                   { l: 'Wicket', v: selectedBallData?.is_wicket ? `Yes (${selectedBallData.wicket_type})` : 'No' },
                   { l: 'Extra Runs', v: selectedBallData?.extra_runs || 0 },
                 ].map((item, i) => (
@@ -1411,6 +1468,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                     Analyse Ball
                   </button>
                 </Link>
+              )}
+              </>
               )}
             </div>
           </div>

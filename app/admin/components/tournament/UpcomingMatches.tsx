@@ -61,6 +61,12 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [scheduleFixture, setScheduleFixture] = useState<Fixture | null>(null);
+  // Ticks so a scheduled match's "Starts at ..." flips to "Start Match" on its own.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, []);
 
   const itemsPerPage = 12;
   const filters = ['All', 'Live', 'Upcoming', 'Expired', 'Finished', 'Abandoned'];
@@ -201,7 +207,11 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
       // has already ended — surface that as its own state instead of
       // silently calling it "Upcoming" forever.
       const tournamentEnded = !!tournament?.endDate && new Date(tournament.endDate) < new Date();
-      const matchDatePassed = !!fixture.scheduled_date && new Date(fixture.scheduled_date) < new Date();
+      // Compare against the end of the scheduled (local) day — the match must
+      // still be startable after its scheduled time today.
+      const scheduledDay = fixture.scheduled_date ? new Date(fixture.scheduled_date) : null;
+      if (scheduledDay) scheduledDay.setHours(23, 59, 59, 999);
+      const matchDatePassed = !!scheduledDay && scheduledDay < new Date();
       if (type === 'Upcoming' && (matchDatePassed || tournamentEnded)) {
         statusLabel = 'Expired';
         badgeColor = 'bg-amber-600';
@@ -215,7 +225,9 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         team1,
         team2,
         date: fixture.scheduled_date,
-        time: fixture.scheduled_date ? new Date(fixture.scheduled_date).toLocaleDateString('en-GB') : 'TBD',
+        time: fixture.scheduled_date
+          ? `${new Date(fixture.scheduled_date).toLocaleDateString('en-GB')}, ${new Date(fixture.scheduled_date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+          : 'TBD',
         statusLabel,
         badgeColor,
         type,
@@ -405,6 +417,11 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                           </button>
                         ) : row.type === 'Expired' ? (
                           <span className="text-slate-400 text-xs font-semibold">Expired — no longer schedulable</span>
+                        ) : row.isLinked && row.date && new Date(row.date).getTime() > now ? (
+                          // Scheduled time hasn't arrived yet — can't start the match.
+                          <span className="text-slate-500 text-xs font-semibold">
+                            Starts at {new Date(row.date).toLocaleDateString('en-GB')}, {new Date(row.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
                         ) : row.isLinked ? (
                           // Scheduled (ground/date set, match record exists) but toss hasn't
                           // been recorded yet — send them to scoring-frontend's matches page
@@ -505,6 +522,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         tournamentId={tournamentId || ''}
         tournamentExternalId={tournament?.externalTournamentId || ''}
         grounds={tournament?.grounds || []}
+        allFixtures={fixtures}
         tournamentStartDate={tournament?.startDate}
         tournamentEndDate={tournament?.endDate}
         onScheduled={() => {

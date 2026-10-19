@@ -19,6 +19,8 @@ interface ScheduleMatchModalProps {
   // Tournament's own date range — the match can't be scheduled outside it.
   tournamentStartDate?: string;
   tournamentEndDate?: string;
+  // All fixtures of the tournament — used to warn about clashing schedules.
+  allFixtures?: Fixture[];
 }
 
 export default function ScheduleMatchModal({
@@ -31,8 +33,10 @@ export default function ScheduleMatchModal({
   onScheduled,
   tournamentStartDate,
   tournamentEndDate,
+  allFixtures = [],
 }: ScheduleMatchModalProps) {
   const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
   // `<input type="date">` needs a plain "YYYY-MM-DD", not a full ISO timestamp.
   const minDate = tournamentStartDate ? tournamentStartDate.slice(0, 10) : undefined;
   const maxDate = tournamentEndDate ? tournamentEndDate.slice(0, 10) : undefined;
@@ -41,6 +45,8 @@ export default function ScheduleMatchModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  // Non-empty = a schedule clash is blocking submission; user must change the slot or cancel.
+  const [conflicts, setConflicts] = useState<string[]>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -48,6 +54,7 @@ export default function ScheduleMatchModal({
       // rather than one being silently defaulted for them.
       setSelectedGroundId('');
       setGroundDropdownOpen(false);
+      setConflicts([]);
     }
   }, [isOpen, fixture]);
 
@@ -65,6 +72,8 @@ export default function ScheduleMatchModal({
 
   const resetAndClose = () => {
     setScheduleDate('');
+    setScheduleTime('');
+    setConflicts([]);
     setError('');
     onClose();
   };
@@ -72,6 +81,10 @@ export default function ScheduleMatchModal({
   const handleSubmit = async () => {
     if (!scheduleDate) {
       setError('Please pick a schedule date.');
+      return;
+    }
+    if (!scheduleTime) {
+      setError('Please pick a schedule time.');
       return;
     }
     if (minDate && scheduleDate < minDate) {
@@ -91,6 +104,47 @@ export default function ScheduleMatchModal({
       return;
     }
 
+    // Backend requires an ISO-8601 date-time with an explicit offset; build it
+    // from the user's local date + time and send as UTC ("Z").
+    const scheduledAt = new Date(`${scheduleDate}T${scheduleTime}`);
+    if (isNaN(scheduledAt.getTime())) {
+      setError('Invalid schedule date or time.');
+      return;
+    }
+    const scheduledIso = scheduledAt.toISOString();
+
+    {
+      const sameDay = (iso: string) => {
+        const d = new Date(iso);
+        return (
+          d.getFullYear() === scheduledAt.getFullYear() &&
+          d.getMonth() === scheduledAt.getMonth() &&
+          d.getDate() === scheduledAt.getDate()
+        );
+      };
+      const myTeams = [fixture.home_team?.id, fixture.away_team?.id].filter(Boolean);
+      const groundName = grounds.find((g) => g.id === selectedGroundId)?.name || 'this ground';
+      const found: string[] = [];
+      for (const other of allFixtures) {
+        if (other.id === fixture.id || !other.scheduled_date || !sameDay(other.scheduled_date)) continue;
+        const otherName = `Match ${other.match_number} (${other.home_team?.name || 'TBD'} vs ${other.away_team?.name || 'TBD'})`;
+        const shared = [other.home_team, other.away_team].filter((t) => t && myTeams.includes(t.id));
+        const sameGround = other.venue === selectedGroundId;
+        if (shared.length > 0) {
+          found.push(
+            `${shared.map((t) => t!.name).join(' & ')} already play${shared.length === 1 ? 's' : ''} on this day in ${otherName}${sameGround ? ` at ${groundName}` : ''}.`
+          );
+        } else if (sameGround) {
+          found.push(`${groundName} is already used on this day by ${otherName}.`);
+        }
+      }
+      if (found.length > 0) {
+        setConflicts(found);
+        return;
+      }
+    }
+    setConflicts([]);
+
     setSubmitting(true);
     setError('');
     try {
@@ -105,7 +159,7 @@ export default function ScheduleMatchModal({
           method: 'PATCH',
           headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            scheduled_date: scheduleDate,
+            scheduled_date: scheduledIso,
             venue: grounds.find((g) => g.id === selectedGroundId)?.name || 'Unknown Ground',
             venue_id: selectedGroundId,
           }),
@@ -127,7 +181,7 @@ export default function ScheduleMatchModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: `${fixture.home_team?.name || 'TBD'} vs ${fixture.away_team?.name || 'TBD'}`,
-          date: scheduleDate,
+          date: scheduledIso,
           tournament_id: tournamentId,
           ground_id: selectedGroundId,
           scoring_match_id: fixture.id,
@@ -185,6 +239,16 @@ export default function ScheduleMatchModal({
                 </p>
               )}
             </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-500 mb-1.5">Schedule Time</label>
+              <input
+                type="time"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700 cursor-pointer"
+                value={scheduleTime}
+                onChange={(e) => setScheduleTime(e.target.value)}
+                onClick={(e) => e.currentTarget.showPicker?.()}
+              />
+            </div>
             <div className="relative">
               <label className="block text-sm font-semibold text-slate-500 mb-1.5">Ground</label>
               {grounds.length > 0 ? (
@@ -232,13 +296,34 @@ export default function ScheduleMatchModal({
 
             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
 
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="w-full bg-[#0F1117] text-white py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-50"
-            >
-              {submitting ? 'Scheduling...' : 'Done'}
-            </button>
+            {conflicts.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+                <p className="font-bold">Schedule clash detected</p>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {conflicts.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+                <p className="font-semibold pt-1">This match can't be scheduled in this slot. Pick a different date, time or ground.</p>
+              </div>
+            )}
+
+            {conflicts.length > 0 ? (
+              <button
+                onClick={() => setConflicts([])}
+                className="w-full border border-slate-200 text-slate-700 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-50 transition-all"
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="w-full bg-[#0F1117] text-white py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-50"
+              >
+                {submitting ? 'Scheduling...' : 'Done'}
+              </button>
+            )}
           </div>
         </div>
       </div>
