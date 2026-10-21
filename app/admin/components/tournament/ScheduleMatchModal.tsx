@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { X, CalendarDays, ChevronDown } from 'lucide-react';
+import { X, CalendarDays, ChevronDown, Clock } from 'lucide-react';
 import { Fixture, Ground } from '../../types/tournament';
 import StatusModal from '@/app/components/auth/StatusModal';
 
@@ -37,6 +37,27 @@ export default function ScheduleMatchModal({
 }: ScheduleMatchModalProps) {
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
+  // Clock-style picker (same as scoring-frontend's friendly-match form): pick the
+  // hour on the dial, then the minute in 15-minute steps, plus AM / PM.
+  const [showClock, setShowClock] = useState(false);
+  const [clockStep, setClockStep] = useState<'hour' | 'minute'>('hour');
+  const [clockHour, setClockHour] = useState<number | null>(null); // 1-12
+  const [clockAmPm, setClockAmPm] = useState<'AM' | 'PM'>('PM');
+  const formatTimeLabel = (value: string) => {
+    if (!value) return '';
+    const [h, m] = value.split(':').map(Number);
+    return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  };
+  const pickMinute = (minute: number) => {
+    if (clockHour === null) return;
+    const h24 = (clockHour % 12) + (clockAmPm === 'PM' ? 12 : 0);
+    setScheduleTime(`${String(h24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+    setShowClock(false);
+  };
+  const dialPosition = (index: number, total: number, radius: number) => {
+    const angle = (index / total) * 2 * Math.PI - Math.PI / 2;
+    return { left: `calc(50% + ${Math.cos(angle) * radius}px)`, top: `calc(50% + ${Math.sin(angle) * radius}px)` };
+  };
   // `<input type="date">` needs a plain "YYYY-MM-DD", not a full ISO timestamp.
   const minDate = tournamentStartDate ? tournamentStartDate.slice(0, 10) : undefined;
   const maxDate = tournamentEndDate ? tournamentEndDate.slice(0, 10) : undefined;
@@ -73,6 +94,7 @@ export default function ScheduleMatchModal({
   const resetAndClose = () => {
     setScheduleDate('');
     setScheduleTime('');
+    setShowClock(false);
     setConflicts([]);
     setError('');
     onClose();
@@ -241,13 +263,85 @@ export default function ScheduleMatchModal({
             </div>
             <div>
               <label className="block text-sm font-semibold text-slate-500 mb-1.5">Schedule Time</label>
-              <input
-                type="time"
-                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700 cursor-pointer"
-                value={scheduleTime}
-                onChange={(e) => setScheduleTime(e.target.value)}
-                onClick={(e) => e.currentTarget.showPicker?.()}
-              />
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setClockStep('hour');
+                    setShowClock((o) => !o);
+                  }}
+                  className={`w-full px-4 py-3 rounded-xl border border-slate-200 outline-none text-sm flex items-center justify-between gap-2 hover:border-slate-300 transition-all cursor-pointer ${scheduleTime ? 'text-gray-700' : 'text-gray-400'}`}
+                >
+                  <span>{scheduleTime ? formatTimeLabel(scheduleTime) : 'Select time'}</span>
+                  <Clock className="w-4 h-4 text-slate-500" />
+                </button>
+
+                {showClock && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowClock(false)} />
+                    <div className="absolute right-0 bottom-full mb-2 z-50 w-[260px] bg-white border border-slate-100 rounded-2xl shadow-2xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-bold text-slate-900">
+                          {clockStep === 'hour' ? 'Select hour' : 'Select minutes'}
+                          {clockHour !== null && (
+                            <span className="ml-2 text-[#5D5FEF]">{clockHour}:{clockStep === 'minute' ? '--' : ''}</span>
+                          )}
+                        </p>
+                        <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                          {(['AM', 'PM'] as const).map((p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setClockAmPm(p)}
+                              className={`px-2.5 py-1 rounded-md text-xs font-bold transition ${clockAmPm === p ? 'bg-[#5D5FEF] text-white' : 'text-slate-500'}`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="relative mx-auto w-[220px] h-[220px] rounded-full bg-slate-50 border border-slate-100">
+                        <span className="absolute w-2 h-2 rounded-full bg-[#5D5FEF] -translate-x-1/2 -translate-y-1/2" style={{ left: '50%', top: '50%' }} />
+                        {clockStep === 'hour'
+                          ? Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+                              <button
+                                key={h}
+                                type="button"
+                                onClick={() => {
+                                  setClockHour(h);
+                                  setClockStep('minute');
+                                }}
+                                style={dialPosition(h, 12, 88)}
+                                className={`absolute w-9 h-9 -translate-x-1/2 -translate-y-1/2 rounded-full text-sm font-semibold transition ${
+                                  clockHour === h ? 'bg-[#5D5FEF] text-white' : 'text-slate-800 hover:bg-indigo-100'
+                                }`}
+                              >
+                                {h}
+                              </button>
+                            ))
+                          : [0, 15, 30, 45].map((m, i) => (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => pickMinute(m)}
+                                style={dialPosition(i, 4, 80)}
+                                className="absolute w-11 h-11 -translate-x-1/2 -translate-y-1/2 rounded-full text-sm font-bold text-slate-800 hover:bg-[#5D5FEF] hover:text-white transition bg-white border border-slate-200"
+                              >
+                                {String(m).padStart(2, '0')}
+                              </button>
+                            ))}
+                      </div>
+
+                      {clockStep === 'minute' && (
+                        <button type="button" onClick={() => setClockStep('hour')} className="mt-3 w-full text-xs font-semibold text-slate-500 hover:text-black">
+                          ← Change hour
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
             <div className="relative">
               <label className="block text-sm font-semibold text-slate-500 mb-1.5">Ground</label>

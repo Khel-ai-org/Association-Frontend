@@ -18,6 +18,7 @@ interface Player {
   country?: string;
   batting_hand?: string;
   bowling_type?: string;
+  role?: string;
   district?: { name: string } | string;
   club?: { name: string } | string;
   registrations?: {
@@ -67,6 +68,7 @@ const initialRegisterForm = {
   country: '',
   batting_hand: '',
   bowling_type: '',
+  role: '',
 };
 
 const initialEditForm = {
@@ -77,6 +79,7 @@ const initialEditForm = {
   country: '',
   batting_hand: '',
   bowling_type: '',
+  role: '',
 };
 
 // Helper function to sanitize phone numbers into valid E.164 format for react-phone-number-input
@@ -149,8 +152,20 @@ const ActivePlayers = () => {
   // Dropdowns for Register Modal additional fields
   const [registerBattingHandDropdownOpen, setRegisterBattingHandDropdownOpen] = useState(false);
   const [registerBowlingTypeDropdownOpen, setRegisterBowlingTypeDropdownOpen] = useState(false);
+  const [registerRoleDropdownOpen, setRegisterRoleDropdownOpen] = useState(false);
+  const [editRoleDropdownOpen, setEditRoleDropdownOpen] = useState(false);
 
   const battingHandOptions = ["Right Handed", "Left Handed"];
+
+  // Mirrors the backend's TeamPlayerRole enum.
+  const roleOptions = [
+    "Batter",
+    "Bowler",
+    "Batting All Rounder",
+    "Bowling All Rounder",
+    "All Rounder",
+    "WK-Batter",
+  ];
   
   const paceOptions = [
     "Right Arm Fast",
@@ -462,6 +477,7 @@ const ActivePlayers = () => {
       };
       if (registerForm.batting_hand) payload.batting_hand = registerForm.batting_hand;
       if (registerForm.bowling_type) payload.bowling_type = registerForm.bowling_type;
+      if (registerForm.role) payload.role = registerForm.role;
 
       const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/kca/register/first-time`, {
         method: 'POST',
@@ -513,6 +529,7 @@ const ActivePlayers = () => {
       };
       if (editForm.batting_hand) payload.batting_hand = editForm.batting_hand;
       if (editForm.bowling_type) payload.bowling_type = editForm.bowling_type;
+      if (editForm.role) payload.role = editForm.role;
 
       const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/kca/players/${selectedPlayer.id}`, {
         method: 'PATCH',
@@ -689,6 +706,7 @@ const ActivePlayers = () => {
                               country: player.country || '',
                               batting_hand: player.batting_hand || '',
                               bowling_type: player.bowling_type || '',
+                              role: player.role || '',
                             });
                             setActiveModal('edit');
                           }}
@@ -1246,6 +1264,32 @@ const ActivePlayers = () => {
               </div>
 
               <div className="relative">
+                <label className="block text-xs font-bold text-gray-900 mb-2">Role</label>
+                <div
+                  onClick={() => setRegisterRoleDropdownOpen(!registerRoleDropdownOpen)}
+                  className="w-full p-4 bg-[#FAFBFF] border border-[#E5F0FF] rounded-xl text-sm text-gray-900 flex justify-between items-center cursor-pointer"
+                >
+                  <span className={`truncate ${registerForm.role ? "text-gray-900" : "text-gray-400"}`}>
+                    {registerForm.role || "Select Role"}
+                  </span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+                {registerRoleDropdownOpen && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    {roleOptions.map((opt) => (
+                      <div
+                        key={opt}
+                        onClick={() => { setRegisterForm({ ...registerForm, role: opt }); setRegisterRoleDropdownOpen(false); }}
+                        className={`p-3 text-sm hover:bg-gray-50 cursor-pointer text-gray-900 ${registerForm.role === opt ? 'bg-gray-50 font-semibold' : ''}`}
+                      >
+                        {opt}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="relative">
                 <label className="block text-xs font-bold text-gray-900 mb-2">Season</label>
                 <div
                   onClick={() => setRegisterSeasonDropdownOpen(!registerSeasonDropdownOpen)}
@@ -1477,6 +1521,32 @@ const ActivePlayers = () => {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="relative">
+                <label className="block text-xs font-bold text-gray-900 mb-2">Role</label>
+                <div
+                  onClick={() => setEditRoleDropdownOpen(!editRoleDropdownOpen)}
+                  className="w-full p-4 bg-[#FAFBFF] border border-[#E5F0FF] rounded-xl text-sm text-gray-900 flex justify-between items-center cursor-pointer"
+                >
+                  <span className={`truncate ${editForm.role ? "text-gray-900" : "text-gray-400"}`}>
+                    {editForm.role || "Select Role"}
+                  </span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+                {editRoleDropdownOpen && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    {roleOptions.map((opt) => (
+                      <div
+                        key={opt}
+                        onClick={() => { setEditForm({ ...editForm, role: opt }); setEditRoleDropdownOpen(false); }}
+                        className={`p-3 text-sm hover:bg-gray-50 cursor-pointer text-gray-900 ${editForm.role === opt ? 'bg-gray-50 font-semibold' : ''}`}
+                      >
+                        {opt}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {editErrors.submit && <p className="text-red-500 text-sm text-center">{editErrors.submit}</p>}
