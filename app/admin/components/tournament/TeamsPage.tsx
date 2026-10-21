@@ -298,6 +298,14 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
                   {(team.shortName || team.name || '?').substring(0, 2).toUpperCase()}
                 </div>
                 <p className="text-sm font-semibold text-slate-800 leading-tight">{team.name}</p>
+                {fixturesExist && (team.team_id || team.team?.id) && (
+                  <button
+                    onClick={() => router.push(`/admin/tournament/${tournamentId}/teams/${team.team_id || team.team?.id}/squad`)}
+                    className="mt-3 flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-[#0F1117] hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" /> Add Players
+                  </button>
+                )}
               </div>
             ))
           ) : (
