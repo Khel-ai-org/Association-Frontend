@@ -63,11 +63,21 @@ export default function ActiveTournaments() {
         const weightB = getStatusWeight(bStart, bEnd);
 
         if (weightA !== weightB) return weightA - weightB;
+        // Live (weight 0): most recently created first.
+        if (weightA === 0) {
+          const aCreated = new Date(a.createdAt).getTime() || 0;
+          const bCreated = new Date(b.createdAt).getTime() || 0;
+          return bCreated - aCreated;
+        }
         // Completed (weight 2): most recently ended first. Live/Upcoming:
         // unchanged — soonest to start first.
-        return weightA === 2
-          ? bEnd.getTime() - aEnd.getTime()
-          : aStart.getTime() - bStart.getTime();
+        if (weightA === 2) {
+          // Most recently ended first; ties broken by most recently created.
+          const byEnd = bEnd.getTime() - aEnd.getTime();
+          if (byEnd !== 0) return byEnd;
+          return (new Date(b.createdAt).getTime() || 0) - (new Date(a.createdAt).getTime() || 0);
+        }
+        return aStart.getTime() - bStart.getTime();
       });
 
       setTournaments(sortedData);
@@ -156,7 +166,7 @@ export default function ActiveTournaments() {
       {/* Grid Layout (4 Cols, 3 Rows Max per page) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {currentItems.length > 0 ? (
-          currentItems.map((t) => {
+          currentItems.map((t, index) => {
             const lifecycleStatus = getTournamentLifecycleStatus(t.startDate, t.endDate);
             const isLive = lifecycleStatus === 'LIVE';
             const progress = getProgress(t.startDate, t.endDate);
@@ -172,6 +182,8 @@ export default function ActiveTournaments() {
                     src={stadiumImage} 
                     alt="Stadium" 
                     fill 
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                    priority={index < 4}
                     className="object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-between">

@@ -20,6 +20,48 @@ interface AnalyticsProps {
   activeRole: PlayerRole;
 }
 
+// Growth is "up" unless it is negative (the API sends e.g. "14.07%" / "-24.60%", no "+").
+const isNegativeGrowth = (growth?: string) => String(growth ?? '').trim().startsWith('-');
+
+interface TrendPoint {
+  match_id: string;
+  date: string;
+  runs?: number;
+  wickets?: number;
+}
+
+// Performance graph of a player's last 5 matches (runs for batsmen, wickets for bowlers).
+const PerformanceGraph: React.FC<{ trend?: TrendPoint[]; metric: 'runs' | 'wickets'; negative: boolean }> = ({ trend, metric, negative }) => {
+  const points = [...(trend || [])]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .slice(-5)
+    .map((t) => ({ value: Number(t[metric] ?? 0), date: t.date }));
+
+  if (points.length === 0) {
+    return <span className="text-[11px] text-slate-300">No data</span>;
+  }
+
+  const W = 100;
+  const H = 30;
+  const PAD = 4;
+  const max = Math.max(...points.map((p) => p.value), 1);
+  const x = (i: number) => (points.length === 1 ? W / 2 : PAD + (i * (W - PAD * 2)) / (points.length - 1));
+  const y = (v: number) => H - PAD - (v / max) * (H - PAD * 2);
+  const color = negative ? '#ef4444' : '#10b981';
+  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.value)}`).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full overflow-visible">
+      {points.length > 1 && <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+      {points.map((p, i) => (
+        <circle key={i} cx={x(i)} cy={y(p.value)} r="2.5" fill={color}>
+          <title>{`${new Date(p.date).toLocaleDateString('en-GB')}: ${p.value} ${metric}`}</title>
+        </circle>
+      ))}
+    </svg>
+  );
+};
+
 //  Analytics Component
 const Analytics: React.FC<AnalyticsProps> = ({ activeRole }) =>{
   
@@ -120,7 +162,9 @@ export default function DashboardStats() {
   const [activeRole, setActiveRole] = useState<PlayerRole>('Batsman');
   const [statsData, setStatsData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const tabs = ['Player Stats', 'Analytics'];
+  // Analytics tab is hidden for now.
+  // const tabs = ['Player Stats', 'Analytics'];
+  const tabs = ['Player Stats'];
 
   // Fetch data using native fetch
   useEffect(() => {
@@ -214,21 +258,17 @@ export default function DashboardStats() {
                       </td>
                       <td className="py-4 text-xs font-bold text-gray-700 text-center">{activeRole === 'Batsman' ? p.total_runs : p.total_wickets}</td>
                       <td className="py-4">
-  <div className="w-20 h-6 mx-auto">
-    <svg viewBox="0 0 100 30" className="w-full h-full">
-      {/* Check if the string starts with a '+' */}
-      <path 
-        d="M0,20 L50,5 L100,25" 
-        fill="none" 
-        stroke={p.growth.startsWith('+') ? "#10b981" : "#ef4444"} 
-        strokeWidth="3" 
-      />
-    </svg>
-  </div>
-</td>
-<td className={`py-4 text-xs font-bold text-center ${p.growth.startsWith('+') ? "text-green-500" : "text-red-500"}`}>
-  {p.growth}
-</td>
+                        <div className="w-24 h-7 mx-auto">
+                          <PerformanceGraph
+                            trend={p.performance_trend}
+                            metric={activeRole === 'Batsman' ? 'runs' : 'wickets'}
+                            negative={isNegativeGrowth(p.growth)}
+                          />
+                        </div>
+                      </td>
+                      <td className={`py-4 text-xs font-bold text-center ${isNegativeGrowth(p.growth) ? 'text-red-500' : 'text-green-500'}`}>
+                        {p.growth ?? '—'}
+                      </td>
                       <td className="py-4 text-sm font-bold text-slate-400 text-center">
                         {activeRole === 'Batsman' ? p.strike_rate : p.economy}
                       </td>
@@ -240,7 +280,7 @@ export default function DashboardStats() {
           </div>
         )}
         
-        {activeTab === 'Analytics' && <Analytics activeRole={activeRole} />}
+        {/* {activeTab === 'Analytics' && <Analytics activeRole={activeRole} />} */}
       </div>
     </div>
   );

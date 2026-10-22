@@ -90,6 +90,7 @@ export interface Batsman {
   is_captain?: boolean;
   is_vice_captain?: boolean;
   is_wicket_keeper?: boolean;
+  is_secondary_wicket_keeper?: boolean;
   status?: string;
   is_substituted?: boolean;
 }
@@ -111,6 +112,7 @@ export interface Bowler {
   is_captain?: boolean;
   is_vice_captain?: boolean;
   is_wicket_keeper?: boolean;
+  is_secondary_wicket_keeper?: boolean;
   status?: string;
   is_substituted?: boolean;
 }
@@ -243,7 +245,7 @@ const getSoInnings = (main: MatchLikeScorecard | null, so: MatchLikeScorecard, s
   return side === '1st' ? so.innings_1 : so.innings_2;
 };
 
-type PlayerFlags = Pick<Batsman, 'status' | 'is_substituted' | 'is_captain' | 'is_wicket_keeper'>;
+type PlayerFlags = Pick<Batsman, 'status' | 'is_substituted' | 'is_captain' | 'is_wicket_keeper' | 'is_secondary_wicket_keeper'>;
 
 // Badges: C for captain, WK for wicket-keeper (from `is_wicket_keeper`, not
 // the `role` string), IP for impact player, SUB for substitutes. VC removed.
@@ -251,7 +253,8 @@ const getPlayerBadges = (p: PlayerFlags): string[] => {
   const status = (p.status || '').toLowerCase();
   const badges: string[] = [];
   if (p.is_captain) badges.push('C');
-  if (p.is_wicket_keeper) badges.push('WK');
+  // The secondary wicket-keeper shows the same plain WK badge
+  if (p.is_wicket_keeper || p.is_secondary_wicket_keeper) badges.push('WK');
   if (status === 'impact_player') badges.push('IP');
   if (status === 'substitute') badges.push('SUB');
   return badges;

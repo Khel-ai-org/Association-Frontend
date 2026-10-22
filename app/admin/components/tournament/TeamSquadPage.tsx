@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, ChevronDown, UserPlus, Save, Search, Trash2, Users, Target, CircleDot } from 'lucide-react';
 import useGoBack from '../../hooks/useGoBack';
 import StatusModal from '@/app/components/auth/StatusModal';
+import { friendlyError } from '../../utils/friendlyError';
 
 interface TeamSquadPageProps {
   tournamentId: string;
@@ -371,7 +372,7 @@ export default function TeamSquadPage({ tournamentId, teamId }: TeamSquadPagePro
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => null);
-        setError(errData?.error || errData?.message || `We couldn't save this squad (error ${res.status}).`);
+        setError(friendlyError(errData?.error || errData?.message, "We couldn't save this squad. Please try again.", res.status));
         return;
       }
       // Reload what the server actually saved.
@@ -379,7 +380,7 @@ export default function TeamSquadPage({ tournamentId, teamId }: TeamSquadPagePro
       setShowSuccess(true);
     } catch (err) {
       console.error('Error saving squad:', err);
-      setError("We couldn't reach the server. Please check your connection and try again.");
+      setError(friendlyError('failed to fetch'));
     } finally {
       setSaving(false);
     }

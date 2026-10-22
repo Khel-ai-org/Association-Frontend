@@ -2,11 +2,13 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Search, PlusCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Search, PlusCircle, ChevronLeft, ChevronRight, Pencil, Trash2, X } from 'lucide-react';
 import { TournamentDetail, Team } from '../../types/tournament';
 import useGoBack from '../../hooks/useGoBack';
 import AddTeamsModal from './AddTeamsModal';
 import GenerateFixtureModal from './GenerateFixtureModal';
+import StatusModal from '@/app/components/auth/StatusModal';
+import { friendlyError } from '../../utils/friendlyError';
 
 interface TeamsPageProps {
   tournamentId: string;
@@ -67,6 +69,14 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
   const [standings, setStandings] = useState<StandingRow[]>([]);
   const [loadingStandings, setLoadingStandings] = useState(true);
   const itemsPerPage = 14; // 7 columns * 2 rows
+
+  // Rename / delete a team — PATCH / DELETE /tournaments/:externalId/teams/:teamId
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [editName, setEditName] = useState('');
+  const [deletingTeam, setDeletingTeam] = useState<Team | null>(null);
+  const [teamActionBusy, setTeamActionBusy] = useState(false);
+  const [teamActionError, setTeamActionError] = useState('');
+  const [teamStatus, setTeamStatus] = useState<{ type: 'success' | 'error'; title: string; message: string } | null>(null);
 
   const fetchTournament = useCallback(async () => {
     try {
@@ -177,6 +187,75 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
       setLoadingStandings(false);
     }
   }, [tournament, fetchStandings]);
+
+  const teamUrl = (team: Team) =>
+    `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournament?.externalTournamentId}/teams/${team.id}`;
+
+  const errorFrom = async (res: Response, fallback: string) => {
+    const data = await res.json().catch(() => null);
+    return friendlyError(data?.error || data?.message, fallback, res.status);
+  };
+
+  const handleRenameTeam = async () => {
+    if (!editingTeam || !tournament?.externalTournamentId) return;
+    const name = editName.trim();
+    if (!name) {
+      setTeamActionError('Team name cannot be empty.');
+      return;
+    }
+    if (name === editingTeam.name) {
+      setEditingTeam(null);
+      return;
+    }
+    setTeamActionBusy(true);
+    setTeamActionError('');
+    try {
+      const res = await fetch(teamUrl(editingTeam), {
+        method: 'PATCH',
+        headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        setTeamActionError(await errorFrom(res, "We couldn't update the team name. Please try again."));
+        return;
+      }
+      setEditingTeam(null);
+      await fetchTeams(tournament.externalTournamentId);
+      fetchStandings(tournament.externalTournamentId);
+      setTeamStatus({ type: 'success', title: 'Team Updated', message: `The team is now named "${name}".` });
+    } catch (error) {
+      console.error('Error updating team:', error);
+      setTeamActionError(friendlyError('failed to fetch'));
+    } finally {
+      setTeamActionBusy(false);
+    }
+  };
+
+  const handleDeleteTeam = async () => {
+    if (!deletingTeam || !tournament?.externalTournamentId) return;
+    setTeamActionBusy(true);
+    setTeamActionError('');
+    try {
+      const res = await fetch(teamUrl(deletingTeam), {
+        method: 'DELETE',
+        headers: { 'ngrok-skip-browser-warning': 'true' },
+      });
+      if (!res.ok) {
+        setTeamActionError(await errorFrom(res, "We couldn't delete the team. Please try again."));
+        return;
+      }
+      const deletedName = deletingTeam.name;
+      setDeletingTeam(null);
+      await fetchTeams(tournament.externalTournamentId);
+      fetchStandings(tournament.externalTournamentId);
+      setTeamStatus({ type: 'success', title: 'Team Deleted', message: `"${deletedName}" has been removed from the tournament.` });
+    } catch (error) {
+      console.error('Error deleting team:', error);
+      setTeamActionError(friendlyError('failed to fetch'));
+    } finally {
+      setTeamActionBusy(false);
+    }
+  };
 
   const calculateProgress = () => {
     if (!tournament || !tournament.startDate || !tournament.endDate) return 0;
@@ -290,7 +369,32 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
             <div className="col-span-full py-16 text-center text-slate-400 animate-pulse">Loading teams...</div>
           ) : currentItems.length > 0 ? (
             currentItems.map((team, i) => (
-              <div key={team.id} className="flex flex-col items-center text-center border border-slate-100 rounded-2xl p-4 bg-gray-50/30">
+              <div key={team.id} className="relative flex flex-col items-center text-center border border-slate-100 rounded-2xl p-4 bg-gray-50/30">
+                <div className="absolute top-2 right-2 flex items-center gap-0.5">
+                  <button
+                    onClick={() => {
+                      setEditingTeam(team);
+                      setEditName(team.name);
+                      setTeamActionError('');
+                    }}
+                    title="Edit team name"
+                    aria-label="Edit team name"
+                    className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDeletingTeam(team);
+                      setTeamActionError('');
+                    }}
+                    title="Delete team"
+                    aria-label="Delete team"
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
                 {/* <p className="text-[11px] text-slate-400 mb-2 self-start">
                   Team ID - <span className="font-semibold text-slate-600">{team.id?.slice(-6) ?? '—'}</span>
                 </p> */}
@@ -420,6 +524,92 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
           </table>
         </div>
       </div>
+
+      {/* Edit team name */}
+      {editingTeam && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white w-full max-w-[420px] rounded-[28px] shadow-2xl relative p-8">
+            <button
+              onClick={() => setEditingTeam(null)}
+              className="absolute top-5 right-5 p-2 rounded-full hover:bg-slate-100 transition-colors"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5 text-slate-400" />
+            </button>
+            <h2 className="text-xl font-bold text-slate-900 mb-5">Edit Team Name</h2>
+            <label className="block text-sm font-semibold text-slate-500 mb-1.5">Team Name</label>
+            <input
+              autoFocus
+              type="text"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleRenameTeam()}
+              className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700"
+            />
+            {teamActionError && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 text-left">{teamActionError}</div>
+            )}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setEditingTeam(null)}
+                disabled={teamActionBusy}
+                className="flex-1 py-3 rounded-2xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRenameTeam}
+                disabled={teamActionBusy}
+                className="flex-1 py-3 rounded-2xl bg-[#0F1117] text-white font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-50"
+              >
+                {teamActionBusy ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deletingTeam && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white w-full max-w-[420px] rounded-[28px] shadow-2xl p-8 text-center">
+            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 className="w-7 h-7 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Delete Team</h2>
+            <p className="text-sm text-slate-600">
+              Are you sure you want to delete <span className="font-bold text-slate-900">{deletingTeam.name}</span>? This can&apos;t be undone.
+            </p>
+            {teamActionError && (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 text-left">{teamActionError}</div>
+            )}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setDeletingTeam(null)}
+                disabled={teamActionBusy}
+                className="flex-1 py-3 rounded-2xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteTeam}
+                disabled={teamActionBusy}
+                className="flex-1 py-3 rounded-2xl bg-red-600 text-white font-bold text-sm hover:bg-red-700 transition-all disabled:opacity-50"
+              >
+                {teamActionBusy ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <StatusModal
+        isOpen={!!teamStatus}
+        onClose={() => setTeamStatus(null)}
+        type={teamStatus?.type || 'success'}
+        title={teamStatus?.title || ''}
+        message={teamStatus?.message || ''}
+      />
 
       <AddTeamsModal
         isOpen={isAddTeamsOpen}
