@@ -39,6 +39,7 @@ const BallAnalyticsPage = () => {
   const [syncData, setSyncData] = useState<any>(null);
   // NEW: ball-details API response
   const [ballDetailsData, setBallDetailsData] = useState<any>(null);
+  const [ballDetailsStatus, setBallDetailsStatus] = useState<"loading" | "ready" | "error">("loading");
   const [activeView, setActiveView] = useState("FRONT");
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -145,17 +146,26 @@ const toggleFullscreen = () => {
 
   // NEW: Fetch ball details with presigned video URLs
   const fetchBallDetails = async () => {
-    if (!ballId) return;
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchId}/ball-details/${ballId}`,
-      {
-        headers: { "ngrok-skip-browser-warning": "true" },
-      }
-    );
-    if (res.ok) {
+    if (!ballId) {
+      setBallDetailsStatus("ready");
+      return;
+    }
+    setBallDetailsStatus("loading");
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchId}/ball-details/${ballId}`,
+        {
+          headers: { "ngrok-skip-browser-warning": "true" },
+        }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       console.log("Fetched Ball Details:", data);
       setBallDetailsData(data.ball);
+      setBallDetailsStatus("ready");
+    } catch (err) {
+      console.error("Failed to fetch ball details:", err);
+      setBallDetailsStatus("error");
     }
   };
 
@@ -292,6 +302,15 @@ const currentFile = useMemo(() => {
 console.log("Current File for active view:", currentFile);
 // Used for your Python analysis trigger
 const currentVideoUrl = useMemo(() => currentFile?.downloadUrl || null, [currentFile]);
+
+const hasAnyVideo = Object.keys(ballMap).length > 0;
+
+// If the default camera has no video but another one does, start on that one.
+useEffect(() => {
+  if (!Object.keys(ballMap).length || ballMap[CAMERA_MAPPING[activeView]]) return;
+  const firstWithVideo = Object.keys(CAMERA_MAPPING).find((view) => ballMap[CAMERA_MAPPING[view]]);
+  if (firstWithVideo) setActiveView(firstWithVideo);
+}, [ballMap]);
   //const currentVideoUrl = useMemo(() => ballMap[CAMERA_MAPPING[activeView]] || null, [activeView, ballMap]);
   console.log("Current Video URL for active view:", currentVideoUrl);
 
@@ -809,6 +828,28 @@ const formatTime = (time: number) => {
   )}
 </div>
 */}
+{ballDetailsStatus === "loading" ? (
+  <div className="w-full aspect-video bg-[#0b0e13] rounded-2xl md:rounded-[32px] flex flex-col items-center justify-center gap-3">
+    <div className="w-9 h-9 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+    <p className="text-sm font-semibold text-slate-300">Loading video…</p>
+  </div>
+) : ballDetailsStatus === "error" ? (
+  <div className="w-full aspect-video bg-[#0b0e13] rounded-2xl md:rounded-[32px] flex flex-col items-center justify-center gap-4">
+    <p className="text-sm font-semibold text-slate-300">Couldn't load video</p>
+    <button
+      onClick={fetchBallDetails}
+      className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+    >
+      Retry
+    </button>
+  </div>
+) : !hasAnyVideo ? (
+  <div className="w-full aspect-video bg-[#0b0e13] rounded-2xl md:rounded-[32px] flex flex-col items-center justify-center gap-1.5 px-6 text-center">
+    <p className="text-base font-semibold text-slate-300">No video available</p>
+    <p className="text-xs text-slate-500">No camera has a recording for this ball.</p>
+  </div>
+) : (
+<>
 <SplitCanvasVideoPlayer 
   srcA={currentVideoUrl} 
   subtitleA={`Ball ${initialBall} Analytics`}
@@ -820,16 +861,24 @@ const formatTime = (time: number) => {
             {Object.keys(CAMERA_MAPPING).map((view) => (
               <button key={view} onClick={() => setActiveView(view)} className="group flex flex-col gap-2 md:gap-3">
                 <div className={`aspect-video rounded-xl md:rounded-2xl bg-slate-200 overflow-hidden border-2 transition-all duration-300 ${activeView === view ? "border-blue-500 shadow-lg scale-105" : "border-transparent opacity-80"}`}>
-                  <video
-  src={ballMap[CAMERA_MAPPING[view]]?.downloadUrl}
-  className="w-full h-full object-cover"
-  crossOrigin="anonymous"
-/>
+                  {ballMap[CAMERA_MAPPING[view]]?.downloadUrl ? (
+                    <video
+                      src={ballMap[CAMERA_MAPPING[view]]?.downloadUrl}
+                      className="w-full h-full object-cover"
+                      crossOrigin="anonymous"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-[9px] md:text-[11px] font-bold text-slate-500">
+                      No video
+                    </div>
+                  )}
                 </div>
                 <p className={`text-[8px] md:text-[12px] font-black text-center uppercase tracking-tighter ${activeView === view ? 'text-slate-900' : 'text-slate-700'}`}>{view} VIEW</p>
               </button>
             ))}
           </div>
+</>
+)}
         </div>
 
         {/* Biomechanics Sidebar — disabled, not currently used. */}

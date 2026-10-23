@@ -273,6 +273,21 @@ export class PlayerEngine {
     this.invalidate();
   }
 
+  /** Drops the current video and clears the canvas (e.g. switching to a camera that has no video). */
+  unload() {
+    this.loadToken++; // abandons any loadVideo() still in flight
+    this.pause();
+    this.releaseSource();
+    this.isReady       = false;
+    this.videoInfo     = null;
+    this.videoUrl      = '';
+    this.frame         = 0;
+    this.preloadStatus = 'idle';
+    this.painted       = false;
+    this.emit('clip', this.state());
+    this.invalidate();
+  }
+
   private async download(url: string, token: number): Promise<Uint8Array<ArrayBuffer>> {
     const res = await fetch(url);
     if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status}`);

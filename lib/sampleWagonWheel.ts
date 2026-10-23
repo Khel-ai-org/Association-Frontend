@@ -20,6 +20,8 @@ export interface WagonWheelData {
   ballsTotal: number;
   fours: number;
   sixes: number;
+  /** Balls with 1-3 runs across the whole innings, including balls with no field zone. */
+  smallScores?: number;
   shots: WagonWheelShot[];
 }
 
@@ -206,6 +208,8 @@ const normalizeAreaName = (raw: string | null | undefined): string | null => {
   if (!raw) return null;
   const cleaned = raw.replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
   if (ALL_ZONE_NAMES.has(cleaned)) return cleaned;
+  // The scorer's explicit "no zone" choice — expected, not worth a warning.
+  if (cleaned.toLowerCase() === 'no area') return null;
   console.warn(`[WagonWheel] Unrecognized field zone from API: "${raw}"`);
   return null;
 };
@@ -260,6 +264,9 @@ export const buildWagonWheelDataFromApiResponse = (
     ballsTotal: response.summary.balls_faced,
     fours: response.summary.fours,
     sixes: response.summary.sixes,
+    // Counted over every ball, not just the plotted ones, so the 1-3s chip
+    // matches fours/sixes (which also come from the full summary).
+    smallScores: response.wagon_wheel.filter((b) => b.batsman_runs >= 1 && b.batsman_runs <= 3).length,
     shots,
   };
 };
