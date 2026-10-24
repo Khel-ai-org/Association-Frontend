@@ -568,12 +568,12 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[850px] max-h-[95vh] overflow-y-auto p-6 md:p-8 relative flex flex-col custom-scrollbar text-black">
+      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[850px] max-h-[95vh] overflow-y-auto overscroll-contain p-6 md:p-8 relative flex flex-col [&>*]:shrink-0 custom-scrollbar text-black">
         
         {/* Close Button */}
         <button 
           onClick={onClose}
-          className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50/50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
+          className="absolute top-4 right-4 md:top-5 md:right-5 text-gray-400 hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50/50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
         >
           <X size={18} />
         </button>
@@ -585,7 +585,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
         )}
 
         {/* --- TABS NAVIGATION BAR --- */}
-        <div className="flex items-center justify-center bg-slate-50 p-1.5 rounded-2xl border border-slate-200 mb-8 max-w-xl mx-auto w-full">
+        <div className="flex items-center shrink-0 bg-slate-50 p-1.5 rounded-2xl border border-slate-200 mt-8 mb-8 max-w-xl mx-auto w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {[
             { id: 'coc', label: 'COC' },
             { id: 'appeal', label: 'Appeal' },
@@ -596,7 +596,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all truncate ${
+              className={`flex-1 shrink-0 whitespace-nowrap py-2.5 px-3 rounded-xl text-xs font-bold transition-all ${
                 activeTab === tab.id
                   ? 'bg-[#0F1117] text-white shadow-md'
                   : 'text-slate-900 hover:text-black'
@@ -1168,11 +1168,18 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     </div>
 
     {/* ================= FOOTER BUTTONS ================= */}
-    <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+    <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+      <button
+        onClick={handleNextTab}
+        className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+      >
+        Next →
+      </button>
+
       <button
         onClick={handleCocSubmit}
         disabled={loading}
-        className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+        className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
       >
         {loading && (
           <Loader2
@@ -1182,13 +1189,6 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
         )}
 
         Submit Case
-      </button>
-
-      <button
-        onClick={handleNextTab}
-        className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-      >
-        Next →
       </button>
     </div>
   </div>
@@ -1494,20 +1494,20 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
+                onClick={handleNextTab}
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Next →
+              </button>
+              <button
                 onClick={handleAppealSubmit}
                 disabled={loading}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
               >
                 {loading && <Loader2 size={16} className="animate-spin mr-2" />}
                 Submit Case
-              </button>
-              <button 
-                onClick={handleNextTab}
-                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-              >
-                Next →
               </button>
             </div>
           </div>
@@ -1572,20 +1572,20 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
+                onClick={handleNextTab}
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Next →
+              </button>
+              <button
                 onClick={handleSuspectSubmit}
                 disabled={loading}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
               >
                 {loading && <Loader2 size={16} className="animate-spin mr-2" />}
                 Submit Case
-              </button>
-              <button 
-                onClick={handleNextTab}
-                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-              >
-                Next →
               </button>
             </div>
           </div>
@@ -1613,20 +1613,20 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
+                onClick={handleNextTab}
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Next →
+              </button>
+              <button
                 onClick={handleCelebrationsSubmit}
                 disabled={loading}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
               >
                 {loading && <Loader2 size={16} className="animate-spin mr-2" />}
                 Submit Case
-              </button>
-              <button 
-                onClick={handleNextTab}
-                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-              >
-                Next →
               </button>
             </div>
           </div>
@@ -1707,8 +1707,8 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
             )}
 
             {/* Uploaded Videos Table */}
-            <div className="border border-slate-100 rounded-xl overflow-hidden">
-              <table className="w-full text-left border-collapse">
+            <div className="border border-slate-100 rounded-xl overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left border-collapse">
                 <thead className="bg-[#F8FAFC] text-[10px] font-bold text-black uppercase tracking-wider">
                   <tr>
                     <th className="py-3 px-4">Preview</th>
@@ -1878,18 +1878,12 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
             </div>
 
             {/* Bottom Submit Action */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-              <button 
-                onClick={handleFinalSubmit}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
-              >
-                Submit Case
-              </button>
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
                 onClick={handleFinalSubmit}
                 className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
               >
-                Submit
+                Submit Case
               </button>
             </div>
           </div>
@@ -1899,8 +1893,9 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
       {/* ─── VIDEO PREVIEW MODAL OVERLAY ─── */}
       {isVideoPreviewOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[800px] overflow-hidden relative flex flex-col p-6 text-black">
+        <div className="fixed inset-0 z-[100] flex overflow-y-auto bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          {/* m-auto centres the card, and lets the overlay scroll when the card is taller than the screen */}
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[800px] m-auto relative flex flex-col [&>*]:shrink-0 p-6 text-black">
             <button 
               onClick={() => setIsVideoPreviewOpen(false)}
               className="absolute top-6 right-6 text-black hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
@@ -1908,7 +1903,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               <X size={18} />
             </button>
 
-            <div className="w-full h-[400px] bg-black rounded-2xl relative overflow-hidden flex items-center justify-center mb-6">
+            <div className="w-full h-[min(400px,55vh)] bg-black rounded-2xl relative overflow-hidden flex items-center justify-center mb-6 mt-8">
               <div className="absolute top-4 left-4 bg-black/60 text-white px-3 py-1 rounded-lg text-xs font-bold backdrop-blur-md z-10">
                 Over {ballInfo?.over_number || '0.1'} • {previewVideoTitle}
               </div>

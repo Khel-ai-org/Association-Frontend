@@ -205,6 +205,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const VARIATIONS = ['Inswinger', 'Outswinger', 'Seam Up', 'Cross Seam', 'Late in', 'Scrambled Seam', 'Late Out', 'Slower', 'Reverse Swing', 'Off Cutter', 'Leg Cutter', 'Back Off Hand', 'Knuckle', 'Split Finger', 'Beamer', 'Wide Yorker'];
   const SHOTS = ['Cover Drive', 'Drive', 'Punch', 'Insight-Out', 'Cut Shot', 'Square Cut', 'Late Cut', 'Upper Cut', 'Slash', 'Straight Drive', 'Defence', 'Flick', 'Outside Edge', 'Pull', 'Sweep', 'Paddle Sweep', 'Leg Glance', 'On Drive', 'Reverse Sweep', 'Switch Hit', 'Scoop', 'Ramp Shot', 'Pick Up Shot', 'Helicopter Shot', 'Inside Edge', 'Top Edge'];
   const SUSPECTS = ["chucking", "ball_tampering", "time_wasting", "dangerous_delivery", "beamer"];
+  // Dismissal filter — keys are namespaced ("dismissal:Bowled") so they can't clash with other filter names.
+  const DISMISSALS = ['Bowled', 'Caught', 'LBW', 'Run Out', 'Stumped', 'Hit Wicket', 'Timed Out'];
+  const dismissalKey = (label: string) => `dismissal:${label}`;
+  const normalizeWicketType = (value?: string) => String(value ?? '').toLowerCase().replace(/[^a-z]/g, '');
   const RUNS = ['1', '2', '3','0'];
   const EXTRAS = ['Wide', 'No Ball', 'Leg Bye', 'Bye'];
 
@@ -215,6 +219,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     ...SUSPECTS, 
     ...RUNS,          
     ...EXTRAS,        
+    ...DISMISSALS.map(dismissalKey),
     'Boundaries', 
     'Other Length', 
     'Other Variation', 
@@ -302,28 +307,29 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   }, [matchId, activeInnings]);
 
   // Fetch CoC Cases when activeTab is referee
-  useEffect(() => {
-    const fetchCocCases = async () => {
-      if (activeTab === 'referee' && matchId) {
-        setIsCocLoading(true);
-        try {
-          const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/coc`, {
-            headers: { "ngrok-skip-browser-warning": "true" }
-          });
-          if (!res.ok) throw new Error("Failed to fetch CoC cases");
-          const data = await res.json();
-          console.log("Fetched CoC Cases:", data);
-          if (data && Array.isArray(data.coc_cases)) {
-            setCocCases(data.coc_cases);
-          }
-        } catch (err) {
-          console.error("Error fetching CoC actions:", err);
-        } finally {
-          setIsCocLoading(false);
-        }
+  // `silent` skips the loading state so a refresh after Take Action doesn't flash the table.
+  const fetchCocCases = async (silent = false) => {
+    if (!matchId) return;
+    if (!silent) setIsCocLoading(true);
+    try {
+      const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/coc`, {
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
+      if (!res.ok) throw new Error("Failed to fetch CoC cases");
+      const data = await res.json();
+      console.log("Fetched CoC Cases:", data);
+      if (data && Array.isArray(data.coc_cases)) {
+        setCocCases(data.coc_cases);
       }
-    };
-    fetchCocCases();
+    } catch (err) {
+      console.error("Error fetching CoC actions:", err);
+    } finally {
+      if (!silent) setIsCocLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'referee') fetchCocCases();
   }, [activeTab, matchId, SCORING_API_BASE]);
 
   // `matchId` (from the URL) is already the scoring service's own match id —
@@ -502,6 +508,13 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           if (filterKey === "Leg Bye") return ball.is_leg_bye;
           if (filterKey === "Bye") return ball.is_bye;
           if (filterKey === "Boundaries") return ball.is_boundary;
+          if (filterKey.startsWith("dismissal:")) {
+            if (!ball.is_wicket) return false;
+            const wanted = normalizeWicketType(filterKey.slice("dismissal:".length));
+            const actual = normalizeWicketType(ball.wicket_type);
+            // "Caught" also covers variants like caught_behind / caught & bowled.
+            return actual === wanted || (wanted === 'caught' && actual.startsWith('caught'));
+          }
 
           if (filterKey === "Other Length") return ball.balling_length && !LENGTHS.some(l => l.toLowerCase() === ball.balling_length.toLowerCase());
           if (filterKey === "Other Variation") return ball.balling_variation && !VARIATIONS.some(v => v.toLowerCase() === ball.balling_variation.toLowerCase());
@@ -653,7 +666,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [filterView, setFilterView] = useState<'main' | 'ball-type' | 'shot-type' | 'fielding'>('main');
-  const [openSections, setOpenSections] = useState({ ballType: false, shotType: false, fielding: false, suspect: false });
+  const [openSections, setOpenSections] = useState({ ballType: false, shotType: false, fielding: false, suspect: false, dismissal: false });
 
   const toggleSection = (section: keyof typeof openSections) => {
     setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -668,7 +681,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       active.push({ id: celebrationSearch, category: 'moment', label: `Key Moment: ${celebrationSearch.split('_').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}` });
     }
     Object.entries(filters).forEach(([key, value]) => {
-      if (value) active.push({ id: key, category: 'ball', label: key });
+      if (value) active.push({ id: key, category: 'ball', label: key.startsWith('dismissal:') ? `Dismissal: ${key.slice('dismissal:'.length)}` : key });
     });
     Object.entries(appealFilters).forEach(([key, value]) => {
       if (value) active.push({ id: key, category: 'appeal', label: key });
@@ -706,6 +719,21 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             </label>
           ))}
         </div>
+      </div>
+
+      <div className="border-t border-slate-200 pt-1">
+        <div className="flex justify-between p-2 hover:bg-slate-50 cursor-pointer font-bold" onClick={() => toggleSection('dismissal')}>
+          Dismissal {openSections.dismissal ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </div>
+        {openSections.dismissal && (
+          <div className="pl-4 pr-2 pb-3 text-sm grid grid-cols-2 gap-2">
+            {DISMISSALS.map(o => (
+              <label key={o} className="flex items-center gap-2 text-slate-700">
+                <input type="checkbox" className="w-4 h-4 rounded border-slate-300 accent-violet-600" checked={!!draftFilters[dismissalKey(o)]} onChange={() => handleToggle(dismissalKey(o))}/> {o}
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="border-t border-slate-200 pt-1">
@@ -1003,10 +1031,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
       {/* --- MATCH TIMELINE SECTION (Details & Referee tabs only) --- */}
       {activeTab !== 'scorecard' && (
-      <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4 border-b border-slate-50 pb-4">
           <h2 className="text-lg font-bold text-slate-900">Match Timeline</h2>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 md:gap-4">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 md:gap-4">
             <div className="relative w-full sm:w-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
               <input 
@@ -1157,7 +1185,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
             </div>
 
             {isFilterOpen && (
-              <div className="absolute top-full left-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-[9999]">
+              <div className="absolute top-full left-0 mt-2 w-[min(20rem,calc(100vw-3rem))] bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-[9999]">
                 <div className="flex justify-between items-center mb-4">
                   <div className="flex items-center gap-2">
                     {filterView !== 'main' && (
@@ -1237,7 +1265,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               )}
             </div>
 
-            <div className="relative w-64" ref={dropdownRef}>
+            <div className="relative w-full sm:w-64" ref={dropdownRef}>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
                 <input
@@ -1315,7 +1343,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               Reset
             </button>
 
-            <div className="flex flex-row items-center gap-2 border border-slate-200 rounded-lg px-3 py-1.5 overflow-hidden">
+            <div className="flex flex-row items-center gap-2 border border-slate-200 rounded-lg px-3 py-1.5 overflow-hidden w-full sm:w-auto max-w-full">
               <span className="text-sm font-bold text-slate-900 whitespace-nowrap">Active Filter -</span>
               <div className="flex gap-2 overflow-x-auto no-scrollbar max-w-full">
                 {activeFiltersList.length > 0 ? (
@@ -1353,8 +1381,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
           <div className="lg:col-span-2 space-y-3 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
             {filteredTimelineKeys.length > 0 ? filteredTimelineKeys.map((key) => (
-              <div key={key} className="flex items-center gap-6 p-3 border border-slate-50 rounded-xl hover:bg-slate-50/50 transition-colors">
-                <span className="font-bold text-slate-900 min-w-[70px]">{key}</span>
+              <div key={key} className="flex items-center gap-3 sm:gap-6 p-2 sm:p-3 border border-slate-50 rounded-xl hover:bg-slate-50/50 transition-colors">
+                <span className="font-bold text-slate-900 min-w-[56px] sm:min-w-[70px]">{key}</span>
                 <div className="h-6 w-[1px] bg-slate-200" />
                 <div className="flex p-2 gap-4 overflow-x-auto no-scrollbar">
                   {ballTimeline[key].sort((a, b) => a.id - b.id).map((ball) => {
@@ -1382,7 +1410,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           </div>
              
           <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl border border-slate-100 p-5 sticky top-4 shadow-xs">
+            <div className="bg-white rounded-xl border border-slate-100 p-4 sm:p-5 lg:sticky lg:top-4 shadow-xs">
               
               {activeTab === 'referee' && (
                 <div className="flex gap-2 mb-6">
@@ -1479,13 +1507,13 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
       {/* --- MATCH REFEREE ACTIONS TABLE SECTION (Only visible on Match Referee Tab) --- */}
       {activeTab === 'referee' && (
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs animate-in fade-in duration-300">
+        <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs animate-in fade-in duration-300">
           <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-4">
             <h3 className="text-lg font-bold text-slate-900">Actions Taken By Match Referee</h3>
           </div>
 
           <div className="overflow-x-auto overflow-y-auto max-h-[360px] custom-scrollbar">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full min-w-[800px] text-left border-collapse">
               <thead className="bg-[#F8FAFC] text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10">
                 <tr>
                   <th className="py-3 px-4">Over</th>
@@ -1496,19 +1524,21 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   <th className="py-3 px-4">By</th>
                   <th className="py-3 px-4">Time</th>
                   <th className="py-3 px-4">Videos</th>
+                  {/* Actions column hidden for now
                   <th className="py-3 px-4 text-center">Actions</th>
+                  */}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {isCocLoading ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
+                    <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
                       Loading CoC actions...
                     </td>
                   </tr>
                 ) : cocCases.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
+                    <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
                       No CoC actions found for this match.
                     </td>
                   </tr>
@@ -1576,6 +1606,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                             </button>
                           )}
                         </td>
+                        {/* Actions column hidden for now
                         <td className="py-4 px-4 text-center">
                           <div className="flex items-center justify-center gap-2">
                             <button title="Delete" className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer">
@@ -1586,6 +1617,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                             </button>
                           </div>
                         </td>
+                        */}
                       </tr>
                     );
                   })
@@ -1626,8 +1658,14 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         matchId={matchId}
         ballInfo={selectedBallData} 
         matchData={scorecard}
-        onSaveAction={(newAction) => {
-          // Optional local state update if needed
+        onSaveAction={async () => {
+          // A Take Action submit (CoC, appeal, ...) just changed server data —
+          // reload the CoC table and appeals right away instead of waiting
+          // for a page refresh.
+          await Promise.all([
+            fetchCocCases(true),
+            fetchAppeals().then((data) => data && setAppeals(data)),
+          ]);
         }}
       />
 

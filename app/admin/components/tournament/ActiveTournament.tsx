@@ -166,7 +166,7 @@ export default function ActiveTournaments() {
       {/* Grid Layout (4 Cols, 3 Rows Max per page) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {currentItems.length > 0 ? (
-          currentItems.map((t, index) => {
+          currentItems.map((t) => {
             const lifecycleStatus = getTournamentLifecycleStatus(t.startDate, t.endDate);
             const isLive = lifecycleStatus === 'LIVE';
             const progress = getProgress(t.startDate, t.endDate);
@@ -183,7 +183,7 @@ export default function ActiveTournaments() {
                     alt="Stadium" 
                     fill 
                     sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                    priority={index < 4}
+                    loading="eager"
                     className="object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-between">

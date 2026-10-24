@@ -20,28 +20,21 @@ export default function PerformanceCards() {
   });
   const [loading, setLoading] = useState(true);
 
-  // 2. Fetch data from the API
+  // 2. Fetch every count from the scoring service's dashboard overview
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        // 1. Fetch your existing dashboard stats
-        const statsRes = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/analytics/dashboard-stats`, {
-          credentials: 'include',
+        const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/dashboard/overview`, {
+          headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
         });
-
-        // 2. Fetch the specific user's analyzed video count
-        const videoRes = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/upload/analytics/my-completed-count`, {
-          credentials: 'include',
-        });
-
-        const statsData = statsRes.ok ? await statsRes.json() : {};
-        const videoData = videoRes.ok ? await videoRes.json() : { count: 0 };
-        console.log("Fetched dashboard stats:", statsData);
-        console.log("Fetched video analysis count:", videoData);
+        const data = res.ok ? await res.json() : {};
+        console.log("Fetched dashboard overview:", data);
 
         setCounts({
-          ...statsData,
-          videosAnalysed: videoData.count || 0 // Inject the new count
+          activeTournaments: Number(data.active_tournaments) || 0,
+          liveMatches: Number(data.live_matches) || 0,
+          totalMatches: Number(data.total_matches) || 0,
+          videosAnalysed: Number(data.videos_analyzed) || 0,
         });
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
@@ -61,7 +54,7 @@ export default function PerformanceCards() {
       bg: "bg-gray-100" 
     },
     { 
-      label: "Total Match", 
+      label: "Total Complete Match", 
       value: counts.totalMatches.toLocaleString(), 
       icon: <img src="/cricket1.png" alt="Cricket" className="w-5 h-5 object-contain" />, 
       bg: "bg-gray-100" 

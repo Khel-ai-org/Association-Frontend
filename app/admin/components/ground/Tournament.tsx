@@ -142,7 +142,7 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
           {loading ? (
             <div className="col-span-full py-20 text-center text-slate-400 animate-pulse">Loading tournaments...</div>
           ) : currentItems.length > 0 ? (
-            currentItems.map((t, index) => {
+            currentItems.map((t) => {
               const lifecycleStatus = getTournamentLifecycleStatus(t.startDate, t.endDate);
               const isLive = lifecycleStatus === 'LIVE';
               const progress = getProgress(t.startDate, t.endDate);
@@ -159,7 +159,7 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
                       alt="Stadium"
                       fill
                       sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                      priority={index < 4}
+                      loading="eager"
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-between">

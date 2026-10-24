@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock, CalendarDays } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock, CalendarDays, X } from 'lucide-react';
 import { Fixture, Ground } from '../../types/tournament';
 import ScheduleMatchModal from './ScheduleMatchModal';
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
@@ -34,6 +34,7 @@ interface MatchRow {
   statusLabel: string;
   badgeColor: string;
   type: string;
+  matchType: string; // format of the linked live match (T10 / T20 / ODI / Test); '' until the match is scheduled
   searchText: string;
   isLinked: boolean; // true = "Already Scheduled" (match + match_id present); false = needs "Schedule Match"
   groundId?: string;
@@ -47,6 +48,20 @@ interface UpcomingMatchesProps {
   onSelectMatch?: (id: string) => void;
 }
 
+// 't10' -> 'T10', 'test' -> 'Test'
+const formatMatchFormat = (value: unknown) => {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return '';
+  return text.toLowerCase() === 'test' ? 'Test' : text.toUpperCase();
+};
+
+// "YYYY-MM-DD" of an ISO date-time in the user's local timezone.
+const toLocalDayKey = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   tournamentId,
   selectedGroundId,
@@ -56,6 +71,8 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   const [tournament, setTournament] = useState<TournamentDetails | null>(null);
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState("");
+  // Day-wise filter: a plain "YYYY-MM-DD" (empty = all days).
+  const [dayFilter, setDayFilter] = useState('');
   const [fixtures, setFixtures] = useState<Fixture[]>([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -231,6 +248,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         statusLabel,
         badgeColor,
         type,
+        matchType: formatMatchFormat(fixture.match?.match_type),
         searchText: `${fixture.match_number} ${team1} ${team2}`,
         isLinked,
         groundId: fixture.venue || undefined,
@@ -245,7 +263,9 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   const filtered = rows.filter((r) => {
     const matchesSearch = r.searchText.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter = activeFilter === 'All' || r.type === activeFilter;
-    return matchesSearch && matchesFilter;
+    // Compare on the user's local calendar day, same as the Date/Time column.
+    const matchesDay = !dayFilter || (!!r.date && toLocalDayKey(r.date) === dayFilter);
+    return matchesSearch && matchesFilter && matchesDay;
   });
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
@@ -255,31 +275,31 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
     <div className="space-y-6">
       {/* Tournament Header */}
       {tournament && (
-        <div className="w-full bg-white rounded-xl border border-slate-200 p-4 shadow-xs overflow-x-auto">
-          <div className="flex items-center gap-4 flex-nowrap w-max min-w-full">
+        <div className="w-full bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
             <div className="flex items-center gap-2 shrink-0">
-              <h1 className="text-lg font-bold text-slate-900 whitespace-nowrap">{tournament.name}</h1>
+              <h1 className="text-lg font-bold text-slate-900 break-words">{tournament.name}</h1>
               <span className={`text-[10px] font-bold px-2 py-1 rounded-md shrink-0 ${TOURNAMENT_STATUS_BADGE[getTournamentLifecycleStatus(tournament.startDate, tournament.endDate)]}`}>
                 {getTournamentLifecycleStatus(tournament.startDate, tournament.endDate)}
               </span>
             </div>
-            <div className="h-8 w-[1px] bg-slate-200 shrink-0" />
+            <div className="hidden lg:block h-8 w-[1px] bg-slate-200 shrink-0" />
             <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap shrink-0">
               <Users className="w-5 h-5 text-slate-400" />
               <span className="text-sm font-medium">{tournament.teamCount} Teams</span>
             </div>
-            <div className="text-slate-300 shrink-0">•</div>
+            <div className="text-slate-300 shrink-0 hidden sm:block">•</div>
             <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap shrink-0">
               <MapPin className="w-5 h-5 text-slate-400" />
               <span className="text-sm font-medium">{tournament.location}</span>
             </div>
-            <div className="text-slate-300 shrink-0">•</div>
+            <div className="text-slate-300 shrink-0 hidden sm:block">•</div>
             <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap shrink-0">
               <CalendarDays className="w-5 h-5 text-slate-400" />
               <span className="text-sm font-medium">{formatTournamentDateRange(tournament.startDate, tournament.endDate)}</span>
             </div>
-            <div className="h-8 w-[1px] bg-slate-200 shrink-0" />
-            <div className="flex items-center gap-2 whitespace-nowrap shrink-0 ml-auto">
+            <div className="hidden lg:block h-8 w-[1px] bg-slate-200 shrink-0" />
+            <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto lg:ml-auto border-t sm:border-t-0 border-slate-100 pt-3 sm:pt-0">
               <span className="text-sm font-medium text-slate-700">Tournament Progress -</span>
               <span className="text-md font-bold text-green-600">{calculateProgress()}% Complete</span>
             </div>
@@ -288,14 +308,14 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
       )}
 
       {/* Matches Content */}
-      <div className="w-full bg-white rounded-[24px] border border-slate-100 p-6 shadow-xs">
-        <div className="flex flex-col lg:flex-row justify-between items-center mb-2 gap-4">
+      <div className="w-full bg-white rounded-[24px] border border-slate-100 p-4 sm:p-6 shadow-xs">
+        <div className="flex flex-col lg:flex-row justify-between lg:items-center mb-2 gap-4">
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">
             Matches
           </h2>
 
-          <div className="flex flex-col md:flex-row items-center gap-4 w-full lg:w-auto">
-            <div className="flex gap-2">
+          <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 w-full lg:w-auto">
+            <div className="flex gap-2 w-full md:w-auto">
               {/* <button
                 onClick={handleExport}
                 disabled={exporting}
@@ -306,7 +326,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               </button> */}
               <Link
                 href={`/admin/appealAnalysis/${tournamentId}?name=${encodeURIComponent(tournament?.name || '')}`}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-xl transition-all cursor-pointer shadow-xs"
+                className="inline-flex items-center justify-center gap-2 w-full md:w-auto px-4 py-2 bg-[#0F1117] hover:bg-slate-800 text-white text-sm font-medium rounded-xl transition-all cursor-pointer shadow-xs whitespace-nowrap"
               >
                 Appeal Analysis
               </Link>
@@ -323,12 +343,35 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               />
             </div>
 
-            <div className="flex bg-slate-50 rounded-xl border border-slate-100 p-1 w-full md:w-auto">
+            <div className="relative w-full md:w-48">
+              <input
+                type="date"
+                aria-label="Filter matches by day"
+                min={tournament?.startDate?.slice(0, 10)}
+                max={tournament?.endDate?.slice(0, 10)}
+                value={dayFilter}
+                onChange={(e) => { setDayFilter(e.target.value); setCurrentPage(1); }}
+                onClick={(e) => e.currentTarget.showPicker?.()}
+                className={`w-full pl-3 ${dayFilter ? 'pr-9' : 'pr-3'} py-2 text-gray-700 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer`}
+              />
+              {dayFilter && (
+                <button
+                  type="button"
+                  aria-label="Clear day filter"
+                  onClick={() => { setDayFilter(''); setCurrentPage(1); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-500 hover:text-slate-900 hover:bg-slate-200"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex bg-slate-50 rounded-xl border border-slate-100 p-1 w-full md:w-auto max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {filters.map((filter) => (
                 <button
                   key={filter}
                   onClick={() => { setActiveFilter(filter); setCurrentPage(1); }}
-                  className={`flex-1 md:flex-none px-4 py-1.5 text-sm font-medium transition-all rounded-lg ${
+                  className={`flex-1 md:flex-none shrink-0 whitespace-nowrap px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium transition-all rounded-lg ${
                     activeFilter === filter
                       ? 'bg-white shadow-sm text-slate-700 border border-slate-100'
                       : 'text-slate-700 hover:text-slate-600'
@@ -343,11 +386,12 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
 
         {/* Fixture / Match Table */}
         <div className="overflow-x-auto mb-8">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[840px] text-sm">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
                 <th className="py-3 px-3 font-semibold">Match Details</th>
                 <th className="py-3 px-3 font-semibold">Matchup</th>
+                <th className="py-3 px-3 font-semibold">Match Type</th>
                 {/* <th className="py-3 px-3 font-semibold">Venue</th> */}
                 <th className="py-3 px-3 font-semibold">Date/Time</th>
                 <th className="py-3 px-3 font-semibold">Status</th>
@@ -377,6 +421,13 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                           <span className="font-medium text-slate-700 text-xs">{row.team2}</span>
                         </div>
                       </td>
+                      <td className="py-4 px-3 whitespace-nowrap">
+                        {row.matchType ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-[11px] font-bold">{row.matchType}</span>
+                        ) : (
+                          <span className="text-slate-300 text-xs">—</span>
+                        )}
+                      </td>
                       {/* <td className="py-4 px-3">
                         <span className="text-slate-500 text-xs">
                           {row.groundId ? tournament?.grounds?.find((g) => g.id === row.groundId)?.name || row.groundId : '—'}
@@ -388,7 +439,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                           {row.statusLabel}
                         </span>
                       </td>
-                      <td className="py-4 px-3">
+                      <td className="py-3 px-3 whitespace-nowrap">
                         {row.type === 'Live' ? (
                           // Match is actually in progress — go straight to scoring-frontend's
                           // scorer page, not its matches list.
@@ -399,7 +450,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                               const isTest = String(row.fixture?.match?.match_type || '').toLowerCase() === 'test';
                               window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/${isTest ? 'testScorer' : 'scorer'}/${row.fixture?.match_id}`;
                             }}
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 underline text-xs font-semibold"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer underline"
                           >
                             <CalendarClock className="w-3.5 h-3.5" /> Start Scoring →
                           </button>
@@ -411,15 +462,15 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                               const isTest = String(row.fixture?.match?.match_type || '').toLowerCase() === 'test';
                               window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/${isTest ? 'testScoreboard' : 'scoreboard'}/${row.fixture?.match_id}`;
                             }}
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 underline text-xs font-semibold"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer underline"
                           >
                             <CalendarClock className="w-3.5 h-3.5" /> View Scoreboard →
                           </button>
                         ) : row.type === 'Expired' ? (
-                          <span className="text-slate-400 text-xs font-semibold">Expired — no longer schedulable</span>
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-xs font-semibold">Expired</span>
                         ) : row.isLinked && row.date && new Date(row.date).getTime() > now ? (
                           // Scheduled time hasn't arrived yet — can't start the match.
-                          <span className="text-slate-500 text-xs font-semibold">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-xs font-semibold">
                             Starts at {new Date(row.date).toLocaleDateString('en-GB')}, {new Date(row.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         ) : row.isLinked ? (
@@ -434,7 +485,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                                 window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/tournament/${tournament.externalTournamentId}?openToss=${row.fixture?.match_id}`;
                               }
                             }}
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 underline text-xs font-semibold"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer underline"
                           >
                             <CalendarClock className="w-3.5 h-3.5" /> Start Match →
                           </button>
@@ -445,7 +496,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                               e.stopPropagation();
                               setScheduleFixture(row.fixture || null);
                             }}
-                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer"
                           >
                             <CalendarClock className="w-3.5 h-3.5" /> Schedule Match →
                           </button>
@@ -469,7 +520,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               ) : (
                 <tr>
                   <td colSpan={6} className="py-16 text-center text-slate-400 border-2 border-dashed border-slate-50 rounded-3xl">
-                    No {activeFilter.toLowerCase()} matches found.
+                    No {activeFilter === 'All' ? '' : `${activeFilter.toLowerCase()} `}matches found{dayFilter ? ` on ${new Date(`${dayFilter}T00:00`).toLocaleDateString('en-GB')}` : ''}.
                   </td>
                 </tr>
               )}
@@ -480,7 +531,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
 
       {/* Pagination Section */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2 pt-6">
+        <div className="flex flex-wrap items-center justify-center gap-2 pt-6">
           <button
             disabled={currentPage === 1}
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}

@@ -273,8 +273,8 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-4">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-3 min-w-0">
           <button onClick={goBack} className="text-gray-500 cursor-pointer">
             <ArrowLeft className="w-5 h-5" />
           </button>
@@ -284,10 +284,10 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
           </div>
         </div>
 
-        <div className="flex bg-white rounded-xl border border-slate-200 p-1">
+        <div className="flex w-full sm:w-auto bg-white rounded-xl border border-slate-200 p-1">
           <button
             onClick={() => setIsGroupMode(true)}
-            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap transition-all ${
               isGroupMode ? 'bg-[#0F1117] text-white' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -295,7 +295,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
           </button>
           <button
             onClick={() => setIsGroupMode(false)}
-            className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+            className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap transition-all ${
               !isGroupMode ? 'bg-[#0F1117] text-white' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -369,8 +369,8 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
             <div className="col-span-full py-16 text-center text-slate-400 animate-pulse">Loading teams...</div>
           ) : currentItems.length > 0 ? (
             currentItems.map((team, i) => (
-              <div key={team.id} className="relative flex flex-col items-center text-center border border-slate-100 rounded-2xl p-4 bg-gray-50/30">
-                <div className="absolute top-2 right-2 flex items-center gap-0.5">
+              <div key={team.id} className="group relative flex flex-col items-center text-center border border-slate-100 rounded-2xl p-4 pt-12 sm:pt-11 bg-gray-50/30 hover:border-slate-200 hover:shadow-sm transition-all">
+                <div className="absolute top-2 right-2 flex items-center gap-1.5">
                   <button
                     onClick={() => {
                       setEditingTeam(team);
@@ -379,9 +379,9 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
                     }}
                     title="Edit team name"
                     aria-label="Edit team name"
-                    className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
+                    className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 shadow-sm hover:bg-[#0F1117] hover:border-[#0F1117] hover:text-white active:scale-90 transition-all cursor-pointer"
                   >
-                    <Pencil className="w-3.5 h-3.5" />
+                    <Pencil className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                   </button>
                   <button
                     onClick={() => {
@@ -390,9 +390,9 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
                     }}
                     title="Delete team"
                     aria-label="Delete team"
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                    className="w-8 h-8 sm:w-7 sm:h-7 flex items-center justify-center rounded-full bg-white border border-slate-200 text-slate-500 shadow-sm hover:bg-red-500 hover:border-red-500 hover:text-white active:scale-90 transition-all cursor-pointer"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                   </button>
                 </div>
                 {/* <p className="text-[11px] text-slate-400 mb-2 self-start">
@@ -528,7 +528,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
       {/* Edit team name */}
       {editingTeam && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white w-full max-w-[420px] rounded-[28px] shadow-2xl relative p-8">
+          <div className="bg-white w-full max-w-[420px] max-h-[90vh] overflow-y-auto rounded-[28px] shadow-2xl relative p-6 sm:p-8">
             <button
               onClick={() => setEditingTeam(null)}
               className="absolute top-5 right-5 p-2 rounded-full hover:bg-slate-100 transition-colors"
@@ -549,7 +549,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
             {teamActionError && (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 text-left">{teamActionError}</div>
             )}
-            <div className="flex gap-3 mt-6">
+            <div className="flex flex-col-reverse sm:flex-row gap-3 mt-6">
               <button
                 onClick={() => setEditingTeam(null)}
                 disabled={teamActionBusy}
@@ -572,7 +572,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
       {/* Delete confirmation */}
       {deletingTeam && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white w-full max-w-[420px] rounded-[28px] shadow-2xl p-8 text-center">
+          <div className="bg-white w-full max-w-[420px] max-h-[90vh] overflow-y-auto rounded-[28px] shadow-2xl p-6 sm:p-8 text-center">
             <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
               <Trash2 className="w-7 h-7 text-red-500" />
             </div>
@@ -583,7 +583,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
             {teamActionError && (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 text-left">{teamActionError}</div>
             )}
-            <div className="flex gap-3 mt-6">
+            <div className="flex flex-col-reverse sm:flex-row gap-3 mt-6">
               <button
                 onClick={() => setDeletingTeam(null)}
                 disabled={teamActionBusy}
