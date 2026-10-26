@@ -7,6 +7,7 @@ import Link from 'next/link';
 
 // Import all separate modal components
 import { AddCommentModal, MrJudgementModal } from '../RefreeModals/AddComments';
+import { decisionLabel } from '../../utils/appealDecision';
 import { RefereeActionModal } from '../RefreeModals/ActionModals'; // <-- Import the 5-tab referee action modal
 import { ScorecardView } from './ScorecardView';
 import { WagonWheelModal } from './WagonWheelModal';
@@ -311,8 +312,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const fetchCocCases = async (silent = false) => {
     if (!matchId) return;
     if (!silent) setIsCocLoading(true);
-    try {
-      const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/coc`, {
+    try {const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/coc`,
+       {
         headers: { "ngrok-skip-browser-warning": "true" }
       });
       if (!res.ok) throw new Error("Failed to fetch CoC cases");
@@ -684,7 +685,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       if (value) active.push({ id: key, category: 'ball', label: key.startsWith('dismissal:') ? `Dismissal: ${key.slice('dismissal:'.length)}` : key });
     });
     Object.entries(appealFilters).forEach(([key, value]) => {
-      if (value) active.push({ id: key, category: 'appeal', label: key });
+      if (value) active.push({ id: key, category: 'appeal', label: decisionLabel(key) });
     });
     return active;
   }, [filters, appealFilters, selectedBatsman, celebrationSearch]);
@@ -1248,7 +1249,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                           checked={!!tempAppealFilters[displayName]}
                           onChange={() => setTempAppealFilters(prev => ({ ...prev, [displayName]: !prev[displayName] }))}
                         /> 
-                        {displayName}
+                        {decisionLabel(displayName)}
                       </label>
                     ))}
                   </div>

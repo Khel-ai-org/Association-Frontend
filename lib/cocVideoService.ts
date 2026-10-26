@@ -5,12 +5,16 @@
  * 3. Confirm with Backend (POST /video-upload) -> sets upload_status = 'uploaded'
  */
 
+// What the clip is evidence for; sent to the init API as `video_source`.
+export type CocVideoSource = 'coc' | 'appeal' | 'suspect';
+
 export interface InitCocVideoUploadParams {
   ball_id?: number | string;
   over_number: string;
   innings: number;
   file_name: string;
   content_type: string;
+  video_source?: CocVideoSource;
 }
 
 export interface InitCocVideoUploadResponse {
@@ -66,6 +70,7 @@ export async function initCocVideoUpload(
       innings: params.innings,
       file_name: params.file_name,
       content_type: params.content_type || 'video/mp4',
+      ...(params.video_source ? { video_source: params.video_source } : {}),
     }),
   });
 
@@ -166,7 +171,8 @@ export async function uploadCocVideoPipeline(
   overNumber: string,
   innings: number,
   videoFile: File,
-  onProgress?: (progressPct: number) => void
+  onProgress?: (progressPct: number) => void,
+  videoSource?: CocVideoSource
 ): Promise<{ s3Key: string; ballVideoId: number | string; confirmResult: any }> {
   // 1. Init
   const initData = await initCocVideoUpload(matchId, {
@@ -175,6 +181,7 @@ export async function uploadCocVideoPipeline(
     innings: innings,
     file_name: videoFile.name,
     content_type: videoFile.type || 'video/mp4',
+    video_source: videoSource,
   });
 
   const { upload_url, s3_key, ball_video_id } = initData;

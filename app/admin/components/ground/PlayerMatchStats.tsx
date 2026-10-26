@@ -165,10 +165,35 @@ const BOWLING_TYPE_FILTERS = [
   { key: 'LEFT_ARM_ORTHODOX_SPIN', label: 'Left Arm Orthodox Spin' },
   { key: 'LEFT_ARM_WRIST_SPIN', label: 'Left Arm Wrist Spin (Chinaman)' },
 ];
+// Free-text delivery types the scoring UI records (spin variations, pace variations, lengths);
+// sent to the stats APIs as `ball_type`.
+const BALL_TYPE_FILTERS = Array.from(
+  new Set([
+    // spin
+    'Off Break', 'Arm Ball', 'Doosra', 'Carrom Ball', 'Top Spinner', 'Slider', 'Teesra', 'Quicker Ball',
+    'Leg Break', "Googly/Wrong'un", 'Flipper', 'Orthodox', 'Chinaman/Stock Ball', "Wrong'un",
+    // pace
+    'Inswinger', 'Outswinger', 'Late In', 'Late Out', 'Reverse Swing', 'Seam Up', 'Cross Seam', 'Scrambled Seam',
+    'Slower', 'Off Cutter', 'Leg Cutter', 'Knuckle', 'Back-of-Hand', 'Split Finger', 'Wide Yorker', 'Beamer',
+    // lengths
+    'Yorker', 'Good', 'Full', 'Short', 'Bouncer',
+    'Other',
+  ])
+).map((label) => ({ key: label, label }));
 const BATTING_HAND_FILTERS = [
   { key: 'RIGHT_HANDED', label: 'Right Handed' },
   { key: 'LEFT_HANDED', label: 'Left Handed' },
 ];
+
+// Some stats come back as a breakdown object instead of a number (e.g. `dismissals` is
+// { bowled, caught, lbw, ... } in the career/tournament summaries) — React can't render
+// objects, so tiles always go through this: objects collapse to the sum of their numbers.
+const tileValue = (v: unknown): string | number => {
+  if (v && typeof v === 'object') {
+    return Object.values(v as Record<string, unknown>).reduce<number>((a, n) => a + (Number(n) || 0), 0);
+  }
+  return v as string | number;
+};
 
 // Small custom dropdown used by the "vs" filter card.
 function VsFilterSelect({
@@ -183,12 +208,25 @@ function VsFilterSelect({
   onChange: (key: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Opens upward (these filters sit at the bottom of the page); flips down only if there is no room above.
+  const [openUp, setOpenUp] = useState(true);
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
   const current = options.find((o) => o.key === value);
+  const toggle = () => {
+    if (!open && buttonRef.current) {
+      const r = buttonRef.current.getBoundingClientRect();
+      const spaceAbove = r.top;
+      const spaceBelow = window.innerHeight - r.bottom;
+      setOpenUp(spaceAbove >= 280 || spaceAbove >= spaceBelow);
+    }
+    setOpen((o) => !o);
+  };
   return (
     <div className="relative w-full sm:w-64">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        ref={buttonRef}
+        onClick={toggle}
         className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl hover:border-slate-300 outline-none cursor-pointer"
       >
         <span className="truncate font-medium">{current?.label || allLabel}</span>
@@ -197,8 +235,8 @@ function VsFilterSelect({
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 right-0 mt-1 z-40 bg-white border border-slate-100 rounded-xl shadow-xl p-1 max-h-64 overflow-y-auto">
-            {[{ key: '', label: allLabel }, ...options].map((o) => (
+          <div className={`absolute left-0 right-0 z-40 bg-white border border-slate-100 rounded-xl shadow-xl p-1 max-h-64 overflow-y-auto ${openUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+            {options.map((o) => (
               <button
                 key={o.key || 'all'}
                 type="button"
@@ -826,14 +864,18 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const [recentFormBowling, setRecentFormBowling] = useState<RecentFormMatch[]>([]);
   const [tournamentPlayerStats, setTournamentPlayerStats] = useState<any>(null);
   // "vs" filters: a batter vs one bowling type, a bowler vs one batting hand ('' = all).
-  const [bowlingTypeFilter, setBowlingTypeFilter] = useState('');
-  const [battingHandFilter, setBattingHandFilter] = useState('');
+  // Each filter starts on its first option (there is no "All" choice).
+  const [bowlingTypeFilter, setBowlingTypeFilter] = useState(BOWLING_TYPE_FILTERS[0].key);
+  const [battingHandFilter, setBattingHandFilter] = useState(BATTING_HAND_FILTERS[0].key);
+  // Batters-vs-ball-type filter ('' = all ball types).
+  const [ballTypeFilter, setBallTypeFilter] = useState(BALL_TYPE_FILTERS[0].key);
   // Same match scorecard, re-fetched with the filters applied (only when one is set).
   const [filteredScorecard, setFilteredScorecard] = useState<any>(null);
   const filterQuery = (() => {
     const q = new URLSearchParams();
     if (bowlingTypeFilter) q.set('bowling_type', bowlingTypeFilter);
     if (battingHandFilter) q.set('batting_hand', battingHandFilter);
+    if (ballTypeFilter) q.set('ball_type', ballTypeFilter);
     return q.toString();
   })();
 
@@ -1422,6 +1464,18 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const findIn = (card: any, innings: 1 | 2 | undefined, list: 'batsmen' | 'bowlers', id?: string, name?: string) =>
     card?.[`innings_${innings}`]?.[list]?.find((p: any) => (id && p.id === id) || namesMatch(p.name, name));
 
+  // "Batter vs Ball Type": the API's batter_ball_type_stats — only once a ball type is chosen (no default totals).
+  let ballTypeData: Record<string, any> | null | undefined;
+  if (ballTypeFilter) {
+    if (statsTab === 'match') {
+      ballTypeData = findIn(filteredScorecard, battingMatch?.inningsNum, 'batsmen', (battingMatch?.entry as any)?.id, playerName)?.batter_ball_type_stats;
+    } else if (statsTab === 'tournament') {
+      ballTypeData = tBatting?.batter_ball_type_stats;
+    } else {
+      ballTypeData = (playerHistory?.career_summary as any)?.batter_ball_type_stats;
+    }
+  }
+
   let vsData: Record<string, any> | null | undefined;
   if (vsFilterKey) {
     if (statsTab === 'match') {
@@ -1432,28 +1486,6 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
       vsData = vsBatting ? tBatting?.vs_bowling_type_filtered : tBowling?.vs_batting_hand_filtered;
     } else {
       vsData = vsBatting ? playerHistory?.career_summary?.vs_bowling_type_filtered : playerHistory?.career_summary?.vs_batting_hand_filtered;
-    }
-  } else if (vsBatting) {
-    if (statsTab === 'match') {
-      const e: any = battingMatch?.entry;
-      vsData = e ? { innings: 1, runs: e.runs, balls: e.balls, fours: e['4s'], sixes: e['6s'], strike_rate: e.strike_rate ?? e.SR, dismissals: e.batting_status === 'out' ? 1 : 0 } : null;
-    } else if (statsTab === 'tournament') {
-      const b: any = tBatting?.summary;
-      vsData = b ? { innings: b.innings, runs: b.runs, balls: b.balls_faced, fours: b.fours, sixes: b.sixes, zeros: b.dot_balls, strike_rate: b.strike_rate, average: b.average, dismissals: Object.values(b.dismissals || {}).reduce((a: number, n: any) => a + (Number(n) || 0), 0) } : null;
-    } else {
-      const b: any = selectedFormatSummary?.batting;
-      vsData = b ? { innings: b.innings, runs: b.runs, balls: b.balls_played, fours: b.fours, sixes: b.sixes, strike_rate: b.strike_rate, average: b.average, dismissals: b.dismissals } : null;
-    }
-  } else {
-    if (statsTab === 'match') {
-      const e: any = bowlingMatch?.entry;
-      vsData = e ? { overs: e.overs, runs_given: e.runs_given, wickets: e.wickets_taken, economy: e.economy } : null;
-    } else if (statsTab === 'tournament') {
-      const b: any = tBowling?.summary;
-      vsData = b ? { overs: b.overs, runs_given: b.runs_conceded, wickets: b.wickets, economy: b.economy, average: b.average, fours_conceded: b.fours_conceded, sixes_conceded: b.sixes_conceded } : null;
-    } else {
-      const b: any = selectedFormatSummary?.bowling;
-      vsData = b ? { overs: b.overs, balls: b.balls_bowled, runs_given: b.runs_given, wickets: b.wickets, economy: b.economy, average: b.average, fours_conceded: (b as any).fours_conceded, sixes_conceded: (b as any).sixes_conceded } : null;
     }
   }
   const vsTiles: { label: string; key: string }[] = vsBatting
@@ -3117,19 +3149,62 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             <VsFilterSelect value={battingHandFilter} options={BATTING_HAND_FILTERS} allLabel="All Batting Hands" onChange={setBattingHandFilter} />
           )}
         </div>
-        {visibleVsTiles.length === 0 ? (
+        {!vsFilterKey ? (
+          <p className="text-sm text-slate-500 italic">
+            {vsBatting ? 'Select a bowling type to see the batter’s record against it.' : 'Select a batting hand to see the bowler’s record against it.'}
+          </p>
+        ) : visibleVsTiles.length === 0 ? (
           <p className="text-sm text-slate-500 italic">No data for this selection.</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {visibleVsTiles.map((t) => (
               <div key={t.key} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                 <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{t.label}</p>
-                <p className="text-xl font-bold text-slate-900">{vsData?.[t.key]}</p>
+                <p className="text-xl font-bold text-slate-900">{tileValue(vsData?.[t.key])}</p>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* --- BATTERS VS BALL TYPE (batting view, all three tabs) --- */}
+      {view === 'batting' && (
+        <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Batters vs Ball Type</h3>
+              <p className="text-xs text-slate-600 font-medium mt-0.5">
+                vs {ballTypeFilter || 'All ball types'}
+                {statsTab === 'career' && ballTypeFilter ? ' · all formats' : ''}
+              </p>
+            </div>
+            <VsFilterSelect value={ballTypeFilter} options={BALL_TYPE_FILTERS} allLabel="All Ball Types" onChange={setBallTypeFilter} />
+          </div>
+          {(() => {
+            const tiles = [
+              { label: 'Innings', key: 'innings' }, { label: 'Runs', key: 'runs' }, { label: 'Balls', key: 'balls' },
+              { label: '4s', key: 'fours' }, { label: '6s', key: 'sixes' }, { label: 'Dots', key: 'zeros' },
+              { label: '1s', key: 'ones' }, { label: '2s', key: 'twos' }, { label: '3s', key: 'threes' },
+              { label: '5s', key: 'fives' }, { label: 'Extras', key: 'extras' },
+              { label: 'Dismissals', key: 'dismissals' }, { label: 'Strike Rate', key: 'strike_rate' }, { label: 'Average', key: 'average' },
+            ].filter((t) => ballTypeData?.[t.key] !== undefined && ballTypeData?.[t.key] !== null);
+            return !ballTypeFilter ? (
+              <p className="text-sm text-slate-500 italic">Select a ball type to see the batter’s record against it.</p>
+            ) : tiles.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No data for this selection.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+                {tiles.map((t) => (
+                  <div key={t.key} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
+                    <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{t.label}</p>
+                    <p className="text-xl font-bold text-slate-900">{tileValue(ballTypeData?.[t.key])}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 };
