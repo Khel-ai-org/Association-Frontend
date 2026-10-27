@@ -90,6 +90,7 @@ export interface Batsman {
   is_captain?: boolean;
   is_vice_captain?: boolean;
   is_wicket_keeper?: boolean;
+  is_secondary_wicket_keeper?: boolean;
   status?: string;
   is_substituted?: boolean;
 }
@@ -111,6 +112,7 @@ export interface Bowler {
   is_captain?: boolean;
   is_vice_captain?: boolean;
   is_wicket_keeper?: boolean;
+  is_secondary_wicket_keeper?: boolean;
   status?: string;
   is_substituted?: boolean;
 }
@@ -243,7 +245,7 @@ const getSoInnings = (main: MatchLikeScorecard | null, so: MatchLikeScorecard, s
   return side === '1st' ? so.innings_1 : so.innings_2;
 };
 
-type PlayerFlags = Pick<Batsman, 'status' | 'is_substituted' | 'is_captain' | 'is_wicket_keeper'>;
+type PlayerFlags = Pick<Batsman, 'status' | 'is_substituted' | 'is_captain' | 'is_wicket_keeper' | 'is_secondary_wicket_keeper'>;
 
 // Badges: C for captain, WK for wicket-keeper (from `is_wicket_keeper`, not
 // the `role` string), IP for impact player, SUB for substitutes. VC removed.
@@ -251,7 +253,8 @@ const getPlayerBadges = (p: PlayerFlags): string[] => {
   const status = (p.status || '').toLowerCase();
   const badges: string[] = [];
   if (p.is_captain) badges.push('C');
-  if (p.is_wicket_keeper) badges.push('WK');
+  // The secondary wicket-keeper shows the same plain WK badge
+  if (p.is_wicket_keeper || p.is_secondary_wicket_keeper) badges.push('WK');
   if (status === 'impact_player') badges.push('IP');
   if (status === 'substitute') badges.push('SUB');
   return badges;
@@ -356,16 +359,16 @@ const ExtrasAndTotal: React.FC<{ innings?: Innings; resultSuffix?: string }> = (
 );
 
 const FallOfWicketsCard: React.FC<{ fow: FowRecord[]; heading: string }> = ({ fow, heading }) => (
-  <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
+  <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs">
     <h3 className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-4">{heading}</h3>
     {fow.length === 0 ? (
       <p className="text-slate-600 italic text-sm font-medium">No wickets have fallen yet.</p>
     ) : (
-      <div className="flex flex-wrap gap-3">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3">
         {fow.map((f, i) => (
-          <div key={i} className="min-w-[100px] px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
+          <div key={i} className="min-w-0 sm:min-w-[100px] px-3 sm:px-4 py-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
             <p className="font-bold text-slate-900">{f.score}/{f.wicket}</p>
-            <p className="text-xs text-slate-700 mt-0.5">{f.batsman}, {f.over}</p>
+            <p className="text-xs text-slate-700 mt-0.5 break-words">{f.batsman}, {f.over}</p>
           </div>
         ))}
       </div>
@@ -376,30 +379,30 @@ const FallOfWicketsCard: React.FC<{ fow: FowRecord[]; heading: string }> = ({ fo
 const PartnershipsCard: React.FC<{ innings?: Innings; heading: string }> = ({ innings, heading }) => {
   const partnershipRows = buildPartnershipRows(innings);
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
-      <h3 className="text-lg font-bold text-slate-900 mb-6">{heading}</h3>
+    <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs">
+      <h3 className="text-base sm:text-lg font-bold text-slate-900 mb-4 sm:mb-6">{heading}</h3>
       {partnershipRows.length === 0 ? (
         <p className="text-slate-600 italic text-sm font-medium">No partnership data available.</p>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4 sm:gap-6">
           {partnershipRows.map((p) => (
-            <div key={p.key} className="pb-6 border-b border-slate-50 last:border-b-0 last:pb-0">
-              <div className="grid grid-cols-2 md:grid-cols-[1fr_1.5fr_1fr_1.5fr_auto] items-center gap-3 mb-3">
-                <div>
+            <div key={p.key} className="pb-4 sm:pb-6 border-b border-slate-50 last:border-b-0 last:pb-0">
+              <div className="grid grid-cols-2 md:grid-cols-[1fr_1.5fr_1fr_1.5fr_auto] items-center gap-x-3 gap-y-2 md:gap-3 mb-3">
+                <div className="order-1 md:order-none">
                   <span className="text-xs font-bold text-indigo-600 uppercase">{p.label}</span>
                   <p className="text-[11px] text-slate-700 font-semibold">Over {p.overs}</p>
                 </div>
-                <p className="text-sm font-bold text-blue-600 md:text-right">
+                <p className="order-4 md:order-none text-sm font-bold text-blue-600 md:text-right break-words">
                   {p.player1.name} {p.player1.runs}({p.player1.balls}) <span className="text-[11px] font-semibold text-blue-400">SR {p.player1SR}</span>
                 </p>
-                <div className="text-center">
+                <div className="order-3 md:order-none col-span-2 md:col-span-1 text-center py-1 md:py-0">
                   <p className="font-bold text-slate-900 text-lg leading-tight">{p.totalRuns} runs</p>
                   <p className="text-[11px] text-slate-600 font-medium">{p.totalBalls} BALLS &middot; {p.strikeRate} SR</p>
                 </div>
-                <p className="text-sm font-bold text-amber-500">
+                <p className="order-5 md:order-none text-sm font-bold text-amber-500 text-right md:text-left break-words">
                   <span className="text-[11px] font-semibold text-amber-400">SR {p.player2SR}</span> {p.player2.runs}({p.player2.balls}) {p.player2.name}
                 </p>
-                <span className="text-[11px] font-bold text-slate-600 uppercase md:text-right">
+                <span className="order-2 md:order-none text-[11px] font-bold text-slate-600 uppercase text-right whitespace-nowrap">
                   Extras <span className="ml-2 text-slate-700 text-sm">{p.extras}</span>
                 </span>
               </div>

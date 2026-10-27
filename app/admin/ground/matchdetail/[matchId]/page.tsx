@@ -74,7 +74,7 @@ export default function MatchDetailsPage({ params }: PageProps) {
       {/* Top Header Navigation & Tab Switcher Bar matching layout screenshot */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
         {/* Breadcrumbs / Back Navigation */}
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-500">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-slate-500">
           <button 
             onClick={() => router.push('/admin/ground')} 
             className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0 hover:underline"
@@ -90,10 +90,10 @@ export default function MatchDetailsPage({ params }: PageProps) {
         </div>
 
         {/* Top-Right Tab Switcher Component */}
-        <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-xs">
+        <div className="flex w-full sm:w-auto bg-white p-1 rounded-xl border border-slate-200 shadow-xs">
           <button 
             onClick={() => setActiveTab('details')}
-            className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex-1 sm:flex-none px-2 sm:px-5 py-2 text-[11px] sm:text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
               activeTab === 'details' 
                 ? 'bg-[#121212] text-white shadow-md' 
                 : 'text-slate-600 hover:text-black'
@@ -103,7 +103,7 @@ export default function MatchDetailsPage({ params }: PageProps) {
           </button>
           <button
             onClick={() => setActiveTab('referee')}
-            className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex-1 sm:flex-none px-2 sm:px-5 py-2 text-[11px] sm:text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
               activeTab === 'referee'
                 ? 'bg-[#121212] text-white shadow-md'
                 : 'text-slate-600 hover:text-black'
@@ -113,7 +113,7 @@ export default function MatchDetailsPage({ params }: PageProps) {
           </button>
           <button
             onClick={() => setActiveTab('scorecard')}
-            className={`px-5 py-2 text-xs font-bold rounded-lg transition-all ${
+            className={`flex-1 sm:flex-none px-2 sm:px-5 py-2 text-[11px] sm:text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
               activeTab === 'scorecard'
                 ? 'bg-[#121212] text-white shadow-md'
                 : 'text-slate-600 hover:text-black'

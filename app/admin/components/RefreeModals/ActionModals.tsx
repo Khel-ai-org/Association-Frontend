@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, Search, Trash2, Eye, Edit2, Play, ChevronDown, Send, Loader2, RotateCcw } from 'lucide-react';
-import { uploadCocVideoPipeline, formatFileSize, CocVideoItem, deleteCocVideoClip } from '@/lib/cocVideoService';
+import { uploadCocVideoPipeline, formatFileSize, CocVideoItem, deleteCocVideoClip, CocVideoSource } from '@/lib/cocVideoService';
+import { decisionLabel } from '../../utils/appealDecision';
 import { fetchBallDetails, flattenBallVideos, FlattenedBallVideo } from '@/lib/ballDetailsService';
 
 interface RefereeActionModalProps {
@@ -37,8 +38,14 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   const battingTeam = innings === 1 ? (matchDetails?.innings_1?.team_name || homeTeam) : (matchDetails?.innings_2?.team_name || awayTeam);
   const bowlingTeam = innings === 1 ? (matchDetails?.innings_2?.team_name || awayTeam) : (matchDetails?.innings_1?.team_name || homeTeam);
 
-  const umpire1 = matchDetails?.umpire1 || 'Umpire 1';
-  const umpire2 = matchDetails?.umpire2 || 'Umpire 2';
+  // Only the umpires actually recorded for this match (a match may have just one).
+  const umpireOptions: string[] = Array.from(
+    new Set(
+      [matchDetails?.umpire1, matchDetails?.umpire2]
+        .map((u) => (typeof u === 'string' ? u.trim() : ''))
+        .filter(Boolean)
+    )
+  );
 
   // Form states for COC
   const [cocTeam, setCocTeam] = useState('');
@@ -93,16 +100,30 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   }, [cocTeam, matchDetails]);
 
   // Form states for Appeal
-  const [reviewTaken, setReviewTaken] = useState<boolean>(true);
-  const [reviewedBy, setReviewedBy] = useState<'Player' | 'Umpire'>('Player');
-  const [reviewingTeam, setReviewingTeam] = useState<'Batting' | 'Bowling'>('Bowling');
+  // Nothing is pre-selected: the referee must pick every field of the appeal form.
+  const [reviewTaken, setReviewTaken] = useState<boolean | null>(null);
+  const [reviewedBy, setReviewedBy] = useState<'Player' | 'Umpire' | null>(null);
+  const [reviewingTeam, setReviewingTeam] = useState<'Batting' | 'Bowling' | null>(null);
   
-  const [umpire, setUmpire] = useState(umpire1);
+  const [umpire, setUmpire] = useState('');
 
-  const [appealType, setAppealType] = useState<string>('Caught');
-  const [originalDecision, setOriginalDecision] = useState<string>('Not Out');
-  const [finalDecision, setFinalDecision] = useState<string>('Not Out');
-  const [reviewResult, setReviewResult] = useState<string>('Retained');
+  const [appealType, setAppealType] = useState<string>('');
+  const [originalDecision, setOriginalDecision] = useState<string>('');
+  const [finalDecision, setFinalDecision] = useState<string>('');
+  const [reviewResult, setReviewResult] = useState<string>('');
+  const [appealError, setAppealError] = useState('');
+
+  const resetAppealForm = () => {
+    setReviewTaken(null);
+    setReviewedBy(null);
+    setReviewingTeam(null);
+    setUmpire('');
+    setAppealType('');
+    setOriginalDecision('');
+    setFinalDecision('');
+    setReviewResult('');
+    setAppealError('');
+  };
 
   const appealTypes = [
     'Caught', 'LBW', 'Bowled', 'Run Out',
@@ -135,6 +156,13 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   const [previewVideoTitle, setPreviewVideoTitle] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  // Type of video being uploaded — must be chosen before any file is accepted.
+  const [videoSource, setVideoSource] = useState<CocVideoSource | ''>('');
+  const VIDEO_SOURCE_OPTIONS: { value: CocVideoSource; label: string; hint: string }[] = [
+    { value: 'coc', label: 'Code of Conduct', hint: 'Player / official behaviour' },
+    { value: 'appeal', label: 'Appeal', hint: 'Review or appeal footage' },
+    { value: 'suspect', label: 'Suspect', hint: 'Suspected action' },
+  ];
 
   const [serverVideos, setServerVideos] = useState<FlattenedBallVideo[]>([]);
   const [isLoadingVideos, setIsLoadingVideos] = useState(false);
@@ -148,10 +176,9 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     setVideosLoadError('');
     try {
       const ball = await fetchBallDetails(matchId, ballId);
-      // This tab is for COC uploads specifically — the ball can also carry
-      // other video sources (e.g. multi-camera "pull_system" recordings),
-      // which don't belong in this list.
-      const cocVideos = (ball.videos || []).filter((v) => v.video_source === 'coc');
+      // This tab lists the referee-uploaded sources (coc / appeal / suspect) — the ball can also
+      // carry other video sources (e.g. multi-camera "pull_system" recordings), which don't belong here.
+      const cocVideos = (ball.videos || []).filter((v) => ['coc', 'appeal', 'suspect'].includes(String(v.video_source)));
       setServerVideos(flattenBallVideos(cocVideos));
     } catch (err: any) {
       console.error('[ball videos fetch error]', err);
@@ -179,9 +206,13 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     };
   }, []);
 
-  const startUploadForItem = async (item: CocVideoItem) => {
+  const startUploadForItem = async (item: CocVideoItem, source: CocVideoSource | '' = videoSource) => {
     if (!matchId) {
       setError("Match ID is required for video upload");
+      return;
+    }
+    if (!source) {
+      setError("Please select the type of video first (Code of Conduct, Appeal or Suspect).");
       return;
     }
 
@@ -197,7 +228,8 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
         item.file,
         (progressPct) => {
           setVideoItems(prev => prev.map(v => v.id === item.id ? { ...v, progress: progressPct } : v));
-        }
+        },
+        source
       );
 
       // Uploaded & confirmed on the backend now — drop from local in-flight
@@ -216,6 +248,11 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
   };
 
   const handleFilesSelected = (files: FileList | File[]) => {
+    if (!videoSource) {
+      setError("Please select the type of video first (Code of Conduct, Appeal or Suspect).");
+      return;
+    }
+    setError("");
     const fileArray = Array.from(files).filter(f => f.type.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm)$/i.test(f.name));
     if (fileArray.length === 0) {
       setError("Please select valid video files (MP4, MOV, AVI, MKV, WebM)");
@@ -238,7 +275,18 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
     setVideoItems(prev => [...prev, ...newItems]);
     // Auto-trigger upload pipeline
-    newItems.forEach(item => startUploadForItem(item));
+    newItems.forEach(item => startUploadForItem(item, videoSource));
+  };
+
+  type PendingDelete = { kind: 'server'; video: FlattenedBallVideo } | { kind: 'local'; id: string; name: string };
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+
+  const confirmPendingDelete = () => {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (!target) return;
+    if (target.kind === 'server') handleDeleteServerVideo(target.video);
+    else handleDeleteVideoItem(target.id);
   };
 
   const handleDeleteVideoItem = (id: string) => {
@@ -267,8 +315,6 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
   const handleDeleteServerVideo = async (video: FlattenedBallVideo) => {
     if (!matchId) return;
-    const confirmed = window.confirm(`Delete ${video.tag} · ${video.clipLabel}? This cannot be undone.`);
-    if (!confirmed) return;
 
     setDeletingClipKeys(prev => new Set(prev).add(video.key));
     try {
@@ -286,34 +332,48 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     }
   };
 
-  // Prefill data if available from ballInfo
+  // Prefill from the selected ball. Runs for every ball: the form is reset first, so nothing
+  // from the previously selected ball (or a previous save) carries over.
   useEffect(() => {
-    if (ballInfo) {
-      if (ballInfo.suspect) {
-        const suspectVal = String(ballInfo.suspect).toLowerCase();
-        setSuspectedDesc(suspectVal);
-        if (suspectVal.includes('chucking')) {
-          setSuspectedActions(prev => ({ ...prev, chucking: true }));
-        } else if (suspectVal.includes('ball tampering') || suspectVal.includes('ball_tampering')) {
-          setSuspectedActions(prev => ({ ...prev, ballTampering: true }));
-        } else if (suspectVal.includes('beamer')) {
-          setSuspectedActions(prev => ({ ...prev, beamer: true }));
-        } else if (suspectVal.includes('time wasting') || suspectVal.includes('time_wasting')) {
-          setSuspectedActions(prev => ({ ...prev, timeWasting: true }));
-        } else if (suspectVal.includes('dangerous delivery') || suspectVal.includes('dangerous_delivery')) {
-          setSuspectedActions(prev => ({ ...prev, dangerousDelivery: true }));
-        } else {
-          setSuspectedActions(prev => ({ ...prev, others: true }));
-        }
-      }
-      if (ballInfo.celebrations) {
-        const celebrVal = Array.isArray(ballInfo.celebrations) 
-          ? ballInfo.celebrations.join(", ") 
-          : ballInfo.celebrations;
-        setKeyMomentDesc(celebrVal);
+    const blank = { chucking: false, ballTampering: false, beamer: false, timeWasting: false, dangerousDelivery: false, others: false };
+    const next = { ...blank };
+    let desc = '';
+
+    if (ballInfo?.suspect) {
+      const raw = String(ballInfo.suspect).toLowerCase().trim();
+      desc = raw;
+      // "ball tampering" / "ball_tampering" / "Ball Tampering" all normalise to the same key.
+      const normalised = raw.replace(/[^a-z]/g, '');
+      const known: Record<string, keyof typeof blank> = {
+        chucking: 'chucking',
+        balltampering: 'ballTampering',
+        beamer: 'beamer',
+        timewasting: 'timeWasting',
+        dangerousdelivery: 'dangerousDelivery',
+      };
+      const match = known[normalised];
+      if (match) {
+        next[match] = true;
+        desc = '';
+      } else {
+        // Not one of the standard actions — it was saved via "Others" (its text is the description).
+        next.others = true;
       }
     }
-  }, [ballInfo]);
+
+    setSuspectedActions(next);
+    setSuspectedDesc(desc);
+
+    if (ballInfo?.celebrations) {
+      const celebrVal = Array.isArray(ballInfo.celebrations)
+        ? ballInfo.celebrations.join(", ")
+        : ballInfo.celebrations;
+      setKeyMomentDesc(celebrVal);
+    } else {
+      setKeyMomentDesc('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ballInfo?.id, ballInfo?.suspect, JSON.stringify(ballInfo?.celebrations ?? null)]);
 
   if (!isOpen) return null;
 
@@ -485,23 +545,45 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
       return;
     }
 
+    // Every field must be chosen explicitly.
+    const hideOriginal = reviewTaken === true && reviewedBy === 'Umpire';
+    const missing =
+      reviewTaken === null ? 'whether the review was taken'
+      : reviewedBy === null || (reviewedBy === 'Player' && reviewingTeam === null)
+        ? (reviewTaken ? 'who took the review' : 'who made the appeal')
+      : umpireOptions.length > 0 && !umpire ? 'the umpire'
+      : !appealType ? (reviewTaken ? 'the review type' : 'the appeal type')
+      : !hideOriginal && !originalDecision ? 'the original decision'
+      : reviewTaken && reviewedBy === 'Player' && !reviewResult ? 'the review result'
+      : !finalDecision ? 'the final decision'
+      : '';
+    if (missing) {
+      setAppealError(`Please select ${missing}.`);
+      return;
+    }
+    setAppealError('');
+
     let statusPayload = finalDecision;
     if (reviewTaken && reviewedBy === 'Player') {
       statusPayload = reviewResult;
     }
+    // The umpire-review form hides "Original Decision"; keep sending the type's natural default for it.
+    const originalForPayload = hideOriginal
+      ? (appealType === 'No Ball' ? 'No Ball' : appealType === 'Wide Ball' ? 'Wide Ball' : 'Not Out')
+      : originalDecision;
 
     const payload = {
       match_id: matchId,
       innings: innings,
-      drs_referred: reviewTaken,
+      drs_referred: reviewTaken === true,
       reviewed_by: reviewedBy,
       reviewing_team: reviewedBy === 'Player' ? reviewingTeam : null,
       appeal_type: appealType,
       status: statusPayload,
-      original_decision: originalDecision,
+      original_decision: originalForPayload,
       final_decision: finalDecision,
       over_number: ballInfo?.over_number,
-      metadata: { umpire }
+      metadata: { umpire: umpire || null }
     };
 
     setLoading(true);
@@ -532,6 +614,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
       });
+      resetAppealForm();
       onClose();
     } catch (error) {
       console.error("Error submitting appeal:", error);
@@ -568,12 +651,12 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[850px] max-h-[95vh] overflow-y-auto p-6 md:p-8 relative flex flex-col custom-scrollbar text-black">
+      <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[850px] max-h-[95vh] overflow-y-auto overscroll-contain p-6 md:p-8 relative flex flex-col [&>*]:shrink-0 custom-scrollbar text-black">
         
         {/* Close Button */}
         <button 
           onClick={onClose}
-          className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50/50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
+          className="absolute top-4 right-4 md:top-5 md:right-5 text-gray-400 hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50/50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
         >
           <X size={18} />
         </button>
@@ -584,8 +667,21 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
           </div>
         )}
 
+        {/* Selected ball + innings */}
+        {ballInfo?.over_number != null && (() => {
+          return (
+            <div className="flex justify-start -mt-2 -mb-6">
+              <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-800">
+                Ball {ballInfo.over_number}
+                <span className="w-1 h-1 rounded-full bg-slate-400" />
+                {ballInfo?.isSuperOver ? 'Super Over' : `Innings ${innings}`}
+              </span>
+            </div>
+          );
+        })()}
+
         {/* --- TABS NAVIGATION BAR --- */}
-        <div className="flex items-center justify-center bg-slate-50 p-1.5 rounded-2xl border border-slate-200 mb-8 max-w-xl mx-auto w-full">
+        <div className="flex items-center shrink-0 bg-slate-50 p-1.5 rounded-2xl border border-slate-200 mt-8 mb-8 max-w-xl mx-auto w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {[
             { id: 'coc', label: 'COC' },
             { id: 'appeal', label: 'Appeal' },
@@ -596,7 +692,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all truncate ${
+              className={`flex-1 shrink-0 whitespace-nowrap py-2.5 px-3 rounded-xl text-xs font-bold transition-all ${
                 activeTab === tab.id
                   ? 'bg-[#0F1117] text-white shadow-md'
                   : 'text-slate-900 hover:text-black'
@@ -1168,11 +1264,18 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     </div>
 
     {/* ================= FOOTER BUTTONS ================= */}
-    <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+    <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+      <button
+        onClick={handleNextTab}
+        className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+      >
+        Next →
+      </button>
+
       <button
         onClick={handleCocSubmit}
         disabled={loading}
-        className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+        className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
       >
         {loading && (
           <Loader2
@@ -1183,13 +1286,6 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
         Submit Case
       </button>
-
-      <button
-        onClick={handleNextTab}
-        className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-      >
-        Next →
-      </button>
     </div>
   </div>
 )}
@@ -1199,7 +1295,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
           <div className="space-y-6 animate-in fade-in duration-200">
             <div className="flex justify-between items-center border-b border-gray-100 pb-4">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">{reviewTaken ? 'Review Details' : 'Appeal Details'}</h3>
+                <h3 className="text-xl font-bold text-gray-900">{reviewTaken === null ? 'Appeal / Review Details' : reviewTaken ? 'Review Details' : 'Appeal Details'}</h3>
                 <p className="text-xs text-gray-500 mt-0.5">Record the Review and umpire decision for this delivery</p>
               </div>
               <div className="flex bg-gray-200/70 p-1 rounded-xl">
@@ -1275,8 +1371,11 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">
                 Select Umpire
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                {[umpire1, umpire2].map((u) => (
+              {umpireOptions.length === 0 && (
+                <p className="text-xs text-gray-500 italic">No umpire recorded for this match.</p>
+              )}
+              <div className={`grid gap-3 ${umpireOptions.length > 1 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-2'}`}>
+                {umpireOptions.map((u) => (
                   <div
                     key={u}
                     onClick={() => setUmpire(u)}
@@ -1301,16 +1400,9 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                     type="button"
                     onClick={() => {
                       setAppealType(type);
-                      if (type === 'No Ball') {
-                        setOriginalDecision('No Ball');
-                        setFinalDecision('No Ball');
-                      } else if (type === 'Wide Ball') {
-                        setOriginalDecision('Wide Ball');
-                        setFinalDecision('Wide Ball');
-                      } else {
-                        setOriginalDecision('Not Out');
-                        setFinalDecision('Not Out');
-                      }
+                      // Decisions differ by type (Out/Not Out vs No Ball / Wide ...), so the previous choice is cleared.
+                      setOriginalDecision('');
+                      setFinalDecision('');
                     }}
                     className={`py-3 px-2 rounded-xl border-2 text-xs font-semibold transition-all ${
                       appealType === type
@@ -1415,7 +1507,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                           : 'border-gray-200 text-gray-700'
                       }`}
                     >
-                      {res}
+                      {decisionLabel(res)}
                     </button>
                   ))}
                 </div>
@@ -1494,20 +1586,24 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+            {appealError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-700">{appealError}</div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
+                onClick={handleNextTab}
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Next →
+              </button>
+              <button
                 onClick={handleAppealSubmit}
                 disabled={loading}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
               >
                 {loading && <Loader2 size={16} className="animate-spin mr-2" />}
                 Submit Case
-              </button>
-              <button 
-                onClick={handleNextTab}
-                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-              >
-                Next →
               </button>
             </div>
           </div>
@@ -1572,20 +1668,20 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
+                onClick={handleNextTab}
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Next →
+              </button>
+              <button
                 onClick={handleSuspectSubmit}
                 disabled={loading}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
               >
                 {loading && <Loader2 size={16} className="animate-spin mr-2" />}
                 Submit Case
-              </button>
-              <button 
-                onClick={handleNextTab}
-                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-              >
-                Next →
               </button>
             </div>
           </div>
@@ -1613,20 +1709,20 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
+                onClick={handleNextTab}
+                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Next →
+              </button>
+              <button
                 onClick={handleCelebrationsSubmit}
                 disabled={loading}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
               >
                 {loading && <Loader2 size={16} className="animate-spin mr-2" />}
                 Submit Case
-              </button>
-              <button 
-                onClick={handleNextTab}
-                className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
-              >
-                Next →
               </button>
             </div>
           </div>
@@ -1649,6 +1745,28 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                 }
               }}
             />
+
+            {/* Type of video — required before uploading */}
+            <div>
+              <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">
+                Type of Video
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {VIDEO_SOURCE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setVideoSource(opt.value); setError(""); }}
+                    className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer ${
+                      videoSource === opt.value ? 'border-[#0F1117] bg-gray-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="font-bold text-sm text-black">{opt.label}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">{opt.hint}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* Drag and Drop Zone */}
             <div 
@@ -1673,10 +1791,14 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               <button 
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 bg-[#0F1117] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-slate-800 transition-colors cursor-pointer"
+                disabled={!videoSource}
+                className="px-4 py-2 bg-[#0F1117] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-slate-800 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Choose File
               </button>
+              {!videoSource && (
+                <p className="text-[11px] text-amber-600 font-semibold mt-2">Select the type of video above to enable uploading.</p>
+              )}
               <p className="text-[10px] text-slate-500 mt-3">Supports: MP4, MOV, AVI, MKV, WebM • Max file size: 5 GB per file</p>
             </div>
 
@@ -1707,8 +1829,8 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
             )}
 
             {/* Uploaded Videos Table */}
-            <div className="border border-slate-100 rounded-xl overflow-hidden">
-              <table className="w-full text-left border-collapse">
+            <div className="border border-slate-100 rounded-xl overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left border-collapse">
                 <thead className="bg-[#F8FAFC] text-[10px] font-bold text-black uppercase tracking-wider">
                   <tr>
                     <th className="py-3 px-4">Preview</th>
@@ -1755,7 +1877,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                               <>
                                 <button
                                   title="Delete Video"
-                                  onClick={() => handleDeleteServerVideo(sv)}
+                                  onClick={() => setPendingDelete({ kind: 'server', video: sv })}
                                   className="p-1.5 text-black hover:text-red-500 transition-colors cursor-pointer"
                                 >
                                   <Trash2 size={15} />
@@ -1848,7 +1970,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                             <div className="flex items-center justify-center gap-2">
                               <button 
                                 title="Delete" 
-                                onClick={() => handleDeleteVideoItem(vid.id)}
+                                onClick={() => setPendingDelete({ kind: 'local', id: vid.id, name: vid.name })}
                                 className="p-1.5 text-black hover:text-red-500 transition-colors cursor-pointer"
                               >
                                 <Trash2 size={15} />
@@ -1878,18 +2000,12 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
             </div>
 
             {/* Bottom Submit Action */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-              <button 
-                onClick={handleFinalSubmit}
-                className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-black text-xs font-bold rounded-xl transition-all cursor-pointer"
-              >
-                Submit Case
-              </button>
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button 
                 onClick={handleFinalSubmit}
                 className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
               >
-                Submit
+                Submit Case
               </button>
             </div>
           </div>
@@ -1899,8 +2015,9 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
 
       {/* ─── VIDEO PREVIEW MODAL OVERLAY ─── */}
       {isVideoPreviewOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[800px] overflow-hidden relative flex flex-col p-6 text-black">
+        <div className="fixed inset-0 z-[100] flex overflow-y-auto bg-black/70 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          {/* m-auto centres the card, and lets the overlay scroll when the card is taller than the screen */}
+          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-[800px] m-auto relative flex flex-col [&>*]:shrink-0 p-6 text-black">
             <button 
               onClick={() => setIsVideoPreviewOpen(false)}
               className="absolute top-6 right-6 text-black hover:text-gray-600 w-9 h-9 flex items-center justify-center rounded-full border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer z-10"
@@ -1908,7 +2025,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               <X size={18} />
             </button>
 
-            <div className="w-full h-[400px] bg-black rounded-2xl relative overflow-hidden flex items-center justify-center mb-6">
+            <div className="w-full h-[min(400px,55vh)] bg-black rounded-2xl relative overflow-hidden flex items-center justify-center mb-6 mt-8">
               <div className="absolute top-4 left-4 bg-black/60 text-white px-3 py-1 rounded-lg text-xs font-bold backdrop-blur-md z-10">
                 Over {ballInfo?.over_number || '0.1'} • {previewVideoTitle}
               </div>
@@ -1930,6 +2047,38 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
                 className="px-6 py-3 bg-[#0F1117] hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-md transition-all cursor-pointer"
               >
                 Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="fixed inset-0 z-[110] flex bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-[400px] m-auto p-6 text-black text-center">
+            <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mb-4 mx-auto">
+              <Trash2 size={20} className="text-red-500" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-1">Delete video?</h3>
+            <p className="text-sm text-slate-500 mb-6">
+              Are you sure you want to delete{' '}
+              <span className="font-semibold text-slate-700">
+                {pendingDelete.kind === 'server' ? `${pendingDelete.video.tag} · ${pendingDelete.video.clipLabel}` : pendingDelete.name}
+              </span>
+              ? This cannot be undone.
+            </p>
+            <div className="flex justify-center gap-3">
+              <button
+                onClick={() => setPendingDelete(null)}
+                className="px-5 py-2.5 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmPendingDelete}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                Delete
               </button>
             </div>
           </div>

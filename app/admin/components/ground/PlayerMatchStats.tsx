@@ -138,6 +138,9 @@ interface CareerSummary extends FormatSummary {
   total: FormatSummary;
   overall: FormatSummary;
   by_format: Record<string, FormatSummary | undefined>;
+  // Only meaningful when the history request carried bowling_type / batting_hand.
+  vs_bowling_type_filtered?: Record<string, any> | null;
+  vs_batting_hand_filtered?: Record<string, any> | null;
 }
 
 interface PlayerHistoryData {
@@ -148,6 +151,109 @@ interface PlayerHistoryData {
 }
 
 const SCORING_API_BASE = process.env.NEXT_PUBLIC_SCORING_API_URL || "http://localhost:5500/api/v1";
+
+// Filter values the stats APIs accept — the backend's enum KEYS, sent as the
+// `bowling_type` / `batting_hand` query params (the display strings with
+// spaces are not matched by the API).
+const BOWLING_TYPE_FILTERS = [
+  { key: 'RIGHT_ARM_FAST', label: 'Right Arm Fast' },
+  { key: 'RIGHT_ARM_MEDIUM_FAST', label: 'Right Arm Medium Fast' },
+  { key: 'LEFT_ARM_FAST', label: 'Left Arm Fast' },
+  { key: 'LEFT_ARM_MEDIUM_FAST', label: 'Left Arm Medium Fast' },
+  { key: 'RIGHT_ARM_OFF_SPIN', label: 'Right Arm Off Spin' },
+  { key: 'RIGHT_ARM_LEG_SPIN', label: 'Right Arm Leg Spin' },
+  { key: 'LEFT_ARM_ORTHODOX_SPIN', label: 'Left Arm Orthodox Spin' },
+  { key: 'LEFT_ARM_WRIST_SPIN', label: 'Left Arm Wrist Spin (Chinaman)' },
+];
+// Free-text delivery types the scoring UI records (spin variations, pace variations, lengths);
+// sent to the stats APIs as `ball_type`.
+const BALL_TYPE_FILTERS = Array.from(
+  new Set([
+    // spin
+    'Off Break', 'Arm Ball', 'Doosra', 'Carrom Ball', 'Top Spinner', 'Slider', 'Teesra', 'Quicker Ball',
+    'Leg Break', "Googly/Wrong'un", 'Flipper', 'Orthodox', 'Chinaman/Stock Ball', "Wrong'un",
+    // pace
+    'Inswinger', 'Outswinger', 'Late In', 'Late Out', 'Reverse Swing', 'Seam Up', 'Cross Seam', 'Scrambled Seam',
+    'Slower', 'Off Cutter', 'Leg Cutter', 'Knuckle', 'Back-of-Hand', 'Split Finger', 'Wide Yorker', 'Beamer',
+    // lengths
+    'Yorker', 'Good', 'Full', 'Short', 'Bouncer',
+    'Other',
+  ])
+).map((label) => ({ key: label, label }));
+const BATTING_HAND_FILTERS = [
+  { key: 'RIGHT_HANDED', label: 'Right Handed' },
+  { key: 'LEFT_HANDED', label: 'Left Handed' },
+];
+
+// Some stats come back as a breakdown object instead of a number (e.g. `dismissals` is
+// { bowled, caught, lbw, ... } in the career/tournament summaries) — React can't render
+// objects, so tiles always go through this: objects collapse to the sum of their numbers.
+const tileValue = (v: unknown): string | number => {
+  if (v && typeof v === 'object') {
+    return Object.values(v as Record<string, unknown>).reduce<number>((a, n) => a + (Number(n) || 0), 0);
+  }
+  return v as string | number;
+};
+
+// Small custom dropdown used by the "vs" filter card.
+function VsFilterSelect({
+  value,
+  options,
+  allLabel,
+  onChange,
+}: {
+  value: string;
+  options: { key: string; label: string }[];
+  allLabel: string;
+  onChange: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Opens upward (these filters sit at the bottom of the page); flips down only if there is no room above.
+  const [openUp, setOpenUp] = useState(true);
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const current = options.find((o) => o.key === value);
+  const toggle = () => {
+    if (!open && buttonRef.current) {
+      const r = buttonRef.current.getBoundingClientRect();
+      const spaceAbove = r.top;
+      const spaceBelow = window.innerHeight - r.bottom;
+      setOpenUp(spaceAbove >= 280 || spaceAbove >= spaceBelow);
+    }
+    setOpen((o) => !o);
+  };
+  return (
+    <div className="relative w-full sm:w-64">
+      <button
+        type="button"
+        ref={buttonRef}
+        onClick={toggle}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-sm text-slate-800 bg-slate-50 border border-slate-200 rounded-xl hover:border-slate-300 outline-none cursor-pointer"
+      >
+        <span className="truncate font-medium">{current?.label || allLabel}</span>
+        <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className={`absolute left-0 right-0 z-40 bg-white border border-slate-100 rounded-xl shadow-xl p-1 max-h-64 overflow-y-auto ${openUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
+            {options.map((o) => (
+              <button
+                key={o.key || 'all'}
+                type="button"
+                onClick={() => { onChange(o.key); setOpen(false); }}
+                className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
+                  value === o.key ? 'bg-slate-100 font-semibold text-slate-900' : 'text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 const namesMatch = (a?: string | null, b?: string | null) =>
   !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -757,6 +863,21 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
   const [recentFormBatting, setRecentFormBatting] = useState<RecentFormMatch[]>([]);
   const [recentFormBowling, setRecentFormBowling] = useState<RecentFormMatch[]>([]);
   const [tournamentPlayerStats, setTournamentPlayerStats] = useState<any>(null);
+  // "vs" filters: a batter vs one bowling type, a bowler vs one batting hand ('' = all).
+  // Each filter starts on its first option (there is no "All" choice).
+  const [bowlingTypeFilter, setBowlingTypeFilter] = useState(BOWLING_TYPE_FILTERS[0].key);
+  const [battingHandFilter, setBattingHandFilter] = useState(BATTING_HAND_FILTERS[0].key);
+  // Batters-vs-ball-type filter ('' = all ball types).
+  const [ballTypeFilter, setBallTypeFilter] = useState(BALL_TYPE_FILTERS[0].key);
+  // Same match scorecard, re-fetched with the filters applied (only when one is set).
+  const [filteredScorecard, setFilteredScorecard] = useState<any>(null);
+  const filterQuery = (() => {
+    const q = new URLSearchParams();
+    if (bowlingTypeFilter) q.set('bowling_type', bowlingTypeFilter);
+    if (battingHandFilter) q.set('batting_hand', battingHandFilter);
+    if (ballTypeFilter) q.set('ball_type', ballTypeFilter);
+    return q.toString();
+  })();
 
   useEffect(() => {
     if (!matchId) return;
@@ -791,6 +912,29 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
     };
     fetchAll();
   }, [matchId]);
+
+  // Match Stats "vs" data: the scorecard endpoint fills each player's
+  // vs_bowling_type_filtered / vs_batting_hand_filtered when it gets the filters.
+  useEffect(() => {
+    if (!matchId || !filterQuery) {
+      setFilteredScorecard(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/scorecard?${filterQuery}`, {
+          headers: { "ngrok-skip-browser-warning": "true" },
+        });
+        if (!res.ok || cancelled) return;
+        const arr = await res.json();
+        if (!cancelled && Array.isArray(arr) && arr.length > 0) setFilteredScorecard(arr[0]);
+      } catch (err) {
+        console.error("Filtered scorecard fetch error:", err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [matchId, filterQuery]);
 
   const battingMatch = useMemo(
     () => findPlayerInnings<Batsman>(scorecard?.innings_1?.batsmen, scorecard?.innings_2?.batsmen, playerName),
@@ -841,7 +985,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
     const fetchTournamentPlayerStats = async () => {
       try {
         const res = await fetch(
-          `${SCORING_API_BASE}/api/v1/tournaments/${externalTournamentId}/players/${playerId}/stats?match_type=all`,
+          `${SCORING_API_BASE}/api/v1/tournaments/${externalTournamentId}/players/${playerId}/stats?match_type=all${filterQuery ? `&${filterQuery}` : ''}`,
           { headers: { "ngrok-skip-browser-warning": "true" } }
         );
         if (res.ok) {
@@ -854,7 +998,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
       }
     };
     fetchTournamentPlayerStats();
-  }, [externalTournamentId, playerId]);
+  }, [externalTournamentId, playerId, filterQuery]);
 
   // Real career data — powers the Career Stats tab (bio, overview, format
   // breakdown). `history` (match-by-match log) isn't wired up yet.
@@ -863,7 +1007,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
     const fetchPlayerHistory = async () => {
       try {
         const res = await fetch(
-          `${SCORING_API_BASE}/api/v1/players/${playerId}/history`,
+          `${SCORING_API_BASE}/api/v1/players/${playerId}/history${filterQuery ? `?${filterQuery}` : ''}`,
           { headers: { "ngrok-skip-browser-warning": "true" } }
         );
         if (res.ok) {
@@ -875,7 +1019,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
       }
     };
     fetchPlayerHistory();
-  }, [playerId]);
+  }, [playerId, filterQuery]);
 
   // Real recent-form data — powers "Detailed Recent Performances" /
   // "Recent Bowling Performances" in the Career Stats tab. Re-fetched
@@ -1308,6 +1452,55 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
 
   const activeBatsman = battingMatch?.entry;
   const activeBowler = bowlingMatch?.entry;
+
+  // --- "vs" filter card (Match / Tournament / Career) ---
+  // Filtered numbers come straight from the API's *_filtered fields; with no
+  // filter ("All"), the same tiles show the plain totals for that tab.
+  const vsBatting = view === 'batting';
+  const vsFilterKey = vsBatting ? bowlingTypeFilter : battingHandFilter;
+  const vsFilterLabel = vsBatting
+    ? BOWLING_TYPE_FILTERS.find((o) => o.key === bowlingTypeFilter)?.label
+    : BATTING_HAND_FILTERS.find((o) => o.key === battingHandFilter)?.label;
+  const findIn = (card: any, innings: 1 | 2 | undefined, list: 'batsmen' | 'bowlers', id?: string, name?: string) =>
+    card?.[`innings_${innings}`]?.[list]?.find((p: any) => (id && p.id === id) || namesMatch(p.name, name));
+
+  // "Batter vs Ball Type": the API's batter_ball_type_stats — only once a ball type is chosen (no default totals).
+  let ballTypeData: Record<string, any> | null | undefined;
+  if (ballTypeFilter) {
+    if (statsTab === 'match') {
+      ballTypeData = findIn(filteredScorecard, battingMatch?.inningsNum, 'batsmen', (battingMatch?.entry as any)?.id, playerName)?.batter_ball_type_stats;
+    } else if (statsTab === 'tournament') {
+      ballTypeData = tBatting?.batter_ball_type_stats;
+    } else {
+      ballTypeData = (playerHistory?.career_summary as any)?.batter_ball_type_stats;
+    }
+  }
+
+  let vsData: Record<string, any> | null | undefined;
+  if (vsFilterKey) {
+    if (statsTab === 'match') {
+      vsData = vsBatting
+        ? findIn(filteredScorecard, battingMatch?.inningsNum, 'batsmen', (battingMatch?.entry as any)?.id, playerName)?.vs_bowling_type_filtered
+        : findIn(filteredScorecard, bowlingMatch?.inningsNum, 'bowlers', (bowlingMatch?.entry as any)?.id, playerName)?.vs_batting_hand_filtered;
+    } else if (statsTab === 'tournament') {
+      vsData = vsBatting ? tBatting?.vs_bowling_type_filtered : tBowling?.vs_batting_hand_filtered;
+    } else {
+      vsData = vsBatting ? playerHistory?.career_summary?.vs_bowling_type_filtered : playerHistory?.career_summary?.vs_batting_hand_filtered;
+    }
+  }
+  const vsTiles: { label: string; key: string }[] = vsBatting
+    ? [
+        { label: 'Innings', key: 'innings' }, { label: 'Runs', key: 'runs' }, { label: 'Balls', key: 'balls' },
+        { label: '4s', key: 'fours' }, { label: '6s', key: 'sixes' }, { label: 'Dots', key: 'zeros' },
+        { label: '1s', key: 'ones' }, { label: '2s', key: 'twos' }, { label: '3s', key: 'threes' },
+        { label: 'Dismissals', key: 'dismissals' }, { label: 'Strike Rate', key: 'strike_rate' }, { label: 'Average', key: 'average' },
+      ]
+    : [
+        { label: 'Overs', key: 'overs' }, { label: 'Balls', key: 'balls' }, { label: 'Runs Given', key: 'runs_given' },
+        { label: 'Wickets', key: 'wickets' }, { label: 'Economy', key: 'economy' }, { label: 'Average', key: 'average' },
+        { label: '4s Conceded', key: 'fours_conceded' }, { label: '6s Conceded', key: 'sixes_conceded' },
+      ];
+  const visibleVsTiles = vsTiles.filter((t) => vsData?.[t.key] !== undefined && vsData?.[t.key] !== null);
 
   return (
     <div className="flex flex-col gap-6">
@@ -2937,6 +3130,79 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* --- VS FILTER CARD: batter vs bowling type / bowler vs batting hand --- */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">{vsBatting ? 'Batter vs Bowling Type' : 'Bowler vs Batting Hand'}</h3>
+            <p className="text-xs text-slate-600 font-medium mt-0.5">
+              {vsBatting ? 'vs' : 'vs'} {vsFilterLabel || (vsBatting ? 'All bowling types' : 'All batting hands')}
+              {statsTab === 'career' && vsFilterKey ? ' · all formats' : ''}
+            </p>
+          </div>
+          {vsBatting ? (
+            <VsFilterSelect value={bowlingTypeFilter} options={BOWLING_TYPE_FILTERS} allLabel="All Bowling Types" onChange={setBowlingTypeFilter} />
+          ) : (
+            <VsFilterSelect value={battingHandFilter} options={BATTING_HAND_FILTERS} allLabel="All Batting Hands" onChange={setBattingHandFilter} />
+          )}
+        </div>
+        {!vsFilterKey ? (
+          <p className="text-sm text-slate-500 italic">
+            {vsBatting ? 'Select a bowling type to see the batter’s record against it.' : 'Select a batting hand to see the bowler’s record against it.'}
+          </p>
+        ) : visibleVsTiles.length === 0 ? (
+          <p className="text-sm text-slate-500 italic">No data for this selection.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {visibleVsTiles.map((t) => (
+              <div key={t.key} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
+                <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{t.label}</p>
+                <p className="text-xl font-bold text-slate-900">{tileValue(vsData?.[t.key])}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* --- BATTERS VS BALL TYPE (batting view, all three tabs) --- */}
+      {view === 'batting' && (
+        <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Batters vs Ball Type</h3>
+              <p className="text-xs text-slate-600 font-medium mt-0.5">
+                vs {ballTypeFilter || 'All ball types'}
+                {statsTab === 'career' && ballTypeFilter ? ' · all formats' : ''}
+              </p>
+            </div>
+            <VsFilterSelect value={ballTypeFilter} options={BALL_TYPE_FILTERS} allLabel="All Ball Types" onChange={setBallTypeFilter} />
+          </div>
+          {(() => {
+            const tiles = [
+              { label: 'Innings', key: 'innings' }, { label: 'Runs', key: 'runs' }, { label: 'Balls', key: 'balls' },
+              { label: '4s', key: 'fours' }, { label: '6s', key: 'sixes' }, { label: 'Dots', key: 'zeros' },
+              { label: '1s', key: 'ones' }, { label: '2s', key: 'twos' }, { label: '3s', key: 'threes' },
+              { label: '5s', key: 'fives' }, { label: 'Extras', key: 'extras' },
+              { label: 'Dismissals', key: 'dismissals' }, { label: 'Strike Rate', key: 'strike_rate' }, { label: 'Average', key: 'average' },
+            ].filter((t) => ballTypeData?.[t.key] !== undefined && ballTypeData?.[t.key] !== null);
+            return !ballTypeFilter ? (
+              <p className="text-sm text-slate-500 italic">Select a ball type to see the batter’s record against it.</p>
+            ) : tiles.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">No data for this selection.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+                {tiles.map((t) => (
+                  <div key={t.key} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
+                    <p className="text-[10px] font-bold text-slate-600 uppercase mb-1">{t.label}</p>
+                    <p className="text-xl font-bold text-slate-900">{tileValue(ballTypeData?.[t.key])}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { Search, ChevronLeft, ChevronRight, Users, MapPin, CalendarDays } from 'lucide-react';
 import stadiumImage from '../../../../public/stadium.png'; // Ensure this path is correct
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
+import MatchTypeFilter from '../tournament/MatchTypeFilter';
 
 interface Tournament {
   id: string;
@@ -14,7 +15,10 @@ interface Tournament {
   location: string;
   startDate: string;
   endDate: string;
+  createdAt?: string;
   category?: string;
+  match_type?: string;
+  matchType?: string;
 }
 
 interface TournamentListProps {
@@ -25,6 +29,7 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [matchTypeFilter, setMatchTypeFilter] = useState<string>('All');
   const [currentPage, setCurrentPage] = useState(1);
 
   const itemsPerPage = 12; // 3 rows * 4 columns
@@ -59,11 +64,22 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
             const weightA = getWeight(aStart, aEnd);
             const weightB = getWeight(bStart, bEnd);
             if (weightA !== weightB) return weightA - weightB;
+            // Live (weight 0): most recently created first (falls back to the
+            // latest start date if the API doesn't send createdAt).
+            if (weightA === 0) {
+              const aCreated = new Date(a.createdAt ?? a.startDate).getTime() || 0;
+              const bCreated = new Date(b.createdAt ?? b.startDate).getTime() || 0;
+              return bCreated - aCreated;
+            }
             // Completed (weight 2): most recently ended first. Live/Upcoming:
             // unchanged — soonest to start first.
-            return weightA === 2
-              ? bEnd.getTime() - aEnd.getTime()
-              : aStart.getTime() - bStart.getTime();
+            if (weightA === 2) {
+              // Most recently ended first; ties broken by most recently created.
+              const byEnd = bEnd.getTime() - aEnd.getTime();
+              if (byEnd !== 0) return byEnd;
+              return (new Date(b.createdAt ?? b.startDate).getTime() || 0) - (new Date(a.createdAt ?? a.startDate).getTime() || 0);
+            }
+            return aStart.getTime() - bStart.getTime();
           });
 
           setTournaments(sorted);
@@ -81,10 +97,11 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
   // Search filter
   const filtered = useMemo(() => {
     return tournaments.filter(t =>
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.location.toLowerCase().includes(searchQuery.toLowerCase())
+      (matchTypeFilter === 'All' || (String(t.match_type ?? t.matchType ?? '').toUpperCase() === matchTypeFilter)) &&
+      (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.location.toLowerCase().includes(searchQuery.toLowerCase()))
     );
-  }, [tournaments, searchQuery]);
+  }, [tournaments, searchQuery, matchTypeFilter]);
 
   // Pagination calculation
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
@@ -110,6 +127,11 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
           <h2 className="text-xl font-bold text-slate-900">Tournaments</h2>
+          <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          <MatchTypeFilter
+            value={matchTypeFilter}
+            onChange={(v) => { setMatchTypeFilter(v); setCurrentPage(1); }}
+          />
           <div className="relative w-full md:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
             <input
@@ -122,6 +144,7 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
                 setCurrentPage(1);
               }}
             />
+          </div>
           </div>
         </div>
 
@@ -146,6 +169,8 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
                       src={stadiumImage}
                       alt="Stadium"
                       fill
+                      sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                      loading="eager"
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-between">

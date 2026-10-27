@@ -35,6 +35,11 @@ export interface Team {
   id: string;
   name: string;
   shortName?: string;
+  // Fields as returned by GET {ScoringAPI}/tournaments/:externalId/teams
+  short_name?: string;
+  // Id of the underlying match-team — the one PUT /teams/:id expects.
+  team_id?: string;
+  team?: { id?: string; match_id?: string; innings?: number; short_name?: string };
 }
 
 // A fixture/schedule row as actually returned by

@@ -9,12 +9,15 @@ import { ChevronLeft, ChevronRight, PlusSquare, Edit3, CalendarDays } from 'luci
 import CreateTournamentModal from './CreateTournamentModal';
 import EditTournamentModal from './EditTournamentModal';
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
+import MatchTypeFilter from './MatchTypeFilter';
 
 interface Tournament {
   id: string;
   name: string;
   location: string;
   category: string;
+  match_type?: string;
+  matchType?: string;
   teamCount: number;
   startDate: string;
   endDate: string;
@@ -30,6 +33,7 @@ export default function ActiveTournaments() {
   // Pagination & Search States
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const [matchTypeFilter, setMatchTypeFilter] = useState<string>('All');
   const itemsPerPage = 12; // 4 columns * 3 rows
 
   const fetchTournaments = useCallback(async () => {
@@ -63,11 +67,21 @@ export default function ActiveTournaments() {
         const weightB = getStatusWeight(bStart, bEnd);
 
         if (weightA !== weightB) return weightA - weightB;
+        // Live (weight 0): most recently created first.
+        if (weightA === 0) {
+          const aCreated = new Date(a.createdAt).getTime() || 0;
+          const bCreated = new Date(b.createdAt).getTime() || 0;
+          return bCreated - aCreated;
+        }
         // Completed (weight 2): most recently ended first. Live/Upcoming:
         // unchanged — soonest to start first.
-        return weightA === 2
-          ? bEnd.getTime() - aEnd.getTime()
-          : aStart.getTime() - bStart.getTime();
+        if (weightA === 2) {
+          // Most recently ended first; ties broken by most recently created.
+          const byEnd = bEnd.getTime() - aEnd.getTime();
+          if (byEnd !== 0) return byEnd;
+          return (new Date(b.createdAt).getTime() || 0) - (new Date(a.createdAt).getTime() || 0);
+        }
+        return aStart.getTime() - bStart.getTime();
       });
 
       setTournaments(sortedData);
@@ -84,11 +98,12 @@ export default function ActiveTournaments() {
 
   // Filter Logic
   const filteredTournaments = useMemo(() => {
-    return tournaments.filter(t => 
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.location.toLowerCase().includes(searchQuery.toLowerCase())
+    return tournaments.filter(t =>
+      (matchTypeFilter === 'All' || (String(t.match_type ?? t.matchType ?? '').toUpperCase() === matchTypeFilter)) &&
+      (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.location.toLowerCase().includes(searchQuery.toLowerCase()))
     );
-  }, [tournaments, searchQuery]);
+  }, [tournaments, searchQuery, matchTypeFilter]);
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredTournaments.length / itemsPerPage);
@@ -138,6 +153,11 @@ export default function ActiveTournaments() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <h2 className="text-xl font-bold text-slate-900 tracking-tight">Active Tournaments</h2>
 
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          <MatchTypeFilter
+            value={matchTypeFilter}
+            onChange={(v) => { setMatchTypeFilter(v); setCurrentPage(1); }}
+          />
         <div className="relative w-full md:w-72">
           <input
             type="text"
@@ -150,6 +170,7 @@ export default function ActiveTournaments() {
             className="w-full pl-10 pr-4 py-2 bg-slate-50 text-gray-400 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
           <SearchIcon className="absolute left-3 top-2.5 text-slate-400" />
+        </div>
         </div>
       </div>
 
@@ -172,6 +193,8 @@ export default function ActiveTournaments() {
                     src={stadiumImage} 
                     alt="Stadium" 
                     fill 
+                    sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                    loading="eager"
                     className="object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-between">
