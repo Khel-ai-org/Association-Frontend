@@ -170,6 +170,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [isWagonWheelLoading, setIsWagonWheelLoading] = useState<boolean>(false);
   const [wagonWheelData, setWagonWheelData] = useState<WagonWheelData | null>(null);
   const [wagonWheelError, setWagonWheelError] = useState<string>("");
+  // Not an error: the batsman simply has no balls with a field position, so there's nothing to draw.
+  const [wagonWheelNotice, setWagonWheelNotice] = useState<string>("");
 
   // Fetches this batsman's real wagon-wheel data and only opens the modal
   // once it's ready — opening first and fetching in parallel would let the
@@ -178,6 +180,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const handleOpenWagonWheel = async () => {
     if (!matchId || !selectedBatsman) return;
     setWagonWheelError("");
+    setWagonWheelNotice("");
     setIsWagonWheelLoading(true);
     try {
       const innNum = activeInnings === '1st' ? 1 : 2;
@@ -198,7 +201,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       console.log('[WagonWheel] Raw response for', selectedBatsman, '(id:', batsmanId, '):', json);
       // Response is wrapped in { status, data: {...} } — unwrap it.
       const payload: WagonWheelApiResponse = json?.data ?? json;
-      setWagonWheelData(buildWagonWheelDataFromApiResponse(payload));
+      const data = buildWagonWheelDataFromApiResponse(payload);
+      if (data.shots.length === 0) {
+        setWagonWheelNotice('No wagon wheel data available');
+        return;
+      }
+      setWagonWheelData(data);
       setIsWagonWheelOpen(true);
     } catch (err: any) {
       console.error('[WagonWheel] Failed to load:', err);
@@ -207,6 +215,23 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       setIsWagonWheelLoading(false);
     }
   };
+
+  // The notice belongs to one batsman in one innings.
+  useEffect(() => {
+    setWagonWheelNotice("");
+  }, [selectedBatsman, activeInnings]);
+
+  // Context line and not-out star for the wagon wheel's info bar.
+  const wagonWheelInnings = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
+  const wagonWheelBatsman = wagonWheelInnings?.batsmen?.find(
+    (bm: any) => (bm.name || bm.batsman_name) === selectedBatsman
+  );
+  const wagonWheelSubtitle = [
+    scorecard?.innings_1?.team_name && scorecard?.innings_2?.team_name
+      ? `${scorecard.innings_1.team_name} vs ${scorecard.innings_2.team_name}`
+      : null,
+    `${activeInnings} Innings`,
+  ].filter(Boolean).join(' • ');
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -1205,6 +1230,9 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               )}
               <span>{isWagonWheelLoading ? 'Loading...' : 'Wagon Wheel'}</span>
             </button>
+            {wagonWheelNotice && (
+              <span className="text-xs font-medium text-slate-500">{wagonWheelNotice}</span>
+            )}
             {wagonWheelError && (
               <span className="text-xs font-medium text-red-600">{wagonWheelError}</span>
             )}
@@ -1863,6 +1891,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         onClose={() => setIsWagonWheelOpen(false)}
         batsmanName={selectedBatsman || 'All Batsmen'}
         data={wagonWheelData || undefined}
+        subtitle={wagonWheelSubtitle}
+        notOut={!!wagonWheelBatsman && !wagonWheelBatsman.outdetails}
       />
 
     </div>

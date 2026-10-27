@@ -198,7 +198,20 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
   // Handle Load Video A with per-camera saved drawings
   useEffect(() => {
-    if (!engineARef.current || !srcA) return;
+    if (!engineARef.current) return;
+
+    if (!srcA) {
+      // No video for this camera: drop the previous camera's picture instead of leaving it on screen
+      if (prevSrcARef.current) {
+        annotationsStoreRef.current.set(prevSrcARef.current, engineARef.current.annotations.getShapes());
+      }
+      prevSrcARef.current = null;
+      engineARef.current.unload();
+      setLoadingA(false);
+      setErrorA(null);
+      setProgressA(null);
+      return;
+    }
 
     // Save previous camera A annotations before loading new video
     if (prevSrcARef.current && engineARef.current) {
@@ -537,18 +550,12 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         const percent = progress?.phase === 'downloading' && progress.total
           ? Math.floor(((progress.loaded ?? 0) / progress.total) * 100)
           : null;
-        const camera = loadingA && loadingB ? "videos" : loadingA ? "Camera A" : "Camera B";
         return (
           <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 backdrop-blur-sm">
             <div className="w-9 h-9 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-            <p className="text-xs font-semibold text-slate-300 tracking-wide">
-              {percent !== null ? `Loading ${camera}… ${percent}%` : `Preparing ${camera}…`}
+            <p className="text-sm font-semibold text-slate-300">
+              {percent !== null ? `Loading video… ${percent}%` : 'Loading video…'}
             </p>
-            {percent === null && (
-              <p className="text-[10px] text-slate-500 max-w-xs text-center">
-                First view of a clip prepares it for frame-by-frame playback — later views open instantly
-              </p>
-            )}
           </div>
         );
       })()}
@@ -694,6 +701,11 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
           {loadingA && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70">
               <div className="w-7 h-7 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+            </div>
+          )}
+          {!srcA && (
+            <div className="absolute inset-0 flex items-center justify-center bg-[#0b0e13]">
+              <p className="text-sm font-semibold text-slate-400">No video available</p>
             </div>
           )}
         </div>

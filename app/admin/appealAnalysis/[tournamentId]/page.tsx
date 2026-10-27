@@ -313,13 +313,12 @@ export default function AppealAnalysisPage() {
   }, [tournamentId]);
 
   const handleExport = () => {
-    // The sheet's data comes from the scoring backend keyed by
-    // externalTournamentId (same id used for the on-screen table) — sending
-    // the association tournamentId here queries the wrong source, which is
-    // why the sheet came back with headers but no rows.
-    if (!externalTournamentId) return;
+    // Send the ASSOCIATION tournament id (this page's route param). The backend looks up the
+    // linked scoring tournament id itself and then reads the same appeal-analysis data this
+    // page shows, so the sheet and the table always match.
+    if (!tournamentId) return;
     setExporting(true);
-    window.location.href = `${process.env.NEXT_PUBLIC_Backend_URL}/export/auth?tournamentId=${externalTournamentId}`;
+    window.location.href = `${process.env.NEXT_PUBLIC_Backend_URL}/export/auth?tournamentId=${tournamentId}`;
   };
 
   const handleAddComment = async () => {
@@ -633,8 +632,8 @@ export default function AppealAnalysisPage() {
         <div className="flex md:justify-end gap-3">
           <button
             onClick={handleExport}
-            disabled={exporting || !externalTournamentId}
-            className="w-full md:w-auto justify-center px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+            disabled={exporting || !tournamentId}
+            className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer disabled:opacity-50"
           >
             {exporting ? (
               <>
