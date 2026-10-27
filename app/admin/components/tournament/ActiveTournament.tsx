@@ -9,12 +9,15 @@ import { ChevronLeft, ChevronRight, PlusSquare, Edit3, CalendarDays } from 'luci
 import CreateTournamentModal from './CreateTournamentModal';
 import EditTournamentModal from './EditTournamentModal';
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
+import MatchTypeFilter from './MatchTypeFilter';
 
 interface Tournament {
   id: string;
   name: string;
   location: string;
   category: string;
+  match_type?: string;
+  matchType?: string;
   teamCount: number;
   startDate: string;
   endDate: string;
@@ -30,6 +33,7 @@ export default function ActiveTournaments() {
   // Pagination & Search States
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const [matchTypeFilter, setMatchTypeFilter] = useState<string>('All');
   const itemsPerPage = 12; // 4 columns * 3 rows
 
   const fetchTournaments = useCallback(async () => {
@@ -94,11 +98,12 @@ export default function ActiveTournaments() {
 
   // Filter Logic
   const filteredTournaments = useMemo(() => {
-    return tournaments.filter(t => 
-      t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.location.toLowerCase().includes(searchQuery.toLowerCase())
+    return tournaments.filter(t =>
+      (matchTypeFilter === 'All' || (String(t.match_type ?? t.matchType ?? '').toUpperCase() === matchTypeFilter)) &&
+      (t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      t.location.toLowerCase().includes(searchQuery.toLowerCase()))
     );
-  }, [tournaments, searchQuery]);
+  }, [tournaments, searchQuery, matchTypeFilter]);
 
   // Pagination Logic
   const totalPages = Math.ceil(filteredTournaments.length / itemsPerPage);
@@ -148,6 +153,11 @@ export default function ActiveTournaments() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
         <h2 className="text-xl font-bold text-slate-900 tracking-tight">Active Tournaments</h2>
 
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          <MatchTypeFilter
+            value={matchTypeFilter}
+            onChange={(v) => { setMatchTypeFilter(v); setCurrentPage(1); }}
+          />
         <div className="relative w-full md:w-72">
           <input
             type="text"
@@ -160,6 +170,7 @@ export default function ActiveTournaments() {
             className="w-full pl-10 pr-4 py-2 bg-slate-50 text-gray-400 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
           <SearchIcon className="absolute left-3 top-2.5 text-slate-400" />
+        </div>
         </div>
       </div>
 

@@ -106,7 +106,38 @@ const flattenCocVideos = (videos: CocCaseVideo[] | undefined): FlattenedCocClip[
   return clips;
 };
 
+// One row of GET /matches/:id/suspect.
+interface SuspectEntry {
+  over: string;
+  over_number?: number;
+  ball_number: number;
+  suspect: string;
+  video: unknown[];
+}
 
+// The suspect endpoint's `video` list: strings (urls), CoC-style records ({ url: { video1: url } })
+// or records with a single url — all become playable clips.
+const flattenSuspectVideos = (videos: unknown[] | undefined): FlattenedCocClip[] => {
+  if (!Array.isArray(videos)) return [];
+  const clips: FlattenedCocClip[] = [];
+  videos.forEach((v: any, i) => {
+    if (typeof v === 'string') {
+      clips.push({ key: `s-${i}`, tag: 'suspect', clipLabel: `video${clips.length + 1}`, url: v, uploadStatus: 'uploaded', uploadedAt: null });
+    } else if (v && typeof v === 'object') {
+      if (v.url && typeof v.url === 'object') {
+        Object.keys(v.url).forEach((clipKey) => {
+          clips.push({ key: `s-${v.id ?? i}-${clipKey}`, tag: v.tag || 'suspect', clipLabel: clipKey, url: v.url[clipKey], uploadStatus: v.upload_status || 'uploaded', uploadedAt: v.uploaded_at ?? null });
+        });
+      } else if (typeof v.url === 'string') {
+        clips.push({ key: `s-${v.id ?? i}`, tag: v.tag || 'suspect', clipLabel: v.clipLabel || `video${clips.length + 1}`, url: v.url, uploadStatus: v.upload_status || 'uploaded', uploadedAt: v.uploaded_at ?? null });
+      }
+    }
+  });
+  return clips.filter((c) => !!c.url);
+};
+
+const titleCaseSuspect = (value: string) =>
+  String(value || '').replace(/[_-]+/g, ' ').trim().split(/\s+/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 
 const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTab, onTabChange, initialStatus }) => {
   const [internalTab, setInternalTab] = useState<'details' | 'referee' | 'scorecard'>('details');
@@ -194,6 +225,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [isTakeActionOpen, setIsTakeActionOpen] = useState(false); // <-- Controller for 5-tab Action Modal
 
   const [cocCases, setCocCases] = useState<CocCase[]>([]);
+  // "Action Taken" section: CoC cases and suspect balls, one tab each.
+  const [actionTab, setActionTab] = useState<'coc' | 'suspect'>('coc');
+  const [suspects, setSuspects] = useState<SuspectEntry[]>([]);
+  const [isSuspectLoading, setIsSuspectLoading] = useState(false);
   const [isCocLoading, setIsCocLoading] = useState(false);
   const [cocVideoGallery, setCocVideoGallery] = useState<{
     isOpen: boolean;
@@ -329,8 +364,29 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     }
   };
 
+  const fetchSuspects = async (silent = false) => {
+    if (!matchId) return;
+    if (!silent) setIsSuspectLoading(true);
+    try {
+      const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/suspect`, {
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
+      if (!res.ok) throw new Error("Failed to fetch suspect balls");
+      const data = await res.json();
+      console.log("Fetched Suspects:", data);
+      setSuspects(Array.isArray(data?.suspects) ? data.suspects : []);
+    } catch (err) {
+      console.error("Error fetching suspects:", err);
+    } finally {
+      if (!silent) setIsSuspectLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'referee') fetchCocCases();
+    if (activeTab === 'referee') {
+      fetchCocCases();
+      fetchSuspects();
+    }
   }, [activeTab, matchId, SCORING_API_BASE]);
 
   // `matchId` (from the URL) is already the scoring service's own match id —
@@ -1509,10 +1565,27 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       {/* --- MATCH REFEREE ACTIONS TABLE SECTION (Only visible on Match Referee Tab) --- */}
       {activeTab === 'referee' && (
         <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs animate-in fade-in duration-300">
-          <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-4">
-            <h3 className="text-lg font-bold text-slate-900">Actions Taken By Match Referee</h3>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-slate-100 pb-4">
+            <h3 className="text-lg font-bold text-slate-900">Action Taken</h3>
+            <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100">
+              {([
+                { id: 'coc', label: 'CoC', count: cocCases.length },
+                { id: 'suspect', label: 'Suspect', count: suspects.length },
+              ] as const).map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setActionTab(t.id)}
+                  className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                    actionTab === t.id ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {t.label} ({t.count})
+                </button>
+              ))}
+            </div>
           </div>
 
+          {actionTab === 'coc' && (
           <div className="overflow-x-auto overflow-y-auto max-h-[360px] custom-scrollbar">
             <table className="w-full min-w-[800px] text-left border-collapse">
               <thead className="bg-[#F8FAFC] text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10">
@@ -1626,6 +1699,68 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               </tbody>
             </table>
           </div>
+          )}
+
+          {actionTab === 'suspect' && (
+          <div className="overflow-x-auto overflow-y-auto max-h-[360px] custom-scrollbar">
+            <table className="w-full min-w-[520px] text-left border-collapse">
+              <thead className="bg-[#F8FAFC] text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10">
+                <tr>
+                  <th className="py-3 px-4">Over</th>
+                  <th className="py-3 px-4">Ball Number</th>
+                  <th className="py-3 px-4">Suspect</th>
+                  <th className="py-3 px-4">Video</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {isSuspectLoading ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">Loading suspect actions...</td>
+                  </tr>
+                ) : suspects.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">No suspect actions found for this match.</td>
+                  </tr>
+                ) : (
+                  suspects.map((item, idx) => {
+                    const overFloat = item.over !== undefined && item.over !== null ? parseFloat(String(item.over)) : NaN;
+                    const overDisplay = item.over_number ?? (Number.isNaN(overFloat) ? '—' : Math.floor(overFloat) + 1);
+                    const clips = flattenSuspectVideos(item.video);
+                    return (
+                      <tr key={`${item.over}-${item.ball_number}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-4 px-4 font-bold text-slate-900">{overDisplay}</td>
+                        <td className="py-4 px-4 text-slate-700">{item.over ?? '—'}</td>
+                        <td className="py-4 px-4">
+                          <span className="inline-flex px-2.5 py-1 rounded-md bg-amber-50 text-amber-700 border border-amber-100 text-xs font-semibold">
+                            {titleCaseSuspect(item.suspect) || '—'}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4">
+                          {clips.length === 0 ? (
+                            <span className="text-slate-400 text-xs">—</span>
+                          ) : (
+                            <button
+                              onClick={() => setCocVideoGallery({
+                                isOpen: true,
+                                title: `Suspect — ${titleCaseSuspect(item.suspect)} (Over ${item.over})`,
+                                clips,
+                                activeIndex: 0,
+                              })}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Video size={12} />
+                              {clips.length} Clip{clips.length > 1 ? 's' : ''}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          )}
         </div>
       )}
 
@@ -1657,7 +1792,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         isOpen={isTakeActionOpen} 
         onClose={() => setIsTakeActionOpen(false)} 
         matchId={matchId}
-        ballInfo={selectedBallData} 
+        ballInfo={selectedBallData ? { ...selectedBallData, innings: activeInnings === '1st' ? 1 : 2 } : null} 
         matchData={scorecard}
         onSaveAction={async () => {
           // A Take Action submit (CoC, appeal, ...) just changed server data —
@@ -1665,6 +1800,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           // for a page refresh.
           await Promise.all([
             fetchCocCases(true),
+            fetchSuspects(true),
             fetchAppeals().then((data) => data && setAppeals(data)),
           ]);
         }}

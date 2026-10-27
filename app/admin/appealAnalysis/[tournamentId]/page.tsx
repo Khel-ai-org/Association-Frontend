@@ -97,6 +97,18 @@ const INNINGS_OPTIONS = [
 ];
 
 // `umpire_judgement` comes back as a list of { judgement, judgementor } (empty when nobody has judged yet).
+// All judgements shown in the popup: the Match Referee's own judgement (mr_judgement) first, then the umpire judgements.
+const allJudgements = (item: any) => {
+  const list: { name: string; role: string; judgement: string; created_at?: string }[] = [];
+  if (item?.mr_judgement) {
+    list.push({ name: item.referee || "Match Referee", role: "Match Referee Judgement", judgement: String(item.mr_judgement) });
+  }
+  toJudgements(item?.umpire_judgement).forEach((j: any) =>
+    list.push({ name: j.judgementor || "Unknown", role: "Umpire", judgement: j.judgement, created_at: j.created_at })
+  );
+  return list;
+};
+
 const toJudgements = (value: unknown): { judgement: string; judgementor: string }[] => {
   const list = Array.isArray(value) ? value : value && typeof value === "object" ? [value] : [];
   return list.filter((j: any) => j && j.judgement) as { judgement: string; judgementor: string }[];
@@ -452,8 +464,11 @@ export default function AppealAnalysisPage() {
             </>
           )}
         </p>
-        <p className="text-[11px] text-slate-700 mt-1">{ordinal(item.innings)} Innings</p>
-        <p className="text-[11px] text-slate-700">Over {item.over_number || "0.0"}</p>
+        <p className="text-[11px] text-slate-600 mt-1">{ordinal(item.innings)} Innings</p>
+        <p className="text-[11px] text-slate-600">
+          Over {item.over_number || "0.0"}
+          {String(item.over_number || "").includes(".") && <> · Ball {parseInt(String(item.over_number).split(".")[1], 10) || 1}</>}
+        </p>
       </div>
     );
   };
@@ -492,16 +507,39 @@ export default function AppealAnalysisPage() {
     );
   };
 
+  const renderDrs = (item: any) => (
+    <span className={`${pill} ${item.drs_referred ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-600"}`}>
+      {item.drs_referred ? "Taken" : "Not Taken"}
+    </span>
+  );
+
+  const renderDecision = (item: any) => {
+    const cls =
+      item.decision === "Overturned"
+        ? "bg-red-50 text-red-700"
+        : item.decision === "Umpire's Call"
+        ? "bg-amber-50 text-amber-700"
+        : item.decision
+        ? "bg-emerald-50 text-emerald-700"
+        : "bg-slate-100 text-slate-600";
+    return <span className={`${pill} ${cls}`}>{item.decision ? decisionLabel(item.decision) : "Pending"}</span>;
+  };
+
   const renderOfficials = (item: any) => (
-    <div className="space-y-2 text-xs">
+    <div className="space-y-2.5 text-xs">
       {[
         { role: "Umpire", name: item.umpire },
         { role: "Match Referee", name: item.referee },
       ].map((o) => (
-        <div key={o.role} className="flex items-center gap-2">
-          <span className="w-20 shrink-0 text-[11px] text-slate-600">{o.role}</span>
+        <div key={o.role} className="flex items-center gap-3">
+          <span className="w-14 shrink-0 text-[11px] leading-tight text-slate-500">{o.role}</span>
           {o.name ? (
-            <span className="font-semibold text-slate-800 truncate">{o.name}</span>
+            <span className="flex items-center gap-2 min-w-0">
+              <span className="w-6 h-6 shrink-0 rounded-full bg-slate-100 text-slate-600 text-[9px] font-bold flex items-center justify-center">
+                {initials(o.name)}
+              </span>
+              <span className="font-medium text-slate-800 truncate">{o.name}</span>
+            </span>
           ) : (
             <span className="text-slate-400">—</span>
           )}
@@ -532,7 +570,7 @@ export default function AppealAnalysisPage() {
   };
 
   const renderJudgements = (item: any) => {
-    const count = toJudgements(item.umpire_judgement).length;
+    const count = allJudgements(item).length;
     return (
       <div className="space-y-2">
         <button
@@ -725,26 +763,28 @@ export default function AppealAnalysisPage() {
           <>
             {/* Desktop table */}
             <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full min-w-[1100px] text-left border-collapse">
+              <table className="w-full min-w-[1150px] text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 text-xs font-semibold text-slate-700 bg-slate-50/70">
-                    <th className="py-3.5 pl-6 pr-3">Match</th>
-                    <th className="py-3.5 px-3">Appeal</th>
-                    <th className="py-3.5 px-3">DRS Review &amp; Final Decision</th>
-                    <th className="py-3.5 px-3">Officials</th>
-                    <th className="py-3.5 px-3">Cameras &amp; Comments</th>
-                    <th className="py-3.5 pl-3 pr-6">Umpire Judgements</th>
+                  <tr className="border-b border-slate-200 text-xs font-medium text-slate-500 bg-slate-50/70">
+                    <th className="py-4 pl-6 pr-3">Match</th>
+                    <th className="py-4 px-3 text-center">Appeal</th>
+                    <th className="py-4 px-3 text-center">DRS</th>
+                    <th className="py-4 px-3 text-center">Final Decision</th>
+                    <th className="py-4 px-3 text-center">Officials</th>
+                    <th className="py-4 px-3 text-center">Cameras &amp; Comments</th>
+                    <th className="py-4 pl-3 pr-6 text-center"> Judgement</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                   {pagedAppeals.map((item) => (
-                    <tr key={item.appeal_id} className="hover:bg-slate-50/60 transition-colors align-top">
-                      <td className="py-4 pl-6 pr-3">{renderMatch(item)}</td>
-                      <td className="py-4 px-3">{renderAppealType(item)}</td>
-                      <td className="py-4 px-3">{renderReview(item)}</td>
-                      <td className="py-4 px-3">{renderOfficials(item)}</td>
-                      <td className="py-4 px-3">{renderVideosAndComments(item)}</td>
-                      <td className="py-4 pl-3 pr-6">{renderJudgements(item)}</td>
+                    <tr key={item.appeal_id} className="hover:bg-slate-50/60 transition-colors align-middle">
+                      <td className="py-5 pl-6 pr-3">{renderMatch(item)}</td>
+                      <td className="py-5 px-3 text-center">{renderAppealType(item)}</td>
+                      <td className="py-5 px-3 text-center">{renderDrs(item)}</td>
+                      <td className="py-5 px-3 text-center">{renderDecision(item)}</td>
+                      <td className="py-5 px-3"><div className="flex justify-center">{renderOfficials(item)}</div></td>
+                      <td className="py-5 px-3"><div className="flex justify-center">{renderVideosAndComments(item)}</div></td>
+                      <td className="py-5 pl-3 pr-6"><div className="flex justify-center">{renderJudgements(item)}</div></td>
                     </tr>
                   ))}
                 </tbody>
@@ -773,7 +813,7 @@ export default function AppealAnalysisPage() {
                       {renderVideosAndComments(item)}
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-600 uppercase mb-1.5">Umpire Judgements</p>
+                      <p className="text-[10px] font-bold text-slate-600 uppercase mb-1.5">Name Only Judgement</p>
                       {renderJudgements(item)}
                     </div>
                   </div>
@@ -904,7 +944,7 @@ export default function AppealAnalysisPage() {
                   <UmpireIcon className="w-4.5 h-4.5" />
                 </span>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Umpire Judgements</h3>
+                  <h3 className="text-base font-bold text-slate-900">Judgements</h3>
                   <p className="text-xs text-slate-700 mt-0.5">View and manage official adjudications for this protocol incident.</p>
                 </div>
               </div>
@@ -918,20 +958,23 @@ export default function AppealAnalysisPage() {
             </div>
 
             <div className="max-h-[55vh] overflow-y-auto divide-y divide-slate-100">
-              {toJudgements(judgementsAppeal.umpire_judgement).length === 0 ? (
+              {allJudgements(judgementsAppeal).length === 0 ? (
                 <p className="px-6 py-10 text-center text-sm text-slate-600 italic">No judgements recorded yet.</p>
               ) : (
-                toJudgements(judgementsAppeal.umpire_judgement).map((j: any, i: number) => {
+                allJudgements(judgementsAppeal).map((j, i) => {
                   const correct = j.judgement.toLowerCase() === "correct";
                   return (
                     <div key={i} className="flex items-center justify-between gap-3 px-5 sm:px-6 py-3.5">
                       <div className="flex items-center gap-3 min-w-0">
                         <span className={`w-9 h-9 shrink-0 rounded-full text-xs font-bold flex items-center justify-center ${correct ? "bg-indigo-50 text-indigo-600" : "bg-rose-50 text-rose-600"}`}>
-                          {initials(j.judgementor)}
+                          {initials(j.name)}
                         </span>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-900 truncate">{j.judgementor || "Unknown"}</p>
-                          <p className="text-[11px] text-slate-700">Submitted {formatWhen((j as any).created_at)}</p>
+                          <p className="flex items-center gap-2 min-w-0">
+                            <span className="text-sm font-semibold text-slate-900 truncate">{j.name}</span>
+                            <span className="shrink-0 px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600 text-[10px] font-medium">{j.role}</span>
+                          </p>
+                          {j.created_at && <p className="text-[11px] text-slate-600">Submitted {formatWhen(j.created_at)}</p>}
                         </div>
                       </div>
                       <span className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-semibold ${correct ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-red-50 text-red-600 border-red-200"}`}>
