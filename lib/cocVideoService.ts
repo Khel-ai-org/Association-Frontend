@@ -6,7 +6,7 @@
  */
 
 // What the clip is evidence for; sent to the init API as `video_source`.
-export type CocVideoSource = 'coc' | 'appeal' | 'suspect';
+export type CocVideoSource = 'coc' | 'appeal' | 'suspect' | 'key_moments';
 
 export interface InitCocVideoUploadParams {
   ball_id?: number | string;

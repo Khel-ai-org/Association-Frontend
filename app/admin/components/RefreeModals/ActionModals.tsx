@@ -162,6 +162,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     { value: 'coc', label: 'Code of Conduct', hint: 'Player / official behaviour' },
     { value: 'appeal', label: 'Appeal', hint: 'Review or appeal footage' },
     { value: 'suspect', label: 'Suspect', hint: 'Suspected action' },
+    { value: 'key_moments', label: 'Key Moments', hint: 'Celebrations & highlights' },
   ];
 
   const [serverVideos, setServerVideos] = useState<FlattenedBallVideo[]>([]);
@@ -176,9 +177,9 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
     setVideosLoadError('');
     try {
       const ball = await fetchBallDetails(matchId, ballId);
-      // This tab lists the referee-uploaded sources (coc / appeal / suspect) — the ball can also
+      // This tab lists the referee-uploaded sources (coc / appeal / suspect / key_moments) — the ball can also
       // carry other video sources (e.g. multi-camera "pull_system" recordings), which don't belong here.
-      const cocVideos = (ball.videos || []).filter((v) => ['coc', 'appeal', 'suspect'].includes(String(v.video_source)));
+      const cocVideos = (ball.videos || []).filter((v) => ['coc', 'appeal', 'suspect', 'key_moments'].includes(String(v.video_source)));
       setServerVideos(flattenBallVideos(cocVideos));
     } catch (err: any) {
       console.error('[ball videos fetch error]', err);
@@ -1751,7 +1752,7 @@ export const RefereeActionModal: React.FC<RefereeActionModalProps> = ({
               <label className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">
                 Type of Video
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {VIDEO_SOURCE_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}

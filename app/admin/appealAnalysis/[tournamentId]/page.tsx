@@ -16,8 +16,15 @@ import {
   CheckCircle2,
   XCircle,
   Calendar,
+  CalendarDays,
   Clock,
-  Plus
+  Plus,
+  Trophy,
+  FileText,
+  MinusCircle,
+  Download,
+  UserRound,
+  Users
 } from "lucide-react";
 import { friendlyError } from "../../utils/friendlyError";
 import { decisionLabel } from "../../utils/appealDecision";
@@ -107,6 +114,43 @@ const allJudgements = (item: any) => {
     list.push({ name: j.judgementor || "Unknown", role: "Umpire", judgement: j.judgement, created_at: j.created_at })
   );
   return list;
+};
+
+// Numbers behind one umpire's report card. Counts the API doesn't send are derived from the appeals list.
+const umpireReportStats = (u: any, appeals: any[]) => {
+  const mine = appeals.filter((a) => String(a.umpire || "").toLowerCase() === String(u.name || "").toLowerCase());
+  const num = (v: unknown) => Number(v) || 0;
+  const appealsFaced = num(u.appeals_faced);
+  const accuracy = Math.max(0, Math.min(100, num(u.accuracy)));
+  const undisputed = num(u.undisputed);
+  const retained = num(u.retained);
+  const overturned = num(u.overturned);
+  const umpiresCall = num(u.umpires_call);
+  const count = (list: string[], want: string) => list.filter((j) => j.toLowerCase() === want).length;
+  const mrList = mine.map((a) => String(a.mr_judgement || "")).filter(Boolean);
+  const committeeList = mine.flatMap((a) => toJudgements(a.umpire_judgement).map((j) => String(j.judgement)));
+  return {
+    accuracy,
+    appealsFaced,
+    correct: Math.round((accuracy / 100) * appealsFaced),
+    totalDecisions: num(u.total_decisions) || appealsFaced + undisputed,
+    undisputed,
+    signals: [
+      { label: "Retained", value: retained, bar: "bg-emerald-500", text: "text-white", dot: "bg-emerald-500" },
+      { label: decisionLabel("Overturned"), value: overturned, bar: "bg-red-500", text: "text-white", dot: "bg-red-500" },
+      { label: "Umpire's Call", value: umpiresCall, bar: "bg-blue-500", text: "text-white", dot: "bg-blue-500" },
+      { label: "Undisputed", value: undisputed, bar: "bg-slate-200", text: "text-slate-600", dot: "bg-slate-400" },
+    ],
+    totalSignals: retained + overturned + umpiresCall + undisputed,
+    mr: { correct: count(mrList, "correct"), incorrect: count(mrList, "incorrect") },
+    committee: { correct: count(committeeList, "correct"), incorrect: count(committeeList, "incorrect") },
+  };
+};
+
+const formatReportDate = (iso?: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 };
 
 const toJudgements = (value: unknown): { judgement: string; judgementor: string }[] => {
@@ -202,6 +246,7 @@ export default function AppealAnalysisPage() {
   // Per-umpire stats from the appeal-analysis response; shown through the "Umpire Report" button.
   const [umpirePerformance, setUmpirePerformance] = useState<any[]>([]);
   const [showUmpireReport, setShowUmpireReport] = useState(false);
+  const [reportPeriod, setReportPeriod] = useState("");
   const [page, setPage] = useState(1);
   const [newComment, setNewComment] = useState("");
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -298,6 +343,9 @@ export default function AppealAnalysisPage() {
       const scoringTournamentId = matchedTournament?.externalTournamentId;
       if (!scoringTournamentId) throw new Error("This tournament has no linked scoring tournament id");
 
+      const from = formatReportDate(matchedTournament?.startDate);
+      const to = formatReportDate(matchedTournament?.endDate);
+      setReportPeriod(from && to ? `${from} – ${to}` : from || to);
       setExternalTournamentId(scoringTournamentId);
       await fetchAppealData(scoringTournamentId);
     } catch (err: any) {
@@ -319,6 +367,28 @@ export default function AppealAnalysisPage() {
     if (!tournamentId) return;
     setExporting(true);
     window.location.href = `${process.env.NEXT_PUBLIC_Backend_URL}/export/auth?tournamentId=${tournamentId}`;
+  };
+
+  // Downloads the report numbers shown in the popup as a CSV.
+  const exportUmpireReport = () => {
+    const rows: (string | number)[][] = [[
+      "Umpire", "Role", "Accuracy %", "Matches Officiated", "Total Decisions", "Appeals Faced", "Undisputed",
+      "Retained", decisionLabel("Overturned"), "Umpire's Call", "MR Correct", "MR Incorrect", "Committee Correct", "Committee Incorrect",
+    ]];
+    matchedUmpires.forEach((u: any) => {
+      const r = umpireReportStats(u, appeals);
+      rows.push([
+        u.name, u.role || "Umpire", r.accuracy, Number(u.matches_officiated) || 0, r.totalDecisions, r.appealsFaced, r.undisputed,
+        ...r.signals.slice(0, 3).map((x) => x.value), r.mr.correct, r.mr.incorrect, r.committee.correct, r.committee.incorrect,
+      ]);
+    });
+    const csv = rows.map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "umpire-report.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleAddComment = async () => {
@@ -862,72 +932,166 @@ export default function AppealAnalysisPage() {
       {/* Umpire performance report */}
       {showUmpireReport && matchedUmpires.length > 0 && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex overflow-y-auto p-3 sm:p-4">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl border border-slate-200 m-auto overflow-hidden">
-            <div className="flex items-start justify-between gap-3 px-5 sm:px-6 py-4 border-b border-slate-100">
-              <div className="flex items-start gap-3">
-                <span className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                  <UmpireIcon className="w-4.5 h-4.5" />
+          <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 m-auto overflow-hidden">
+            <div className="flex items-start justify-between gap-3 px-5 sm:px-8 pt-6 pb-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <span className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-500 flex items-center justify-center shrink-0">
+                  <UmpireIcon className="w-5 h-5" />
                 </span>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Umpire Report</h3>
-                  <p className="text-xs text-slate-700 mt-0.5">Appeal performance across this tournament.</p>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-slate-900">Umpire Performance Report</h3>
+                  <p className="text-xs text-slate-600 mt-0.5">Summary of decisions, signals and review outcomes for match officials.</p>
                 </div>
               </div>
-              <button
-                onClick={() => setShowUmpireReport(false)}
-                className="p-1.5 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
-                aria-label="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-3 shrink-0">
+                {reportPeriod && (
+                  <div className="hidden sm:flex items-center gap-2.5 border border-slate-200 rounded-xl px-3.5 py-2">
+                    <CalendarDays className="w-5 h-5 text-indigo-500" />
+                    <div>
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">Report Period</p>
+                      <p className="text-xs font-bold text-slate-900">{reportPeriod}</p>
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={() => setShowUmpireReport(false)}
+                  className="p-1.5 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="max-h-[65vh] overflow-y-auto p-5 sm:p-6 space-y-5">
+            <div className="max-h-[65vh] overflow-y-auto px-5 sm:px-8 pb-2 space-y-4">
               {matchedUmpires.map((u: any, i: number) => {
-                const accuracy = Math.max(0, Math.min(100, Number(u.accuracy) || 0));
-                const stats = [
-                  { label: "Matches Officiated", value: u.matches_officiated },
-                  { label: "Appeals Faced", value: u.appeals_faced },
-                  { label: "Retained", value: u.retained },
-                  { label: decisionLabel("Overturned"), value: u.overturned },
-                  { label: "Umpire's Call", value: u.umpires_call },
+                const r = umpireReportStats(u, appeals);
+                const circ = 2 * Math.PI * 26;
+                const top = [
+                  { label: "Matches Officiated", value: Number(u.matches_officiated) || 0, icon: <Trophy className="w-3.5 h-3.5" /> },
+                  { label: "Total Decisions", value: r.totalDecisions, icon: <FileText className="w-3.5 h-3.5" /> },
+                  { label: "Appeals Faced", value: r.appealsFaced, icon: <Trophy className="w-3.5 h-3.5" /> },
+                  { label: "Undisputed Decisions", value: r.undisputed, icon: <MinusCircle className="w-3.5 h-3.5" /> },
+                ];
+                const outcomes = [
+                  { title: "Match Referee", icon: <UserRound className="w-4 h-4 text-indigo-500" />, v: r.mr },
+                  { title: "Umpire Committee", icon: <Users className="w-4 h-4 text-indigo-500" />, v: r.committee },
                 ];
                 return (
-                  <div key={`${u.name}-${i}`} className="border border-slate-200 rounded-xl p-4">
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="w-10 h-10 shrink-0 rounded-full bg-slate-900 text-white text-sm font-bold flex items-center justify-center">
-                          {initials(u.name)}
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-900 truncate">{u.name}</p>
-                          <p className="text-[11px] text-slate-700">{u.role || "Umpire"}</p>
+                  <div key={`${u.name}-${i}`} className="space-y-4">
+                    <div className="border border-slate-200 rounded-2xl p-5">
+                      <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                        <div className="flex items-center gap-4 min-w-0">
+                          <span className="w-14 h-14 shrink-0 rounded-full bg-indigo-50 text-indigo-500 text-xl font-bold flex items-center justify-center">
+                            {String(u.name || "?").trim().charAt(0).toUpperCase()}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-lg font-bold text-slate-900 truncate">{u.name}</p>
+                            <p className="text-xs text-slate-600">{u.role || "Umpire"}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <div className="relative w-14 h-14">
+                            <svg viewBox="0 0 60 60" className="w-14 h-14 -rotate-90">
+                              <circle cx="30" cy="30" r="26" fill="none" stroke="#f1f5f9" strokeWidth="6" />
+                              <circle cx="30" cy="30" r="26" fill="none" stroke="#16a34a" strokeWidth="6" strokeLinecap="round"
+                                strokeDasharray={`${(r.accuracy / 100) * circ} ${circ}`} />
+                            </svg>
+                            <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-slate-900">{Math.round(r.accuracy)}%</span>
+                          </div>
+                          <div className="hidden sm:block">
+                            <p className="text-sm font-bold text-slate-900">Decision Accuracy</p>
+                            <p className="text-xs text-slate-500 max-w-[130px]">{r.correct} correct out of {r.appealsFaced} appeals faced</p>
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-2xl font-bold text-slate-900 leading-none">{accuracy}%</p>
-                        <p className="text-[11px] text-slate-700 mt-1">Accuracy</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4">
+                        {top.map((st) => (
+                          <div key={st.label}>
+                            <p className="flex items-center gap-1.5 text-[11px] text-slate-500">{st.icon}{st.label}</p>
+                            <p className="text-xl font-bold text-slate-900 mt-1">{st.value}</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
-                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden mb-4">
-                      <div
-                        className="h-full rounded-full bg-blue-500"
-                        style={{ width: `${accuracy}%` }}
-                      />
+                    <div className="border border-slate-200 rounded-2xl p-5">
+                      <div className="flex items-start justify-between gap-3 mb-4">
+                        <div className="flex items-start gap-3">
+                          <UmpireIcon className="w-5 h-5 text-indigo-500 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">Signals Given</p>
+                            <p className="text-xs text-slate-500">Total signals raised by the umpire during the matches.</p>
+                          </div>
+                        </div>
+                        <div className="shrink-0 rounded-xl bg-indigo-50 px-3 py-1.5 text-center">
+                          <p className="text-[9px] font-semibold text-slate-500">Total Signals</p>
+                          <p className="text-lg font-bold text-slate-900 leading-tight">{r.totalSignals}</p>
+                        </div>
+                      </div>
+                      <div className="flex h-7 rounded-full overflow-hidden bg-slate-100">
+                        {r.signals.filter((x) => x.value > 0).map((x) => (
+                          <div key={x.label} className={`${x.bar} ${x.text} flex items-center justify-center text-[11px] font-semibold`} style={{ width: `${(x.value / r.totalSignals) * 100}%` }}>
+                            {x.value}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3 text-xs text-slate-600">
+                        {r.signals.map((x) => (
+                          <span key={x.label} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${x.dot}`} />{x.label}</span>
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                      {stats.map((st) => (
-                        <div key={st.label} className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 text-center">
-                          <p className="text-lg font-bold text-slate-900">{st.value ?? 0}</p>
-                          <p className="text-[10px] font-semibold text-slate-700 mt-0.5">{st.label}</p>
+                    <div className="border border-slate-200 rounded-2xl p-5">
+                      <div className="flex items-start gap-3 mb-4">
+                        <UmpireIcon className="w-5 h-5 text-indigo-500 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">Review Outcomes</p>
+                          <p className="text-xs text-slate-500">Results after review by match referee and umpire committee.</p>
                         </div>
-                      ))}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {outcomes.map((o) => {
+                          const total = o.v.correct + o.v.incorrect;
+                          return (
+                            <div key={o.title} className="border border-slate-200 rounded-xl p-4">
+                              <p className="flex items-center gap-2 text-sm font-medium text-slate-900 mb-3">{o.icon}{o.title}</p>
+                              <div className="flex h-2 rounded-full overflow-hidden bg-slate-100 mb-3">
+                                {total > 0 && (
+                                  <>
+                                    <div className="bg-emerald-500" style={{ width: `${(o.v.correct / total) * 100}%` }} />
+                                    <div className="bg-red-500" style={{ width: `${(o.v.incorrect / total) * 100}%` }} />
+                                  </>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between text-xs text-slate-600">
+                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />Correct <b className="text-slate-900">{o.v.correct}</b></span>
+                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Incorrect <b className="text-slate-900">{o.v.incorrect}</b></span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 );
               })}
+            </div>
+
+            <div className="flex justify-end gap-3 px-5 sm:px-8 py-5">
+              <button
+                onClick={() => setShowUmpireReport(false)}
+                className="px-6 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-900 text-sm font-semibold rounded-xl cursor-pointer transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={exportUmpireReport}
+                className="inline-flex items-center gap-2 px-6 py-2.5 bg-[#0F1117] hover:bg-slate-800 text-white text-sm font-semibold rounded-xl cursor-pointer transition-colors"
+              >
+                <Download className="w-4 h-4" /> Export Report
+              </button>
             </div>
           </div>
         </div>

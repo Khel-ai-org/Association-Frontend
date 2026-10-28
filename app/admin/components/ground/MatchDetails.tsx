@@ -117,23 +117,41 @@ interface SuspectEntry {
 
 // The suspect endpoint's `video` list: strings (urls), CoC-style records ({ url: { video1: url } })
 // or records with a single url — all become playable clips.
-const flattenSuspectVideos = (videos: unknown[] | undefined): FlattenedCocClip[] => {
+const flattenSuspectVideos = (videos: unknown[] | undefined, defaultTag = 'suspect'): FlattenedCocClip[] => {
   if (!Array.isArray(videos)) return [];
   const clips: FlattenedCocClip[] = [];
   videos.forEach((v: any, i) => {
     if (typeof v === 'string') {
-      clips.push({ key: `s-${i}`, tag: 'suspect', clipLabel: `video${clips.length + 1}`, url: v, uploadStatus: 'uploaded', uploadedAt: null });
+      clips.push({ key: `s-${i}`, tag: defaultTag, clipLabel: `video${clips.length + 1}`, url: v, uploadStatus: 'uploaded', uploadedAt: null });
     } else if (v && typeof v === 'object') {
       if (v.url && typeof v.url === 'object') {
         Object.keys(v.url).forEach((clipKey) => {
-          clips.push({ key: `s-${v.id ?? i}-${clipKey}`, tag: v.tag || 'suspect', clipLabel: clipKey, url: v.url[clipKey], uploadStatus: v.upload_status || 'uploaded', uploadedAt: v.uploaded_at ?? null });
+          clips.push({ key: `s-${v.id ?? i}-${clipKey}`, tag: v.tag || defaultTag, clipLabel: clipKey, url: v.url[clipKey], uploadStatus: v.upload_status || 'uploaded', uploadedAt: v.uploaded_at ?? null });
         });
       } else if (typeof v.url === 'string') {
-        clips.push({ key: `s-${v.id ?? i}`, tag: v.tag || 'suspect', clipLabel: v.clipLabel || `video${clips.length + 1}`, url: v.url, uploadStatus: v.upload_status || 'uploaded', uploadedAt: v.uploaded_at ?? null });
+        clips.push({ key: `s-${v.id ?? i}`, tag: v.tag || defaultTag, clipLabel: v.clipLabel || `video${clips.length + 1}`, url: v.url, uploadStatus: v.upload_status || 'uploaded', uploadedAt: v.uploaded_at ?? null });
       }
     }
   });
   return clips.filter((c) => !!c.url);
+};
+
+// One row of GET /matches/:id/celebrations. The key-moment text may come back as a string or a list,
+// under a few plausible names — read whichever is present.
+interface KeyMomentEntry {
+  over?: string;
+  over_number?: number;
+  ball_number?: number;
+  celebration?: string | string[];
+  celebrations?: string | string[];
+  key_moment?: string | string[];
+  video?: unknown[];
+  videos?: unknown[];
+}
+
+const keyMomentLabel = (item: KeyMomentEntry): string => {
+  const raw = item.celebration ?? item.celebrations ?? item.key_moment;
+  return Array.isArray(raw) ? raw.join(', ') : String(raw ?? '');
 };
 
 const titleCaseSuspect = (value: string) =>
@@ -251,7 +269,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
 
   const [cocCases, setCocCases] = useState<CocCase[]>([]);
   // "Action Taken" section: CoC cases and suspect balls, one tab each.
-  const [actionTab, setActionTab] = useState<'coc' | 'suspect'>('coc');
+  const [actionTab, setActionTab] = useState<'coc' | 'suspect' | 'key_moments'>('coc');
+  const [actionSearch, setActionSearch] = useState('');
+  const [keyMoments, setKeyMoments] = useState<KeyMomentEntry[]>([]);
+  const [isKeyMomentLoading, setIsKeyMomentLoading] = useState(false);
   const [suspects, setSuspects] = useState<SuspectEntry[]>([]);
   const [isSuspectLoading, setIsSuspectLoading] = useState(false);
   const [isCocLoading, setIsCocLoading] = useState(false);
@@ -407,10 +428,41 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     }
   };
 
+  // Search box in the Action Taken header — filters whichever tab is open.
+  const actionQuery = actionSearch.trim().toLowerCase();
+  const matchesAction = (...parts: unknown[]) =>
+    !actionQuery || parts.some((p) => String(p ?? '').toLowerCase().includes(actionQuery));
+  const filteredCoc = cocCases.filter((c) =>
+    matchesAction(c.over_number, c.team, c.player, c.incident_category, c.offence_level, c.description));
+  const filteredSuspects = suspects.filter((x) =>
+    matchesAction(x.over, x.over_number, x.ball_number, x.suspect, titleCaseSuspect(x.suspect)));
+  const filteredKeyMoments = keyMoments.filter((k) =>
+    matchesAction(k.over, k.over_number, k.ball_number, keyMomentLabel(k), titleCaseSuspect(keyMomentLabel(k))));
+
+  const fetchKeyMoments = async (silent = false) => {
+    if (!matchId) return;
+    if (!silent) setIsKeyMomentLoading(true);
+    try {
+      const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/celebrations`, {
+        headers: { "ngrok-skip-browser-warning": "true" }
+      });
+      if (!res.ok) throw new Error("Failed to fetch key moments");
+      const data = await res.json();
+      console.log("Fetched Key Moments:", data);
+      const list = data?.celebrations ?? data?.key_moments ?? data?.data;
+      setKeyMoments(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.error("Error fetching key moments:", err);
+    } finally {
+      if (!silent) setIsKeyMomentLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'referee') {
       fetchCocCases();
       fetchSuspects();
+      fetchKeyMoments();
     }
   }, [activeTab, matchId, SCORING_API_BASE]);
 
@@ -1595,14 +1647,34 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-xs animate-in fade-in duration-300">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-slate-100 pb-4">
             <h3 className="text-lg font-bold text-slate-900">Action Taken</h3>
+            <div className="relative w-full sm:w-56 sm:ml-auto">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+              <input
+                type="text"
+                value={actionSearch}
+                onChange={(e) => setActionSearch(e.target.value)}
+                placeholder="Search..."
+                className="w-full pl-9 pr-8 py-1.5 bg-slate-50 rounded-lg border border-slate-100 text-sm text-slate-700 outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              {actionSearch && (
+                <button
+                  onClick={() => setActionSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  aria-label="Clear search"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
             <div className="flex bg-slate-50 p-1 rounded-lg border border-slate-100">
               {([
                 { id: 'coc', label: 'CoC', count: cocCases.length },
                 { id: 'suspect', label: 'Suspect', count: suspects.length },
+                { id: 'key_moments', label: 'Key Moments', count: keyMoments.length },
               ] as const).map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => setActionTab(t.id)}
+                  onClick={() => { setActionTab(t.id); setActionSearch(''); }}
                   className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer ${
                     actionTab === t.id ? 'bg-[#0F1117] text-white shadow-md' : 'text-slate-600 hover:text-slate-900'
                   }`}
@@ -1614,7 +1686,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           </div>
 
           {actionTab === 'coc' && (
-          <div className="overflow-x-auto overflow-y-auto max-h-[360px] custom-scrollbar">
+          <div className="overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar">
             <table className="w-full min-w-[800px] text-left border-collapse">
               <thead className="bg-[#F8FAFC] text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10">
                 <tr>
@@ -1638,14 +1710,14 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                       Loading CoC actions...
                     </td>
                   </tr>
-                ) : cocCases.length === 0 ? (
+                ) : filteredCoc.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-400 font-medium">
-                      No CoC actions found for this match.
+                      {actionQuery ? 'No CoC actions match your search.' : 'No CoC actions found for this match.'}
                     </td>
                   </tr>
                 ) : (
-                  cocCases.map((item) => {
+                  filteredCoc.map((item) => {
                     const formattedDateObj = item.created_at ? new Date(item.created_at) : new Date();
                     const timeStr = formattedDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                     const dateStr = formattedDateObj.toLocaleDateString();
@@ -1730,7 +1802,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           )}
 
           {actionTab === 'suspect' && (
-          <div className="overflow-x-auto overflow-y-auto max-h-[360px] custom-scrollbar">
+          <div className="overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar">
             <table className="w-full min-w-[520px] text-left border-collapse">
               <thead className="bg-[#F8FAFC] text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10">
                 <tr>
@@ -1745,12 +1817,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   <tr>
                     <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">Loading suspect actions...</td>
                   </tr>
-                ) : suspects.length === 0 ? (
+                ) : filteredSuspects.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">No suspect actions found for this match.</td>
+                    <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">{actionQuery ? 'No suspect actions match your search.' : 'No suspect actions found for this match.'}</td>
                   </tr>
                 ) : (
-                  suspects.map((item, idx) => {
+                  filteredSuspects.map((item, idx) => {
                     const overFloat = item.over !== undefined && item.over !== null ? parseFloat(String(item.over)) : NaN;
                     const overDisplay = item.over_number ?? (Number.isNaN(overFloat) ? '—' : Math.floor(overFloat) + 1);
                     const clips = flattenSuspectVideos(item.video);
@@ -1771,6 +1843,72 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                               onClick={() => setCocVideoGallery({
                                 isOpen: true,
                                 title: `Suspect — ${titleCaseSuspect(item.suspect)} (Over ${item.over})`,
+                                clips,
+                                activeIndex: 0,
+                              })}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-[11px] font-bold transition-colors cursor-pointer"
+                            >
+                              <Video size={12} />
+                              {clips.length} Clip{clips.length > 1 ? 's' : ''}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          )}
+
+          {actionTab === 'key_moments' && (
+          <div className="overflow-x-auto overflow-y-auto max-h-[320px] custom-scrollbar">
+            <table className="w-full min-w-[520px] text-left border-collapse">
+              <thead className="bg-[#F8FAFC] text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10">
+                <tr>
+                  <th className="py-3 px-4">Over</th>
+                  <th className="py-3 px-4">Ball Number</th>
+                  <th className="py-3 px-4">Key Moment</th>
+                  <th className="py-3 px-4">Video</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {isKeyMomentLoading ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">Loading key moments...</td>
+                  </tr>
+                ) : filteredKeyMoments.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-8 text-center text-slate-400 font-medium">{actionQuery ? 'No key moments match your search.' : 'No key moments found for this match.'}</td>
+                  </tr>
+                ) : (
+                  filteredKeyMoments.map((item, idx) => {
+                    const overFloat = item.over !== undefined && item.over !== null ? parseFloat(String(item.over)) : NaN;
+                    const overDisplay = item.over_number ?? (Number.isNaN(overFloat) ? '—' : Math.floor(overFloat) + 1);
+                    const clips = flattenSuspectVideos(item.video ?? item.videos, 'key_moments');
+                    const label = keyMomentLabel(item);
+                    return (
+                      <tr key={`${item.over}-${item.ball_number}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-4 px-4 font-bold text-slate-900">{overDisplay}</td>
+                        <td className="py-4 px-4 text-slate-700">{item.over ?? '—'}</td>
+                        <td className="py-4 px-4">
+                          {label ? (
+                            <span className="inline-flex px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-semibold">
+                              {titleCaseSuspect(label)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4">
+                          {clips.length === 0 ? (
+                            <span className="text-slate-400 text-xs">—</span>
+                          ) : (
+                            <button
+                              onClick={() => setCocVideoGallery({
+                                isOpen: true,
+                                title: `Key Moment — ${titleCaseSuspect(label)} (Over ${item.over})`,
                                 clips,
                                 activeIndex: 0,
                               })}
@@ -1829,6 +1967,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           await Promise.all([
             fetchCocCases(true),
             fetchSuspects(true),
+            fetchKeyMoments(true),
             fetchAppeals().then((data) => data && setAppeals(data)),
           ]);
         }}
