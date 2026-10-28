@@ -208,6 +208,7 @@ import { Eye, EyeOff } from "lucide-react";
 import { GoogleLogin } from "@react-oauth/google";
 import Link from "next/link";
 import StatusModal from "./StatusModal";
+import { shareTokenWithDesktopApp } from "@/lib/desktopAuth";
 
 interface LoginFormProps {
   // Updated: Passing user object back to handle logic in parent
@@ -316,6 +317,8 @@ export default function LoginForm({ onSuccess, onPendingApproval, onUnverifiedEm
 
       if (rememberMe) localStorage.setItem("rememberedEmail", email);
       else localStorage.removeItem("rememberedEmail");
+
+      shareTokenWithDesktopApp(data.token);
 
       // Pass user object to handle routing in parent
       onSuccess(data.user, email, false);
@@ -433,6 +436,7 @@ export default function LoginForm({ onSuccess, onPendingApproval, onUnverifiedEm
                       setShowBusinessAdminNotice(true);
                       return;
                     }
+                    shareTokenWithDesktopApp(data.token);
                     // Pass user data to handle routing
                     onSuccess(data.user, data.user.email, true);
                 } else if (data.code === "PENDING_BUSINESS_ADMIN_APPROVAL") {

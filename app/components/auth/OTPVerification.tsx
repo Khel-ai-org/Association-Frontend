@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import StatusModal from "./StatusModal";
+import { shareTokenWithDesktopApp } from "@/lib/desktopAuth";
 
 interface OTPProps {
   email: string;
@@ -72,6 +73,7 @@ const handleVerify = async () => {
       if (!res.ok) throw new Error(data.message || "Invalid OTP");
       
       setAuthData(data); // 2. Save the success data (token + user)
+      shareTokenWithDesktopApp(data.token);
       setModal({ isOpen: true, type: "success", title: "Verified", message: "Your OTP Has Been Verified" });
     } catch (err: any) {
       setModal({ isOpen: true, type: "error", title: "Wrong OTP", message: err.message });

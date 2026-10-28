@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import Notifications from './Notification';
 import { io, Socket } from 'socket.io-client';
+import { shareTokenWithDesktopApp } from "@/lib/desktopAuth";
 
 // Define User Interface based on your backend
 interface UserData {
@@ -140,6 +141,7 @@ const handleMarkAllRead = async () => {
     if (response.ok) {
       //  Clear any local storage if you used it
       localStorage.removeItem('token'); 
+      shareTokenWithDesktopApp(""); // also clear the desktop app's copy
       
 
       //  Redirect to login page

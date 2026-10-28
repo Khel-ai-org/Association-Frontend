@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { PlayerEngine, PlayerState, LoadProgress, SPEEDS } from "./PlayerEngine";
 import { MarkerMenu } from "./MarkerMenu";
-import { AnnotationTool, Point } from "./AnnotationLayer";
+import { AnnotationTool, Point, Shape } from "./AnnotationLayer";
 
 export type CompareMode = "single" | "side";
 
@@ -36,6 +36,40 @@ interface SplitCanvasVideoPlayerProps {
   titleB?: string;
   subtitleB?: string;
   fps?: number;
+  /** Text notes already saved for this ball, by camera key ("camera1" ... "camera6"). */
+  notesByCamera?: Record<string, SavedNote[]>;
+  /** Which camera key each video URL belongs to, so a pane knows whose notes it shows. */
+  cameraKeyBySrc?: Record<string, string>;
+  /** Identifies the saved record the notes belong to (changes when another ball opens). */
+  notesScopeId?: string | number | null;
+  /** Called (debounced) when a camera's text notes change; reject to report a failed save. */
+  onNotesChange?: (camera: string, notes: SavedNote[]) => Promise<void>;
+}
+
+/** A text note as stored on the backend: its text and where it sits on the video (0 to 1). */
+export interface SavedNote {
+  text: string;
+  x: number;
+  y: number;
+}
+
+const NOTE_COLOR = '#ffcc33';
+
+function notesToShapes(notes: SavedNote[] | undefined): Shape[] {
+  return (notes || []).map((n, i) => ({
+    id: `note_saved_${i}_${Math.round(n.x * 1000)}_${Math.round(n.y * 1000)}`,
+    type: 'text' as const,
+    points: [{ x: n.x, y: n.y }],
+    color: NOTE_COLOR,
+    width: 2,
+    text: n.text,
+  }));
+}
+
+function shapesToNotes(shapes: Shape[]): SavedNote[] {
+  return shapes
+    .filter((s) => s.type === 'text' && s.text && s.points[0])
+    .map((s) => ({ text: s.text as string, x: s.points[0].x, y: s.points[0].y }));
 }
 
 export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
@@ -47,6 +81,10 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
   titleB: initialTitleB,
   subtitleB: initialSubtitleB,
   fps = 25,
+  notesByCamera,
+  cameraKeyBySrc,
+  notesScopeId = null,
+  onNotesChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -104,8 +142,66 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
   // Marker & Annotation State
   const [activeTool, setActiveTool]   = useState<AnnotationTool>('select');
   const [activeColor, setActiveColor] = useState<string>('#ffcc33');
-  const [textInputPos, setTextInputPos] = useState<{ point: Point; engineTarget: 'A' | 'B' } | null>(null);
+  const [textInputPos, setTextInputPos] = useState<{ point: Point; engineTarget: 'A' | 'B'; screen: { x: number; y: number } } | null>(null);
+  // Set once a note has been committed or cancelled, so Enter + the input's blur can't both add it.
+  const textDoneRef = useRef(false);
+  const noteInputRef = useRef<HTMLInputElement>(null);
   const [textInputVal, setTextInputVal] = useState<string>('');
+
+  // ---- Saved text notes -------------------------------------------------------------------
+  // The last notes we know the backend has, per "<scope>:<camera>", so a save only goes out when
+  // something really changed (loading a ball's saved notes must never trigger a save).
+  const lastSavedNotesRef = useRef<Map<string, string>>(new Map());
+  const notesTimerRef = useRef<{ A?: ReturnType<typeof setTimeout>; B?: ReturnType<typeof setTimeout> }>({});
+  const [notesStatus, setNotesStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+
+  // The video whose saved notes have actually been put into each pane. Until a pane's video has
+  // finished loading and its notes are drawn, its annotation layer is still empty — saving then
+  // would send an empty list and wipe the camera's real notes (e.g. switching camera before the
+  // video finished loading). So nothing is saved for a pane until it is "ready" for that video.
+  const notesReadyRef = useRef<{ A: string | null; B: string | null }>({ A: null, B: null });
+
+  const notesKey = (camera: string) => `${notesScopeId ?? ''}:${camera}`;
+
+  const savedJsonFor = (camera: string) =>
+    lastSavedNotesRef.current.get(notesKey(camera)) ?? JSON.stringify(notesByCamera?.[camera] ?? []);
+
+  // Send one pane's text notes if they differ from what is saved. `src` is the pane's video.
+  const persistNotes = async (pane: 'A' | 'B', src: string | null, shapes: Shape[]) => {
+    if (!src || notesReadyRef.current[pane] !== src) return; // that video's notes aren't loaded yet
+    const camera = cameraKeyBySrc?.[src];
+    if (!camera || !onNotesChange) return;
+
+    const notes = shapesToNotes(shapes);
+    const json = JSON.stringify(notes);
+    if (json === savedJsonFor(camera)) return;
+
+    setNotesStatus('saving');
+    try {
+      await onNotesChange(camera, notes);
+      lastSavedNotesRef.current.set(notesKey(camera), json);
+      setNotesStatus('saved');
+    } catch {
+      setNotesStatus('error');
+    }
+  };
+
+  // Save a pane's notes shortly after the last change (a burst of edits becomes one request).
+  const scheduleNotesSave = (pane: 'A' | 'B') => {
+    clearTimeout(notesTimerRef.current[pane]);
+    notesTimerRef.current[pane] = setTimeout(() => {
+      const engine = pane === 'A' ? engineARef.current : engineBRef.current;
+      const src = pane === 'A' ? prevSrcARef.current : prevSrcBRef.current;
+      if (engine) persistNotes(pane, src, engine.annotations.getShapes());
+    }, 700);
+  };
+
+  // The "Saved" confirmation fades out on its own.
+  useEffect(() => {
+    if (notesStatus !== 'saved') return;
+    const t = setTimeout(() => setNotesStatus('idle'), 2000);
+    return () => clearTimeout(t);
+  }, [notesStatus]);
 
   // ================================================================== //
   // Engine Initialization                                               //
@@ -132,13 +228,35 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
   // Create Engine B whenever Canvas B mounts into the DOM (e.g. when entering split view)
   useEffect(() => {
-    if (mode === "single") return;
+    if (mode === "single") {
+      // Canvas B is removed from the page in single view, so engine B must go with it. If it were
+      // kept, going back to split view would leave it drawing onto the old, detached canvas while
+      // the new canvas stayed black (and picking another camera could not fix it).
+      const old = engineBRef.current;
+      if (old) {
+        const src = prevSrcBRef.current;
+        if (src && notesReadyRef.current.B === src) {
+          const shapes = old.annotations.getShapes();
+          annotationsStoreRef.current.set(src, shapes); // keep this pane's drawings for next time
+          clearTimeout(notesTimerRef.current.B);
+          persistNotes('B', src, shapes);
+        }
+        old.destroy();
+        engineBRef.current = null;
+        prevSrcBRef.current = null;
+        notesReadyRef.current.B = null;
+        setLoadingB(false);
+      }
+      return;
+    }
 
     // Small delay to wait for canvas B element to render in DOM
     const timer = setTimeout(() => {
       if (canvasBRef.current && !engineBRef.current) {
         const eB = new PlayerEngine(canvasBRef.current);
         engineBRef.current = eB;
+        eB.annotations.setTool(activeTool);   // a rebuilt engine starts on Select / default colour
+        eB.annotations.setColor(activeColor);
         eB.on('transport', (st: PlayerState) => setStateB({ ...st }));
         eB.on('tick',      (st: PlayerState) => setStateB({ ...st }));
         eB.on('seek',      (st: PlayerState) => setStateB({ ...st }));
@@ -153,6 +271,10 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
             .then(() => {
               if (prevSrcBRef.current !== activeSrcB) return; // a newer camera load took over
               setLoadingB(false);
+              // Show this camera's drawings / saved notes on the new engine, as a camera switch does
+              const saved = annotationsStoreRef.current.get(activeSrcB) ?? notesToShapes(notesByCamera?.[cameraKeyBySrc?.[activeSrcB] ?? '']);
+              eB.annotations.setShapes(saved);
+              notesReadyRef.current.B = activeSrcB;
               // Instantly sync Engine B frame & UI state to current Engine A frame upon loading
               if (engineARef.current) {
                 const targetFrame = engineARef.current.frame;
@@ -202,10 +324,11 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
     if (!srcA) {
       // No video for this camera: drop the previous camera's picture instead of leaving it on screen
-      if (prevSrcARef.current) {
+      if (prevSrcARef.current && notesReadyRef.current.A === prevSrcARef.current) {
         annotationsStoreRef.current.set(prevSrcARef.current, engineARef.current.annotations.getShapes());
       }
       prevSrcARef.current = null;
+      notesReadyRef.current.A = null;
       engineARef.current.unload();
       setLoadingA(false);
       setErrorA(null);
@@ -213,14 +336,24 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
       return;
     }
 
+    // A note still being typed must not follow you onto the next video: finish it first
+    // (it is kept if it has text, dropped if empty), which also closes the input box.
+    if (textInputPos) handleConfirmText();
+
     // Save previous camera A annotations before loading new video
     if (prevSrcARef.current && engineARef.current) {
-      annotationsStoreRef.current.set(
-        prevSrcARef.current,
-        engineARef.current.annotations.getShapes()
-      );
+      const oldShapes = engineARef.current.annotations.getShapes();
+      // Remember this video's drawings only if they really were loaded into the pane: while a video
+      // is still loading (or a dev double-run of this effect) the layer is empty, and storing that
+      // would later hide the saved notes instead of seeding them.
+      if (notesReadyRef.current.A === prevSrcARef.current) {
+        annotationsStoreRef.current.set(prevSrcARef.current, oldShapes);
+      }
+      clearTimeout(notesTimerRef.current.A);
+      persistNotes('A', prevSrcARef.current, oldShapes); // don't lose a note typed just before switching
     }
     prevSrcARef.current = srcA;
+    notesReadyRef.current.A = null; // not ready until this video is loaded and its notes are drawn
 
     setLoadingA(true);
     setErrorA(null);
@@ -229,9 +362,10 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         // A newer camera load took over: don't hide its spinner or restore this camera's drawings onto it
         if (prevSrcARef.current !== srcA) return;
         setLoadingA(false);
-        // Restore saved annotations for this camera (or empty array if new)
-        const saved = annotationsStoreRef.current.get(srcA) || [];
+        // Restore this camera's drawings from this session, else its saved notes from the backend
+        const saved = annotationsStoreRef.current.get(srcA) ?? notesToShapes(notesByCamera?.[cameraKeyBySrc?.[srcA] ?? '']);
         engineARef.current?.annotations.setShapes(saved);
+        notesReadyRef.current.A = srcA;
       })
       .catch((err) => {
         if (prevSrcARef.current !== srcA) return;
@@ -244,14 +378,20 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
   useEffect(() => {
     if (!engineBRef.current || !activeSrcB) return;
 
+    // Same for pane B: close any note input left open from the previous video.
+    if (textInputPos) handleConfirmText();
+
     // Save previous camera B annotations before loading new video
     if (prevSrcBRef.current && engineBRef.current) {
-      annotationsStoreRef.current.set(
-        prevSrcBRef.current,
-        engineBRef.current.annotations.getShapes()
-      );
+      const oldShapes = engineBRef.current.annotations.getShapes();
+      if (notesReadyRef.current.B === prevSrcBRef.current) {
+        annotationsStoreRef.current.set(prevSrcBRef.current, oldShapes);
+      }
+      clearTimeout(notesTimerRef.current.B);
+      persistNotes('B', prevSrcBRef.current, oldShapes);
     }
     prevSrcBRef.current = activeSrcB;
+    notesReadyRef.current.B = null;
 
     setLoadingB(true);
     setErrorB(null);
@@ -259,9 +399,10 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
       .then(() => {
         if (prevSrcBRef.current !== activeSrcB) return; // a newer camera load took over
         setLoadingB(false);
-        // Restore saved annotations for this camera (or empty array if new)
-        const saved = annotationsStoreRef.current.get(activeSrcB) || [];
+        // Restore this camera's drawings from this session, else its saved notes from the backend
+        const saved = annotationsStoreRef.current.get(activeSrcB) ?? notesToShapes(notesByCamera?.[cameraKeyBySrc?.[activeSrcB] ?? '']);
         engineBRef.current?.annotations.setShapes(saved);
+        notesReadyRef.current.B = activeSrcB;
       })
       .catch((err) => {
         if (prevSrcBRef.current !== activeSrcB) return;
@@ -318,16 +459,16 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
             eB.seek(eA.frame + frameOffsetB);
           }
           break;
+        // Up / Down jump 5 frames (Left / Right step 1), keeping the second camera in sync.
         case 'ArrowUp':
+        case 'ArrowDown': {
           event.preventDefault();
-          eA.nudgeSpeed(1);
-          if (mode !== 'single' && eB?.isReady) eB.setSpeed(eA.speed);
+          eA.step(event.key === 'ArrowUp' ? 5 : -5);
+          if (mode !== 'single' && isSyncLocked && eB?.isReady) {
+            eB.seek(eA.frame + frameOffsetB);
+          }
           break;
-        case 'ArrowDown':
-          event.preventDefault();
-          eA.nudgeSpeed(-1);
-          if (mode !== 'single' && eB?.isReady) eB.setSpeed(eA.speed);
-          break;
+        }
         case 'f':
         case 'F':
           eA.fitToWindow();
@@ -457,6 +598,8 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
   const handleClearAll = () => {
     engineARef.current?.annotations.clearAll();
     engineBRef.current?.annotations.clearAll();
+    scheduleNotesSave('A');
+    scheduleNotesSave('B');
   };
 
   const handlePointerDownCanvas = (
@@ -464,6 +607,12 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
     targetEngine: 'A' | 'B'
   ) => {
     if (activeTool === 'select') return;
+    // A note is being typed: this click just finishes it (a no-op if the input's blur already
+    // did), it must not open another prompt.
+    if (textInputPos) {
+      handleConfirmText();
+      return;
+    }
 
     const engine = targetEngine === 'A' ? engineARef.current : engineBRef.current;
     if (!engine) return;
@@ -475,9 +624,16 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
     const normPt = engine.screenToNormalizedPoint(screenX, screenY);
     const res = engine.annotations.onPointerDown(normPt);
+    if (activeTool === 'eraser') scheduleNotesSave(targetEngine); // an erased note must be saved too
 
     if (res.requestTextInput && res.textPosition) {
-      setTextInputPos({ point: res.textPosition, engineTarget: targetEngine });
+      const root = containerRef.current?.getBoundingClientRect();
+      textDoneRef.current = false;
+      setTextInputPos({
+        point: res.textPosition,
+        engineTarget: targetEngine,
+        screen: { x: e.clientX - (root?.left ?? 0), y: e.clientY - (root?.top ?? 0) },
+      });
       setTextInputVal('');
     } else {
       canvas.setPointerCapture(e.pointerId);
@@ -500,6 +656,7 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
     const normPt = engine.screenToNormalizedPoint(screenX, screenY);
     engine.annotations.onPointerMove(normPt);
+    if (activeTool === 'eraser') scheduleNotesSave(targetEngine); // erasing while dragging
   };
 
   const handlePointerUpCanvas = (
@@ -517,7 +674,19 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
     }
   };
 
+  // Focus the note input only after the click that opened it has finished: the browser moves
+  // focus to the canvas as part of that click, which would blur an input focused on mount
+  // and close it again straight away.
+  useEffect(() => {
+    if (!textInputPos) return;
+    const t = setTimeout(() => noteInputRef.current?.focus(), 80);
+    return () => clearTimeout(t);
+  }, [textInputPos]);
+
   const handleConfirmText = () => {
+    if (textDoneRef.current) return;
+    textDoneRef.current = true;
+
     if (!textInputPos || !textInputVal.trim()) {
       setTextInputPos(null);
       return;
@@ -525,7 +694,16 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
 
     const engine = textInputPos.engineTarget === 'A' ? engineARef.current : engineBRef.current;
     engine?.annotations.addText(textInputPos.point, textInputVal);
+    scheduleNotesSave(textInputPos.engineTarget);
 
+    setTextInputPos(null);
+    setTextInputVal('');
+    // One note per click: go back to Select so the next click doesn't ask for text again.
+    handleToolChange('select');
+  };
+
+  const handleCancelText = () => {
+    textDoneRef.current = true;
     setTextInputPos(null);
     setTextInputVal('');
   };
@@ -740,37 +918,38 @@ export const SplitCanvasVideoPlayer: React.FC<SplitCanvasVideoPlayerProps> = ({
         )}
       </div>
 
-      {/* Text Prompt Popup Modal */}
+      {/* Saved-notes status */}
+      {notesStatus !== 'idle' && (
+        <div className="pointer-events-none absolute bottom-20 left-4 z-40 rounded-full border border-white/15 bg-black/60 px-3 py-1 text-[11px] font-semibold backdrop-blur-sm">
+          {notesStatus === 'saving' && <span className="text-slate-300">Saving notes…</span>}
+          {notesStatus === 'saved' && <span className="text-emerald-300">Notes saved</span>}
+          {notesStatus === 'error' && <span className="text-red-300">Couldn't save notes. Add or edit a note to retry.</span>}
+        </div>
+      )}
+
+      {/* Inline note input, right where you clicked */}
       {textInputPos && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs">
-          <div className="bg-slate-900 border border-white/20 p-4 rounded-xl shadow-2xl flex flex-col gap-3 w-80">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">Add Text Annotation</h4>
+        <div
+          className="absolute z-50"
+          style={{ left: textInputPos.screen.x, top: textInputPos.screen.y, transform: 'translateY(-50%)' }}
+        >
+          <div className="flex items-center overflow-hidden rounded-md border border-white/20 bg-[#0c0f16]/90 shadow-xl backdrop-blur-sm">
+            <span className="h-full w-1 self-stretch" style={{ backgroundColor: activeColor }} />
             <input
+              ref={noteInputRef}
               type="text"
-              autoFocus
-              placeholder="Enter note text…"
+              placeholder="Type a note, press Enter"
               value={textInputVal}
               onChange={(e) => setTextInputVal(e.target.value)}
+              onBlur={handleConfirmText}
               onKeyDown={(e) => {
+                e.stopPropagation();
                 if (e.key === 'Enter') handleConfirmText();
-                if (e.key === 'Escape') setTextInputPos(null);
+                if (e.key === 'Escape') handleCancelText();
               }}
-              className="bg-black/60 border border-white/20 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+              style={{ width: `${Math.max(16, textInputVal.length + 2)}ch` }}
+              className="bg-transparent px-2.5 py-1.5 text-[13px] font-semibold text-white placeholder:font-normal placeholder:text-slate-500 focus:outline-none"
             />
-            <div className="flex justify-end gap-2 text-xs font-semibold">
-              <button
-                onClick={() => setTextInputPos(null)}
-                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmText}
-                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
-              >
-                Add Text
-              </button>
-            </div>
           </div>
         </div>
       )}

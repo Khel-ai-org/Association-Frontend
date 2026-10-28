@@ -295,6 +295,35 @@ const ballMap: Record<string, BallFile | null> = useMemo(() => {
   console.log("📋 New Ball Map (ball-details API):", map);
   return map;
 }, [ballDetailsData]);
+// ---- Saved text notes (stored on the ball's video row in the scoring backend) ----
+const notesVideoRow = ballDetailsData?.videos?.[0];
+const notesVideoRowId: number | null = notesVideoRow?.id ?? null;
+const savedNotes: Record<string, { text: string; x: number; y: number }[]> = notesVideoRow?.notes ?? {};
+
+// Which camera each playable URL belongs to ("camera1" ... "camera6"), so the player knows
+// whose notes a pane is showing.
+const cameraKeyBySrc: Record<string, string> = useMemo(() => {
+  const map: Record<string, string> = {};
+  for (let i = 1; i <= 6; i++) {
+    const url = ballMap[`cam_${i}`]?.downloadUrl;
+    if (url) map[url] = `camera${i}`;
+  }
+  return map;
+}, [ballMap]);
+
+const saveNotes = async (camera: string, notes: { text: string; x: number; y: number }[]) => {
+  if (!notesVideoRowId) throw new Error("No video record to attach notes to");
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/matches/${matchId}/ball-videos/${notesVideoRowId}/notes/${camera}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "ngrok-skip-browser-warning": "true" },
+      body: JSON.stringify({ notes }),
+    }
+  );
+  if (!res.ok) throw new Error(`Saving notes failed (HTTP ${res.status})`);
+};
+
 const currentFile = useMemo(() => {
   const camKey = CAMERA_MAPPING[activeView];
   return ballMap[camKey] || null;
@@ -855,6 +884,10 @@ const formatTime = (time: number) => {
   subtitleA={`Ball ${initialBall} Analytics`}
   titleA={`${activeView} VIEW (${outcome} Runs - ${batsmanName})`}
   optionsB={cameraOptions}
+  notesByCamera={savedNotes}
+  cameraKeyBySrc={cameraKeyBySrc}
+  notesScopeId={notesVideoRowId}
+  onNotesChange={saveNotes}
 />
           {/* Camera Previews */}
           <div className="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mt-6 md:mt-8">

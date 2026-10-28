@@ -30,6 +30,10 @@ export class AnnotationLayer {
   public currentColor: string = '#ffcc33'; // Default yellow
   public strokeWidth: number = 2;
 
+  // Where each text note was last drawn (normalized 0-1), so the eraser can hit the whole badge
+  // and not just the small dot at its anchor point.
+  private textBounds = new Map<string, { x0: number; y0: number; x1: number; y1: number }>();
+
   // Active drawing state
   private activeDrawing: Shape | null = null;
   private pendingAnglePoints: Point[] = [];
@@ -147,6 +151,13 @@ export class AnnotationLayer {
     const initialLen = this.shapes.length;
 
     this.shapes = this.shapes.filter(shape => {
+      // A text note is erased by touching anywhere on its badge
+      if (shape.type === 'text') {
+        const b = this.textBounds.get(shape.id);
+        if (b && point.x >= b.x0 - 0.01 && point.x <= b.x1 + 0.01 && point.y >= b.y0 - 0.01 && point.y <= b.y1 + 0.01) {
+          return false;
+        }
+      }
       return !shape.points.some(p => {
         const dx = p.x - point.x;
         const dy = p.y - point.y;
@@ -255,8 +266,14 @@ export class AnnotationLayer {
           const r = pxScale(24);
           const a1 = Math.atan2(p1.y - v.y, p1.x - v.x);
           const a2 = Math.atan2(p2.y - v.y, p2.x - v.x);
+          // canvas arcs run clockwise by default, which draws the reflex (outer) side whenever
+          // that sweep is over 180°; pick the direction of the shorter sweep so the arc marks
+          // the same angle as the number shown.
+          let sweep = a2 - a1;
+          while (sweep > Math.PI) sweep -= Math.PI * 2;
+          while (sweep <= -Math.PI) sweep += Math.PI * 2;
           ctx.beginPath();
-          ctx.arc(v.x, v.y, r, a1, a2);
+          ctx.arc(v.x, v.y, r, a1, a2, sweep < 0);
           ctx.stroke();
 
           // Angle degrees label badge
@@ -275,18 +292,54 @@ export class AnnotationLayer {
 
       case 'text': {
         if (!shape.text) break;
-        const fontSize = pxScale(16);
-        ctx.font = `bold ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        // A compact note: dark rounded badge, a colour accent bar on its left and white text
+        // (so any annotation colour stays readable), pinned to the clicked point by a small dot.
+        const fontSize = pxScale(14);
+        ctx.font = `600 ${fontSize}px ui-sans-serif, system-ui, sans-serif`;
+        ctx.textBaseline = 'middle';
         const text = shape.text;
-        const metrics = ctx.measureText(text);
-        const pad = pxScale(6);
+        const textW = ctx.measureText(text).width;
+        const padX = pxScale(9);
+        const barW = pxScale(4);
+        const h = fontSize * 1.75;
+        const w = barW + padX + textW + padX;
+        const x = a.x;
+        const y = a.y - h / 2;
+        const r = pxScale(6);
+        this.textBounds.set(shape.id, { x0: x / imgW, y0: y / imgH, x1: (x + w) / imgW, y1: (y + h) / imgH });
 
-        // Dark background badge behind text
-        ctx.fillStyle = 'rgba(11, 14, 19, 0.82)';
-        ctx.fillRect(a.x - pad, a.y - fontSize, metrics.width + pad * 2, fontSize + pad * 1.5);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + w - r, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+        ctx.lineTo(x + w, y + h - r);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        ctx.lineTo(x + r, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(12, 15, 22, 0.88)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+        ctx.lineWidth = pxScale(1);
+        ctx.stroke();
 
+        // Accent bar (clipped to the badge's rounded left edge)
+        ctx.save();
+        ctx.clip();
         ctx.fillStyle = shape.color;
-        ctx.fillText(text, a.x, a.y);
+        ctx.fillRect(x, y, barW, h);
+        ctx.restore();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, x + barW + padX, a.y + pxScale(0.5));
+
+        // Anchor dot at the clicked point
+        ctx.beginPath();
+        ctx.arc(x, a.y, pxScale(3), 0, Math.PI * 2);
+        ctx.fillStyle = shape.color;
+        ctx.fill();
         break;
       }
 
