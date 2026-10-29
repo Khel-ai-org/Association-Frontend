@@ -527,6 +527,31 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     fetchBalls();
   }, [activeInnings, matchId, SCORING_API_BASE]);
 
+  // Balls the ops team has marked (release/pitch/impact) — only these can open Ball Trajectory.
+  // Re-fetched when a ball is selected and when the tab regains focus, so a ball
+  // submitted while this page is open enables without a reload.
+  const [trajectoryBallIds, setTrajectoryBallIds] = useState<Set<number>>(new Set());
+  const selectedBallId = selectedBallData?.id;
+  useEffect(() => {
+    if (!matchId) return;
+    const fetchTrajectoryBalls = async () => {
+      try {
+        const res = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/trajectory-balls`, {
+          headers: { "ngrok-skip-browser-warning": "true" }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setTrajectoryBallIds(new Set((data.data || []).map((t: { ball_id: number }) => Number(t.ball_id))));
+        }
+      } catch (err) {
+        console.error("Trajectory balls fetch error:", err);
+      }
+    };
+    fetchTrajectoryBalls();
+    window.addEventListener("focus", fetchTrajectoryBalls);
+    return () => window.removeEventListener("focus", fetchTrajectoryBalls);
+  }, [matchId, SCORING_API_BASE, selectedBallId]);
+
   const topBatsmen = useMemo(() => {
     const targetInning = activeInnings === '1st' ? scorecard?.innings_1 : scorecard?.innings_2;
     if (!targetInning?.batsmen) return [];
@@ -1628,11 +1653,28 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   Take Action
                 </button>
               ) : (
-                <Link href={`/admin/analytics/${matchId}?ball=${selectedBallData?.over_number}&ballId=${selectedBallData?.id}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
-                  <button className="w-full mt-8 py-3 bg-[#0F1117] text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-100 cursor-pointer">
-                    Analyse Ball
-                  </button>
-                </Link>
+                <div className="flex gap-3 mt-8">
+                  <Link className="flex-1" href={`/admin/analytics/${matchId}?ball=${selectedBallData?.over_number}&ballId=${selectedBallData?.id}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&isWide=${!!selectedBallData?.is_wide}&isNoBall=${!!selectedBallData?.is_noball}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
+                    <button className="w-full py-3 bg-[#0F1117] text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-100 cursor-pointer">
+                      Analyse Ball
+                    </button>
+                  </Link>
+                  {selectedBallData && trajectoryBallIds.has(Number(selectedBallData.id)) ? (
+                    <Link className="flex-1" href={`/admin/trajectory/${matchId}?ball=${selectedBallData?.over_number}&ballId=${selectedBallData?.id}&inning=${activeInnings}&isSuperOver=${!!selectedBallData?.isSuperOver}&soNumber=${selectedBallData?.superover_number || '1'}&batsman=${encodeURIComponent(selectedBallData?.batsman_name || 'N/A')}&bowler=${encodeURIComponent(selectedBallData?.bowler_name || 'N/A')}&outcome=${encodeURIComponent(getDisplayOutcome(selectedBallData))}`}>
+                      <button className="w-full py-3 bg-white text-[#0F1117] border border-[#0F1117] rounded-xl font-bold text-xs hover:bg-slate-50 transition-all active:scale-95 shadow-lg shadow-slate-100 cursor-pointer">
+                        Ball Trajectory
+                      </button>
+                    </Link>
+                  ) : (
+                    <button
+                      disabled
+                      title="This ball hasn't been marked by the ops team yet"
+                      className="flex-1 py-3 bg-white text-slate-400 border border-slate-200 rounded-xl font-bold text-xs cursor-not-allowed"
+                    >
+                      Ball Trajectory
+                    </button>
+                  )}
+                </div>
               )}
               </>
               )}
