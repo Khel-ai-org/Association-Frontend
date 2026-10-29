@@ -170,6 +170,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [isViewMore, setIsViewMore] = useState(false);
   const [activeInnings, setActiveInnings] = useState<'1st' | '2nd'>('1st');
   const [scorecard, setScorecard] = useState<any>(null);
+  // Core match record (match_type, current_inning) — decides between the limited-overs and Test scorecard layouts.
+  const [matchMeta, setMatchMeta] = useState<any>(null);
   const [superOvers, setSuperOvers] = useState<any[]>([]);
   const [appeals, setAppeals] = useState<AppealData | null>(null);
   const [inningBalls, setInningBalls] = useState<any[]>([]);
@@ -478,6 +480,18 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
           headers: { "ngrok-skip-browser-warning": "true" }
         });
         
+
+        try {
+          const mRes = await fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}`, {
+            headers: { "ngrok-skip-browser-warning": "true" }
+          });
+          if (mRes.ok) {
+            const mJson = await mRes.json();
+            setMatchMeta(mJson?.data ?? mJson?.match ?? mJson);
+          }
+        } catch (err) {
+          console.error("Error fetching match meta:", err);
+        }
 
         if (sRes.ok) {
           const scDataArray = await sRes.json();
@@ -1186,7 +1200,18 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
       </div>
 
       {/* --- SCORECARD TAB --- */}
-      {activeTab === 'scorecard' && <ScorecardView scorecard={scorecard} superOvers={superOvers} matchId={matchId} />}
+      {activeTab === 'scorecard' && <ScorecardView
+        scorecard={scorecard}
+        superOvers={superOvers}
+        matchId={matchId}
+        isTest={
+          String(matchMeta?.match_type ?? matchMeta?.matchType ?? '').toUpperCase() === 'TEST' ||
+          !!(scorecard?.innings_3 || scorecard?.third_inning)
+        }
+        currentInning={Number(matchMeta?.current_inning ?? matchMeta?.test_details?.current_inning) || 1}
+        match={matchMeta}
+        completed={['completed', 'finished'].includes(String(matchMeta?.status ?? scorecard?.status ?? initialStatus ?? '').toLowerCase())}
+      />}
 
       {/* --- MATCH TIMELINE SECTION (Details & Referee tabs only) --- */}
       {activeTab !== 'scorecard' && (

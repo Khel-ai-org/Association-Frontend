@@ -508,7 +508,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                   return (
                     <tr
                       key={row.key}
-                      onClick={() => row.linkId && router.push(`/admin/ground/matchdetail/${row.linkId}?status=${encodeURIComponent(row.statusLabel)}`)}
+                      onClick={() => row.linkId && router.push(`/admin/ground/matchdetail/${row.linkId}?status=${encodeURIComponent(row.statusLabel)}&tid=${encodeURIComponent(tournamentId ?? '')}`)}
                       className={`border-b border-slate-50 transition-colors ${
                         row.linkId ? 'hover:bg-slate-50/70 cursor-pointer' : ''
                       } ${selectedMatchId === row.linkId ? 'bg-blue-50/50' : ''}`}

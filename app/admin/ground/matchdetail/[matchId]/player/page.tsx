@@ -21,26 +21,12 @@ export default function PlayerStatsPage({ params }: PageProps) {
     <div className="min-h-screen bg-[#F8F9FB] p-4 md:p-6">
       <div className="flex items-center gap-2 mb-6 text-sm font-medium text-slate-600">
         <button
-          onClick={() => router.push('/admin/ground')}
+          onClick={() => router.back()}
           className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0"
+          aria-label="Back"
         >
-          <ArrowLeft className="w-5 h-5 mr-1" /> Grounds
+          <ArrowLeft className="w-5 h-5 mr-1" />
         </button>
-        <span>{'>'}</span>
-        <button
-          onClick={() => router.push('/admin/tournament')}
-          className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0"
-        >
-          Tournament
-        </button>
-        <span>{'>'}</span>
-        <button
-          onClick={() => router.push('/admin/tournament')}
-          className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0"
-        >
-          Matches
-        </button>
-        <span>{'>'}</span>
         <button
           onClick={() => router.push(`/admin/ground/matchdetail/${matchId}`)}
           className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0"

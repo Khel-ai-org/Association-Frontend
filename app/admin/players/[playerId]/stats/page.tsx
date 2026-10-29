@@ -26,7 +26,7 @@ export default function PlayerCareerStatsPage({ params }: PageProps) {
           onClick={() => router.back()}
           className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0"
         >
-          <ArrowLeft className="w-5 h-5 mr-1" /> Players
+          <ArrowLeft className="w-5 h-5 mr-1" /> Back
         </button>
         <span>{'>'}</span>
         <span className="text-slate-900 font-bold">Career Stats</span>

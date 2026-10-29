@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, ChevronDown, UserPlus, Save, Search, Trash2, Users, Target, CircleDot } from 'lucide-react';
+import { ArrowLeft, ChevronDown, UserPlus, Save, Search, Trash2, Users, Target, CircleDot, X } from 'lucide-react';
 import useGoBack from '../../hooks/useGoBack';
 import StatusModal from '@/app/components/auth/StatusModal';
 import { friendlyError } from '../../utils/friendlyError';
@@ -186,6 +186,8 @@ export default function TeamSquadPage({ tournamentId, teamId }: TeamSquadPagePro
   const goBack = useGoBack(`/admin/tournament/${tournamentId}/teams`);
 
   const [teamName, setTeamName] = useState('');
+  // Row waiting for the "Remove Player from Squad?" confirmation.
+  const [removeIndex, setRemoveIndex] = useState<number | null>(null);
   const [shortName, setShortName] = useState('');
   const [matchId, setMatchId] = useState('');
   const [innings, setInnings] = useState<number>(1);
@@ -537,7 +539,7 @@ export default function TeamSquadPage({ tournamentId, teamId }: TeamSquadPagePro
                     </td>
                     <td className="py-4 px-6 text-center">
                       <button
-                        onClick={() => setPlayers((prev) => prev.filter((_, i) => i !== index))}
+                        onClick={() => (p.name ? setRemoveIndex(index) : setPlayers((prev) => prev.filter((_, i) => i !== index)))}
                         className="p-2 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
                         aria-label="Remove player"
                       >
@@ -565,6 +567,47 @@ export default function TeamSquadPage({ tournamentId, teamId }: TeamSquadPagePro
           </p>
         )}
       </div>
+
+      {removeIndex !== null && players[removeIndex] && (() => {
+        const rp = players[removeIndex];
+        const initials = rp.name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+        return (
+          <div className="fixed inset-0 z-[100] flex overflow-y-auto bg-black/60 backdrop-blur-sm p-4">
+            <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-[460px] m-auto p-6 sm:p-8 text-center">
+              <button
+                onClick={() => setRemoveIndex(null)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label="Close"
+              >
+                <X size={22} />
+              </button>
+              <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-5">
+                <Trash2 size={26} className="text-red-500" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Remove Player from Squad?</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                This player will be removed from the current team&apos;s squad. This action may also remove them from the selected Playing XI.
+              </p>
+              <div className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 mb-6 text-left">
+                <span className="w-10 h-10 shrink-0 rounded-full bg-slate-100 text-slate-600 text-xs font-bold flex items-center justify-center">{initials || '?'}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-slate-900 truncate">{rp.name}</p>
+                  <p className="text-xs text-slate-500 truncate">{[rp.role, teamName].filter(Boolean).join(' · ')}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setPlayers((prev) => prev.filter((_, i) => i !== removeIndex));
+                  setRemoveIndex(null);
+                }}
+                className="w-full py-3.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold transition-colors cursor-pointer"
+              >
+                Remove Player
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       <StatusModal
         isOpen={showSuccess}

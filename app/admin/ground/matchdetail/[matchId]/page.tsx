@@ -49,7 +49,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useGoBackSteps } from '../../../hooks/useGoBack';
+import useGoBack from '../../../hooks/useGoBack';
 import MatchAnalysis from '../../../components/ground/MatchDetails';
 
 interface PageProps {
@@ -58,13 +58,15 @@ interface PageProps {
 
 export default function MatchDetailsPage({ params }: PageProps) {
   const router = useRouter();
-  const goBackSteps = useGoBackSteps();
   const searchParams = useSearchParams();
   const resolvedParams = React.use(params);
   const matchId = resolvedParams.matchId;
   // The scorecard itself carries no status field — the Matches list passes
   // along the status it already knew (the fixture's live-match status).
   const initialStatus = searchParams.get('status') || undefined;
+  // Set by the tournament's Matches list so the breadcrumb can link back to it.
+  const tournamentId = searchParams.get('tid') || '';
+  const goBack = useGoBack(tournamentId ? `/admin/tournament/${tournamentId}/matches` : '/admin/dashboard');
 
   // Track active tab state at the parent page level
   const [activeTab, setActiveTab] = useState<'details' | 'referee' | 'scorecard'>('details');
@@ -73,18 +75,25 @@ export default function MatchDetailsPage({ params }: PageProps) {
     <div className="min-h-screen bg-[#F8F9FB] p-4 md:p-6">
       {/* Top Header Navigation & Tab Switcher Bar matching layout screenshot */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-        {/* Breadcrumbs / Back Navigation */}
+        {/* Breadcrumbs / Back Navigation — the trail matches how the user got here:
+            from a tournament's Matches list (tid is passed along) or from the dashboard. */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-slate-500">
-          <button 
-            onClick={() => router.push('/admin/ground')} 
-            className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0 hover:underline"
+          <button
+            onClick={goBack}
+            className="flex items-center text-slate-800 transition-colors cursor-pointer border-none bg-transparent p-0"
+            aria-label="Back"
           >
-            <ArrowLeft className="w-5 h-5 mr-1" /> Grounds 
+            <ArrowLeft className="w-5 h-5 mr-1" />
           </button>
-          <span>{'>'}</span>
-          <button onClick={() => goBackSteps(2, '/admin/tournament')} className='text-slate-800 cursor-pointer hover:underline'>Tournament</button>
-          <span>{'>'}</span>
-          <button onClick={() => goBackSteps(1, '/admin/tournament')} className='text-slate-800 cursor-pointer hover:underline'>Matches</button>
+          {tournamentId ? (
+            <>
+              <button onClick={() => router.push('/admin/tournament')} className="text-slate-800 cursor-pointer hover:underline">Tournament</button>
+              <span>{'>'}</span>
+              <button onClick={() => router.push(`/admin/tournament/${tournamentId}/matches`)} className="text-slate-800 cursor-pointer hover:underline">Matches</button>
+            </>
+          ) : (
+            <button onClick={() => router.push('/admin/dashboard')} className="text-slate-800 cursor-pointer hover:underline">Dashboard</button>
+          )}
           <span>{'>'}</span>
           <span className="text-slate-900 font-bold">Match Details & Match Referee</span>
         </div>

@@ -7,6 +7,7 @@ import {
   Play, 
   X, 
   ChevronRight, 
+  ArrowLeft,
   FileSpreadsheet,
   Loader2,
   Send,
@@ -116,34 +117,36 @@ const allJudgements = (item: any) => {
   return list;
 };
 
-// Numbers behind one umpire's report card. Counts the API doesn't send are derived from the appeals list.
-const umpireReportStats = (u: any, appeals: any[]) => {
-  const mine = appeals.filter((a) => String(a.umpire || "").toLowerCase() === String(u.name || "").toLowerCase());
+// Numbers behind one umpire's report card, read from the umpire_performance entry
+// ({ total_decisions: { count, appeals_count, undisputed_decisions }, signals: { total, appeal_status, match_referee,
+// umpire_committee, undisputed }, accuracy }).
+const umpireReportStats = (u: any) => {
   const num = (v: unknown) => Number(v) || 0;
-  const appealsFaced = num(u.appeals_faced);
-  const accuracy = Math.max(0, Math.min(100, num(u.accuracy)));
-  const undisputed = num(u.undisputed);
-  const retained = num(u.retained);
-  const overturned = num(u.overturned);
-  const umpiresCall = num(u.umpires_call);
-  const count = (list: string[], want: string) => list.filter((j) => j.toLowerCase() === want).length;
-  const mrList = mine.map((a) => String(a.mr_judgement || "")).filter(Boolean);
-  const committeeList = mine.flatMap((a) => toJudgements(a.umpire_judgement).map((j) => String(j.judgement)));
+  const td = u?.total_decisions ?? {};
+  const sg = u?.signals ?? {};
+  const status = sg.appeal_status ?? {};
+  const accuracy = Math.max(0, Math.min(100, num(u?.accuracy)));
+  const retained = num(status.retained);
+  const overturned = num(status.overturned);
+  const umpiresCall = num(status.umpires_call);
+  const undisputed = num(sg.undisputed);
+  const totalSignals = num(sg.total) || retained + overturned + umpiresCall + undisputed;
   return {
     accuracy,
-    appealsFaced,
-    correct: Math.round((accuracy / 100) * appealsFaced),
-    totalDecisions: num(u.total_decisions) || appealsFaced + undisputed,
-    undisputed,
+    totalSignals,
+    signalSum: retained + overturned + umpiresCall + undisputed,
+    correct: Math.round((accuracy / 100) * num(td.appeals_count)),
+    totalDecisions: num(td.count),
+    appealsFaced: num(td.appeals_count),
+    undisputed: num(td.undisputed_decisions),
     signals: [
       { label: "Retained", value: retained, bar: "bg-emerald-500", text: "text-white", dot: "bg-emerald-500" },
       { label: decisionLabel("Overturned"), value: overturned, bar: "bg-red-500", text: "text-white", dot: "bg-red-500" },
       { label: "Umpire's Call", value: umpiresCall, bar: "bg-blue-500", text: "text-white", dot: "bg-blue-500" },
       { label: "Undisputed", value: undisputed, bar: "bg-slate-200", text: "text-slate-600", dot: "bg-slate-400" },
     ],
-    totalSignals: retained + overturned + umpiresCall + undisputed,
-    mr: { correct: count(mrList, "correct"), incorrect: count(mrList, "incorrect") },
-    committee: { correct: count(committeeList, "correct"), incorrect: count(committeeList, "incorrect") },
+    mr: { correct: num(sg.match_referee?.correct), incorrect: num(sg.match_referee?.incorrect) },
+    committee: { correct: num(sg.umpire_committee?.correct), incorrect: num(sg.umpire_committee?.incorrect) },
   };
 };
 
@@ -369,26 +372,117 @@ export default function AppealAnalysisPage() {
     window.location.href = `${process.env.NEXT_PUBLIC_Backend_URL}/export/auth?tournamentId=${tournamentId}`;
   };
 
-  // Downloads the report numbers shown in the popup as a CSV.
+  // Opens the print dialog on a clean copy of the report (same layout as the popup) — choose "Save as PDF" there.
   const exportUmpireReport = () => {
-    const rows: (string | number)[][] = [[
-      "Umpire", "Role", "Accuracy %", "Matches Officiated", "Total Decisions", "Appeals Faced", "Undisputed",
-      "Retained", decisionLabel("Overturned"), "Umpire's Call", "MR Correct", "MR Incorrect", "Committee Correct", "Committee Incorrect",
-    ]];
-    matchedUmpires.forEach((u: any) => {
-      const r = umpireReportStats(u, appeals);
-      rows.push([
-        u.name, u.role || "Umpire", r.accuracy, Number(u.matches_officiated) || 0, r.totalDecisions, r.appealsFaced, r.undisputed,
-        ...r.signals.slice(0, 3).map((x) => x.value), r.mr.correct, r.mr.incorrect, r.committee.correct, r.committee.incorrect,
-      ]);
-    });
-    const csv = rows.map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "umpire-report.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+    const pct = (n: number, t: number) => (t > 0 ? `${Math.round((n / t) * 100)}%` : "—");
+    const svg = (inner: string, size = 16, color = "#6366f1") =>
+      `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="${color}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+    const ICON = {
+      umpire: '<circle cx="12" cy="5.2" r="2.6"/><path d="M7.5 12.2c0-1.7 1.4-3 3.1-3h2.8c1.7 0 3.1 1.3 3.1 3v3.3H7.5v-3.3z"/><path d="M5.5 15.5h13"/><path d="M7.2 15.5v4.8M16.8 15.5v4.8M5 20.3h14"/>',
+      calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+      trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.7V17M14 14.7V17M18 2H6v7a6 6 0 0 0 12 0V2z"/>',
+      file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/>',
+      minus: '<circle cx="12" cy="12" r="10"/><path d="M8 12h8"/>',
+      user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+      users: '<circle cx="9" cy="8" r="3.5"/><path d="M2 21a7 7 0 0 1 14 0M16 4.5a3.5 3.5 0 0 1 0 7M22 21a7 7 0 0 0-4-6.3"/>',
+    };
+    const colors = ["#16a34a", "#ef4444", "#3b82f6", "#e2e8f0"];
+    const circ = 2 * Math.PI * 26;
+
+    const cards = matchedUmpires.map((u: any) => {
+      const r = umpireReportStats(u);
+      const outcome = (title: string, icon: string, v: { correct: number; incorrect: number }) => {
+        const t = v.correct + v.incorrect;
+        return `<div class="obox">
+          <div class="otitle"><span>${svg(icon, 15)} ${title}</span><b>${pct(v.correct, t)}<em> correct</em></b></div>
+          <div class="bar"><i style="width:${t ? (v.correct / t) * 100 : 0}%;background:#16a34a"></i><i style="width:${t ? (v.incorrect / t) * 100 : 0}%;background:#ef4444"></i></div>
+          <div class="orow"><span><u style="background:#16a34a"></u>Correct <b>${v.correct}</b> <em>${t ? `(${pct(v.correct, t)})` : ""}</em></span>
+          <span><u style="background:#ef4444"></u>Incorrect <b>${v.incorrect}</b> <em>${t ? `(${pct(v.incorrect, t)})` : ""}</em></span></div></div>`;
+      };
+      return `<div class="card">
+        <div class="uhead">
+          <div class="who"><span class="avatar">${esc(String(u.name || "?").trim().charAt(0).toUpperCase())}</span>
+            <div><h2>${esc(u.name)}</h2><p>${esc(u.role || "Umpire")}</p></div></div>
+          <div class="who">
+            <div class="ring"><svg viewBox="0 0 60 60" width="56" height="56" style="transform:rotate(-90deg)"><circle cx="30" cy="30" r="26" fill="none" stroke="#f1f5f9" stroke-width="6"/><circle cx="30" cy="30" r="26" fill="none" stroke="#16a34a" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(r.accuracy / 100) * circ} ${circ}"/></svg><b>${Math.round(r.accuracy)}%</b></div>
+            <div><h5>Decision Accuracy</h5><p>${r.correct} correct out of ${r.appealsFaced}<br>appeals faced</p></div>
+          </div>
+        </div>
+        <div class="grid4">
+          <div><p>${svg(ICON.trophy, 13, "#94a3b8")} Matches Officiated</p><b>${Number(u.matches_officiated) || 0}</b></div>
+          <div><p>${svg(ICON.file, 13, "#94a3b8")} Total Decisions</p><b>${r.totalDecisions}</b></div>
+          <div><p>${svg(ICON.trophy, 13, "#94a3b8")} Appeals Faced</p><b>${r.appealsFaced}</b></div>
+          <div><p>${svg(ICON.minus, 13, "#94a3b8")} Undisputed Decisions</p><b>${r.undisputed}</b></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="sec"><div class="who top">${svg(ICON.umpire, 20)}<div><h3>Signals Given</h3><p>Total signals raised by the umpire during the matches.</p></div></div>
+          <div class="chip"><p>Total Decisions</p><b>${r.totalDecisions}</b></div></div>
+        <div class="bar tall">${r.signals.map((x, i) => (x.value > 0 ? `<i style="width:${(x.value / r.signalSum) * 100}%;background:${colors[i]};${i === 3 ? "color:#475569" : ""}">${x.value}</i>` : "")).join("")}</div>
+        <div class="legend">${r.signals.map((x, i) => `<span><u style="background:${i === 3 ? "#94a3b8" : colors[i]}"></u>${esc(x.label)} <b>${pct(x.value, r.signalSum)}</b></span>`).join("")}</div>
+      </div>
+      <div class="card">
+        <div class="who top">${svg(ICON.umpire, 20)}<div><h3>Review Outcomes</h3><p>Results after review by match referee and umpire committee.</p></div></div>
+        <div class="grid2">${outcome("Match Referee", ICON.user, r.mr)}${outcome("Umpire Committee", ICON.users, r.committee)}</div>
+      </div>`;
+    }).join('<div class="pb"></div>');
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Umpire Performance Report</title><style>
+      *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:#0f172a;margin:0;padding:22px;font-size:12px}
+      p{margin:0}.top{align-items:flex-start}
+      .page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px}
+      .tile{width:42px;height:42px;border-radius:12px;background:#eef2ff;display:flex;align-items:center;justify-content:center}
+      .who{display:flex;align-items:center;gap:12px}
+      h1{font-size:18px;margin:0}.page-head p{color:#64748b;font-size:11px;margin-top:2px}
+      .period{display:flex;align-items:center;gap:10px;border:1px solid #e2e8f0;border-radius:12px;padding:8px 14px}
+      .period small{display:block;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:#64748b;font-weight:600}.period b{font-size:12px}
+      .card{border:1px solid #e2e8f0;border-radius:16px;padding:18px;margin-bottom:14px;page-break-inside:avoid}
+      .uhead{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid #f1f5f9}
+      .avatar{width:52px;height:52px;border-radius:50%;background:#eef2ff;color:#6366f1;font-size:20px;font-weight:700;display:flex;align-items:center;justify-content:center}
+      h2{font-size:18px;margin:0}.uhead p{color:#64748b;font-size:11px;margin-top:2px}
+      .ring{position:relative;width:56px;height:56px}.ring b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px}
+      h5{margin:0;font-size:13px}.who h5+p{color:#64748b;font-size:11px;margin-top:3px}
+      .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding-top:14px}
+      .grid4 p{color:#64748b;font-size:10.5px;display:flex;align-items:center;gap:5px}.grid4 b{display:block;font-size:20px;margin-top:5px}
+      .sec{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+      h3{margin:0;font-size:13px}.sec p,.who.top p{color:#64748b;font-size:11px;margin-top:2px}
+      .chip{background:#eef2ff;border-radius:12px;padding:6px 12px;text-align:center}.chip p{font-size:8.5px;font-weight:600;color:#64748b;margin:0}.chip b{font-size:17px}
+      .bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:#f1f5f9}.bar.tall{height:26px}
+      .bar i{display:flex;align-items:center;justify-content:center;color:#fff;font-size:10.5px;font-style:normal;font-weight:600}
+      .legend{display:flex;flex-wrap:wrap;gap:6px 24px;margin-top:10px;color:#475569;font-size:11px}
+      u{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+      .obox{border:1px solid #e2e8f0;border-radius:12px;padding:14px}
+      .otitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:12px}
+      .otitle span{display:flex;align-items:center;gap:7px}.otitle em{font-style:normal;font-weight:500;color:#64748b;font-size:9.5px}
+      .orow{display:flex;justify-content:space-between;margin-top:10px;font-size:11px;color:#475569}.orow em{font-style:normal;color:#94a3b8}
+      .pb{page-break-after:always}
+      @page{margin:10mm}
+    </style></head><body>
+      <div class="page-head">
+        <div class="who"><div class="tile">${svg(ICON.umpire, 22)}</div>
+          <div><h1>Umpire Performance Report</h1><p>Summary of decisions, signals and review outcomes for match officials.</p></div></div>
+        ${reportPeriod ? `<div class="period">${svg(ICON.calendar, 20)}<div><small>Report Period</small><b>${esc(reportPeriod)}</b></div></div>` : ""}
+      </div>
+      ${cards}
+    </body></html>`;
+
+    const frame = document.createElement("iframe");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+    document.body.appendChild(frame);
+    const doc = frame.contentWindow?.document;
+    if (!doc || !frame.contentWindow) { frame.remove(); return; }
+    doc.open();
+    doc.write(html);
+    doc.close();
+    const w = frame.contentWindow;
+    setTimeout(() => {
+      w.focus();
+      w.print();
+      setTimeout(() => frame.remove(), 1000);
+    }, 250);
   };
 
   const handleAddComment = async () => {
@@ -666,8 +760,12 @@ export default function AppealAnalysisPage() {
       {/* Breadcrumb Navigation */}
       <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
         
-        <span className="cursor-pointer hover:underline" onClick={() => router.back()}>Tournament</span> 
-        
+        <button onClick={() => router.back()} className="text-slate-900 cursor-pointer" aria-label="Back">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <span className="cursor-pointer hover:underline" onClick={() => router.push("/admin/tournament")}>Tournament</span>
+        <ChevronRight className="w-4 h-4 text-slate-600" />
+        <span className="cursor-pointer hover:underline" onClick={() => router.push(`/admin/tournament/${tournamentId}/matches`)}>Matches</span>
         <ChevronRight className="w-4 h-4 text-slate-600" />
         <span className="text-slate-900 font-medium">Appeal Analysis</span>
       </div>
@@ -965,7 +1063,7 @@ export default function AppealAnalysisPage() {
 
             <div className="max-h-[65vh] overflow-y-auto px-5 sm:px-8 pb-2 space-y-4">
               {matchedUmpires.map((u: any, i: number) => {
-                const r = umpireReportStats(u, appeals);
+                const r = umpireReportStats(u);
                 const circ = 2 * Math.PI * 26;
                 const top = [
                   { label: "Matches Officiated", value: Number(u.matches_officiated) || 0, icon: <Trophy className="w-3.5 h-3.5" /> },
@@ -1024,9 +1122,11 @@ export default function AppealAnalysisPage() {
                             <p className="text-xs text-slate-500">Total signals raised by the umpire during the matches.</p>
                           </div>
                         </div>
-                        <div className="shrink-0 rounded-xl bg-indigo-50 px-3 py-1.5 text-center">
-                          <p className="text-[9px] font-semibold text-slate-500">Total Signals</p>
-                          <p className="text-lg font-bold text-slate-900 leading-tight">{r.totalSignals}</p>
+                        <div className="shrink-0 flex gap-2">
+                          <div className="rounded-xl bg-indigo-50 px-3 py-1.5 text-center">
+                            <p className="text-[9px] font-semibold text-slate-500">Total Decisions</p>
+                            <p className="text-lg font-bold text-slate-900 leading-tight">{r.totalDecisions}</p>
+                          </div>
                         </div>
                       </div>
                       <div className="flex h-7 rounded-full overflow-hidden bg-slate-100">
@@ -1038,7 +1138,7 @@ export default function AppealAnalysisPage() {
                       </div>
                       <div className="flex flex-wrap gap-x-6 gap-y-1.5 mt-3 text-xs text-slate-600">
                         {r.signals.map((x) => (
-                          <span key={x.label} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${x.dot}`} />{x.label}</span>
+                          <span key={x.label} className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${x.dot}`} />{x.label}{r.signalSum > 0 && <b className="text-slate-900">{Math.round((x.value / r.signalSum) * 100)}%</b>}</span>
                         ))}
                       </div>
                     </div>
@@ -1056,7 +1156,13 @@ export default function AppealAnalysisPage() {
                           const total = o.v.correct + o.v.incorrect;
                           return (
                             <div key={o.title} className="border border-slate-200 rounded-xl p-4">
-                              <p className="flex items-center gap-2 text-sm font-medium text-slate-900 mb-3">{o.icon}{o.title}</p>
+                              <div className="flex items-center justify-between gap-2 mb-3">
+                                <p className="flex items-center gap-2 text-sm font-medium text-slate-900">{o.icon}{o.title}</p>
+                                <span className="text-sm font-bold text-slate-900">
+                                  {total > 0 ? `${Math.round((o.v.correct / total) * 100)}%` : "—"}
+                                  <span className="ml-1 text-[10px] font-medium text-slate-500">correct</span>
+                                </span>
+                              </div>
                               <div className="flex h-2 rounded-full overflow-hidden bg-slate-100 mb-3">
                                 {total > 0 && (
                                   <>
@@ -1066,8 +1172,8 @@ export default function AppealAnalysisPage() {
                                 )}
                               </div>
                               <div className="flex items-center justify-between text-xs text-slate-600">
-                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />Correct <b className="text-slate-900">{o.v.correct}</b></span>
-                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Incorrect <b className="text-slate-900">{o.v.incorrect}</b></span>
+                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />Correct <b className="text-slate-900">{o.v.correct}</b>{total > 0 && <span className="text-slate-500">({Math.round((o.v.correct / total) * 100)}%)</span>}</span>
+                                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" />Incorrect <b className="text-slate-900">{o.v.incorrect}</b>{total > 0 && <span className="text-slate-500">({Math.round((o.v.incorrect / total) * 100)}%)</span>}</span>
                               </div>
                             </div>
                           );

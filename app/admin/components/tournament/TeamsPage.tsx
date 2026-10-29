@@ -452,30 +452,36 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
         )}
 
         <div className="flex flex-col items-center gap-2">
-          <button
-            disabled={teams.length === 0 || teams.length < (tournament?.teamCount ?? 0) || fixturesExist}
-            onClick={() => setIsGenerateFixtureOpen(true)}
-            title={
-              !fixturesExist && teams.length < (tournament?.teamCount ?? 0)
-                ? `Add all ${tournament?.teamCount ?? 0} teams before generating the fixture (${teams.length} added so far)`
-                : undefined
-            }
-            className="bg-[#0F1117] text-white px-8 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Generate Fixture
-          </button>
-          {!fixturesExist && teams.length > 0 && teams.length < (tournament?.teamCount ?? 0) && (
-            <p className="text-xs text-amber-600 font-medium">
-              Add all {tournament?.teamCount ?? 0} teams before generating the fixture — {teams.length} added so far.
-            </p>
-          )}
-          {fixturesExist && (
-            <button
-              onClick={() => router.push(`/admin/tournament/${tournamentId}/matches`)}
-              className="text-sm font-semibold text-[#4B70C3] hover:underline"
-            >
-              Fixture already generated — you can view matches
-            </button>
+          {fixturesExist ? (
+            <>
+              <p className="text-xs text-slate-600 font-medium">Fixture already generated — you can view matches.</p>
+              <button
+                onClick={() => router.push(`/admin/tournament/${tournamentId}/matches`)}
+                className="bg-[#0F1117] text-white px-8 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all cursor-pointer"
+              >
+                View Matches
+              </button>
+            </>
+          ) : (
+            <>
+              {teams.length > 0 && teams.length < (tournament?.teamCount ?? 0) && (
+                <p className="text-xs text-amber-600 font-medium">
+                  Add all {tournament?.teamCount ?? 0} teams before generating the fixture — {teams.length} added so far.
+                </p>
+              )}
+              <button
+                disabled={teams.length === 0 || teams.length < (tournament?.teamCount ?? 0)}
+                onClick={() => setIsGenerateFixtureOpen(true)}
+                title={
+                  teams.length < (tournament?.teamCount ?? 0)
+                    ? `Add all ${tournament?.teamCount ?? 0} teams before generating the fixture (${teams.length} added so far)`
+                    : undefined
+                }
+                className="bg-[#0F1117] text-white px-8 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Generate Fixture
+              </button>
+            </>
           )}
         </div>
       </div>
