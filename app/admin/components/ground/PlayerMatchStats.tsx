@@ -301,6 +301,84 @@ const wedgePath = (centerAngle: number, radius: number) => {
   return `M 100 100 L ${start.x} ${start.y} A ${radius} ${radius} 0 0 1 ${end.x} ${end.y} Z`;
 };
 
+// Wagon wheel: field with boundary rim, 30-yard circle, 8 wedges, pitch and wicket-keeper. Each wedge
+// shows its share of the batter's runs (outer + inner position combined) — or the runs themselves via the Score
+// toggle. A left-hander is mirrored (wedges and Off / Leg sides swap). No shot lines are drawn.
+type WagonZone = { zone: string; innerLabel: string; angle: number; outerRuns: number; innerRuns: number };
+
+const WagonWheelChart: React.FC<{ zones: WagonZone[]; hand?: string }> = ({ zones, hand }) => {
+  const [showScore, setShowScore] = useState(false);
+  const leftHanded = /left/i.test(String(hand || ''));
+  const mirror = (angle: number) => (leftHanded ? 360 - angle : angle);
+
+  const rows = zones.map((z) => ({ ...z, total: (z.outerRuns || 0) + (z.innerRuns || 0), angle: mirror(z.angle) }));
+  const grand = rows.reduce((sum, r) => sum + r.total, 0);
+
+  return (
+    <div className="w-full max-w-[420px] mx-auto">
+      <div className="flex justify-end mb-2">
+        <div className="inline-flex bg-slate-100 rounded-lg p-0.5 text-xs font-bold">
+          {([false, true] as const).map((v) => (
+            <button
+              key={String(v)}
+              type="button"
+              onClick={() => setShowScore(v)}
+              className={`px-3 py-1 rounded-md cursor-pointer transition-colors ${showScore === v ? 'bg-[#0F1117] text-white' : 'text-slate-600 hover:text-slate-900'}`}
+            >
+              {v ? 'Score' : '%'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <svg viewBox="0 0 200 200" className="w-full h-auto block">
+        {/* boundary rim + field */}
+        <circle cx="100" cy="100" r="98" className="fill-[#9BCF4B]" />
+        <circle cx="100" cy="100" r="88" className="fill-[#86BF3C]" stroke="white" strokeWidth="1.5" />
+        {/* 30-yard circle */}
+        <ellipse cx="100" cy="100" rx="42" ry="42" fill="none" stroke="white" strokeWidth="1.2" />
+        {/* wedge dividers */}
+        {WAGON_DIVIDERS.map((angle) => {
+          const { x, y } = polarSvg(angle, 88);
+          return <line key={angle} x1="100" y1="100" x2={x} y2={y} stroke="white" strokeOpacity="0.85" strokeWidth="1" />;
+        })}
+        {/* pitch */}
+        <rect x="91" y="80" width="18" height="40" rx="1.5" fill="#F0CE9B" />
+        {/* wicket-keeper */}
+        <circle cx="100" cy="70" r="3.2" fill="#FBBF24" />
+        {/* Off / Leg sides, per batsman */}
+        <text x="22" y="97" fontSize="7" fontWeight="600" fill="#1f2937">{leftHanded ? 'Leg' : 'Off'}</text>
+        <text x="178" y="97" fontSize="7" fontWeight="600" fill="#1f2937" textAnchor="end">{leftHanded ? 'Off' : 'Leg'}</text>
+        {/* per-wedge value */}
+        {rows.map((r) => {
+          const { x, y } = polarSvg(r.angle, 62);
+          const pct = grand > 0 ? Math.round((r.total / grand) * 100) : 0;
+          return (
+            <g key={r.zone}>
+              <path d={wedgePath(r.angle, 88)} fill="transparent">
+                <title>{`${r.zone} (outer): ${r.outerRuns || 0} runs\n${r.innerLabel} (inner): ${r.innerRuns || 0} runs\nTotal: ${r.total} runs (${pct}%)`}</title>
+              </path>
+              <text
+                x={x}
+                y={y}
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fontSize="11"
+                fontWeight="800"
+                fill="#111827"
+                pointerEvents="none"
+              >
+                {showScore ? r.total : `${pct}%`}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <p className="text-center text-sm font-bold text-slate-900 mt-2">Runs : {grand}</p>
+    </div>
+  );
+};
+
 // Matches a super-over's innings to a side (home/away) by team_name first,
 // falling back to positional innings_1/innings_2 — same pattern already used
 // in MatchDetails.tsx / ScorecardView.tsx for the main scoreboard.
@@ -767,6 +845,13 @@ interface RecentFormMatch {
   [key: string]: unknown;
 }
 
+// Recent-performance rows: ones with a real score first (original, newest-first order kept inside each
+// group), then the rest.
+const scoredFirst = <T,>(list: T[], hasScore: (item: T) => boolean): T[] => [
+  ...list.filter(hasScore),
+  ...list.filter((item) => !hasScore(item)),
+];
+
 // The API returns a full ISO timestamp; the UI only ever shows the date part.
 const formatRecentDate = (iso?: string): string => {
   if (!iso) return '-';
@@ -1169,14 +1254,14 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
 
   const matchRecentPerformances = useMemo(() => {
     if (view === 'batting') {
-      return (battingMatch?.entry.recent_performances || []).slice(0, 5).map((p) => ({
+      return scoredFirst(battingMatch?.entry.recent_performances || [], (p) => (p.runs ?? 0) > 0).slice(0, 5).map((p) => ({
         score: `${p.runs} (${p.balls})`,
         detail: `${p["4s"]}x4 · ${p["6s"]}x6 · SR ${p.SR}`,
         matchName: p.match_name,
         date: p.match_date,
       }));
     }
-    return (bowlingMatch?.entry.recent_performances || []).slice(0, 5).map((p) => ({
+    return scoredFirst(bowlingMatch?.entry.recent_performances || [], (p) => (p.wickets_taken ?? 0) > 0).slice(0, 5).map((p) => ({
       score: `${p.wickets_taken}/${p.runs_given}`,
       detail: `${p.overs} ov · Econ ${p.economy}`,
       matchName: p.match_name,
@@ -1300,12 +1385,13 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
     if (wicketBall) {
       moments.push({
         label: "Wicket",
-        sub: `${getOutDetailsString({ wickettype: wicketBall.wicket_type || 'Out', bowler: wicketBall.bowler_name || null, fielder: null })}.`,
+        // The scorecard row carries the real fielder ("c Fielder b Bowler"); the ball itself has no fielder.
+        sub: `${getOutDetailsString(battingMatch?.entry.outdetails || { wickettype: wicketBall.wicket_type || 'Out', bowler: wicketBall.bowler_name || null, fielder: null })}.`,
         over: `Over ${wicketBall.over_number}`,
       });
     }
     return moments;
-  }, [battingBalls]);
+  }, [battingBalls, battingMatch]);
 
   // --- Bowling-side aggregates (all real, derived from `bowlingBalls`) ---
   const bowlingExtra = useMemo(() => {
@@ -1838,7 +1924,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <tbody className="divide-y divide-slate-50 text-sm">
                     {recentFormBowling.length === 0 ? (
                       <tr><td colSpan={8} className="py-6 text-center text-slate-500 italic">No recent bowling performances found.</td></tr>
-                    ) : recentFormBowling.map((r, i) => (
+                    ) : scoredFirst(recentFormBowling, (r) => (Number(r.wickets) || 0) > 0).map((r, i) => (
                       <tr key={i}>
                         <td className="py-3 pr-4 text-slate-700">{formatRecentDate(r.date)}</td>
                         <td className="py-3 px-4 font-bold text-slate-900">{String(r.home_team ?? '-')} vs {String(r.away_team ?? '-')}</td>
@@ -2098,7 +2184,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                   <tbody className="divide-y divide-slate-50 text-sm">
                     {recentFormBatting.length === 0 ? (
                       <tr><td colSpan={8} className="py-6 text-center text-slate-500 italic">No recent batting performances found.</td></tr>
-                    ) : recentFormBatting.map((r, i) => (
+                    ) : scoredFirst(recentFormBatting, (r) => (Number(r.runs) || 0) > 0).map((r, i) => (
                       <tr key={i}>
                         <td className="py-3 pr-4 text-slate-700">{formatRecentDate(r.date)}</td>
                         <td className="py-3 px-4 text-slate-800">{String(r.home_team ?? '-')}</td>
@@ -2458,80 +2544,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                 <h3 className="text-sm font-bold text-slate-900 mb-4">Scoring Areas (Wagon Wheel)</h3>
-                <div className="relative w-full aspect-square max-w-[420px] mx-auto">
-                  <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full">
-                    <circle cx="100" cy="100" r="92" className="fill-[#7BC96F]" />
-                    <circle cx="100" cy="100" r="54" fill="none" className="stroke-white/60" strokeWidth="1" strokeDasharray="3 3" />
-                    {WAGON_DIVIDERS.map((angle) => {
-                      const { x, y } = polarSvg(angle, 92);
-                      return <line key={angle} x1="100" y1="100" x2={x} y2={y} stroke="white" strokeWidth="1.5" />;
-                    })}
-                    <rect x="97" y="86" width="6" height="28" rx="2" className="fill-amber-300" />
-                    {tournamentWagonZones.map(({ zone, angle }) => (
-                      <path
-                        key={`wedge-${zone}`}
-                        d={wedgePath(angle, 92)}
-                        fill={hoveredWagon?.zone === zone ? 'rgba(255,255,255,0.28)' : 'transparent'}
-                        className="cursor-pointer transition-colors"
-                        onMouseEnter={() => setHoveredWagon({ zone, label: zone })}
-                        onMouseLeave={() => setHoveredWagon(null)}
-                      />
-                    ))}
-                  </svg>
-                  {/* Inner position labels — kept inside the dashed infield circle, directly hoverable.
-                      This is a genuinely different fielding position from the outer rim below
-                      (e.g. "Mid-On" vs "Long On"), so it shows its own real runs, not the outer zone's. */}
-                  {tournamentWagonZones.map(({ zone, innerLabel, angle, innerRuns }) => {
-                    const { left, top } = polarPct(angle, 17);
-                    return (
-                      <div
-                        key={`inner-${zone}`}
-                        className="absolute text-center -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-                        style={{ left: `${left}%`, top: `${top}%` }}
-                        onMouseEnter={() => setHoveredWagon({ zone, label: innerLabel })}
-                        onMouseLeave={() => setHoveredWagon(null)}
-                      >
-                        <p className="text-[8px] font-semibold text-black uppercase leading-tight whitespace-nowrap">{innerLabel}</p>
-                        {innerRuns > 0 && <p className="text-[8px] font-bold text-blue-600 leading-tight">{innerRuns}</p>}
-                      </div>
-                    );
-                  })}
-                  {/* Outer zone name + runs — kept inside the green circle, near the rim, directly hoverable. */}
-                  {tournamentWagonZones.map(({ zone, angle, runs }) => {
-                    const { left, top } = polarPct(angle, 34);
-                    return (
-                      <div
-                        key={zone}
-                        className="absolute w-14 text-center -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-                        style={{ left: `${left}%`, top: `${top}%` }}
-                        onMouseEnter={() => setHoveredWagon({ zone, label: zone })}
-                        onMouseLeave={() => setHoveredWagon(null)}
-                      >
-                        <p className="text-[9px] font-semibold text-black leading-[1.15]">{zone}</p>
-                        <p className="text-[10px] font-extrabold text-blue-600 leading-tight">{runs} Runs</p>
-                      </div>
-                    );
-                  })}
-                  {/* Hover popup — shows whichever label (inner or outer) was hovered, and ITS OWN
-                      runs (not the other ring's) — the match is keyed off `zone`, but we still need
-                      to tell which ring triggered it: `label` is the zone name for an outer hover,
-                      the innerLabel for an inner hover. */}
-                  {hoveredWagon && (() => {
-                    const matched = tournamentWagonZones.find((z) => z.zone === hoveredWagon.zone);
-                    const isInnerHover = matched && hoveredWagon.label === matched.innerLabel;
-                    const popupRuns = isInnerHover ? matched?.innerRuns : matched?.outerRuns;
-                    return (
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
-                          <p className="text-xs font-semibold text-slate-600 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
-                          <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
-                            {popupRuns ?? 0} Runs
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
+                <WagonWheelChart zones={tournamentWagonZones} hand={playerHistory?.player?.batting_hand || tournamentPlayerStats?.player?.batting_hand || tournamentPlayerStats?.batting?.batting_hand} />
               </div>
 
               <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
@@ -2746,79 +2759,7 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">
                     <h3 className="text-sm font-bold text-slate-900 mb-4">Scoring Areas (Wagon Wheel)</h3>
-                    <div className="relative w-full aspect-square max-w-[420px] mx-auto">
-                      <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full">
-                        <circle cx="100" cy="100" r="92" className="fill-[#7BC96F]" />
-                        <circle cx="100" cy="100" r="54" fill="none" className="stroke-white/60" strokeWidth="1" strokeDasharray="3 3" />
-                        {WAGON_DIVIDERS.map((angle) => {
-                          const { x, y } = polarSvg(angle, 92);
-                          return <line key={angle} x1="100" y1="100" x2={x} y2={y} stroke="white" strokeWidth="1.5" />;
-                        })}
-                        <rect x="97" y="86" width="6" height="28" rx="2" className="fill-amber-300" />
-                        {wagonWheelZones.map(({ zone, angle }) => (
-                          <path
-                            key={`wedge-${zone}`}
-                            d={wedgePath(angle, 92)}
-                            fill={hoveredWagon?.zone === zone ? 'rgba(255,255,255,0.28)' : 'transparent'}
-                            className="cursor-pointer transition-colors"
-                            onMouseEnter={() => setHoveredWagon({ zone, label: zone })}
-                            onMouseLeave={() => setHoveredWagon(null)}
-                          />
-                        ))}
-                      </svg>
-                      {/* Inner position labels — kept inside the dashed infield circle, directly hoverable.
-                          This is a genuinely different fielding position from the outer rim below
-                          (e.g. "Mid-On" vs "Long On"), so it shows its own real runs. */}
-                      {wagonWheelZones.map(({ zone, innerLabel, angle, innerRuns }) => {
-                        const { left, top } = polarPct(angle, 17);
-                        return (
-                          <div
-                            key={`inner-${zone}`}
-                            className="absolute text-center -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-                            style={{ left: `${left}%`, top: `${top}%` }}
-                            onMouseEnter={() => setHoveredWagon({ zone, label: innerLabel })}
-                            onMouseLeave={() => setHoveredWagon(null)}
-                          >
-                            <p className="text-[8px] font-semibold text-black uppercase leading-tight whitespace-nowrap">{innerLabel}</p>
-                            {innerRuns > 0 && <p className="text-[8px] font-bold text-blue-600 leading-tight">{innerRuns}</p>}
-                          </div>
-                        );
-                      })}
-                      {/* Outer zone name + runs — kept inside the green circle, near the rim, directly hoverable. */}
-                      {wagonWheelZones.map(({ zone, angle, runs }) => {
-                        const { left, top } = polarPct(angle, 34);
-                        return (
-                          <div
-                            key={zone}
-                            className="absolute w-14 text-center -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-                            style={{ left: `${left}%`, top: `${top}%` }}
-                            onMouseEnter={() => setHoveredWagon({ zone, label: zone })}
-                            onMouseLeave={() => setHoveredWagon(null)}
-                          >
-                            <p className="text-[9px] font-semibold text-black leading-[1.15]">{zone}</p>
-                            <p className="text-xs font-extrabold text-blue-600 leading-tight">{runs} Runs</p>
-                          </div>
-                        );
-                      })}
-                      {/* Hover popup — shows whichever label (inner or outer) was hovered, and ITS OWN
-                          runs: `label` is the zone name for an outer hover, the innerLabel for an
-                          inner hover, so that's what picks which ring's value to show. */}
-                      {hoveredWagon && (() => {
-                        const matched = wagonWheelZones.find((z) => z.zone === hoveredWagon.zone);
-                        const isInnerHover = matched && hoveredWagon.label === matched.innerLabel;
-                        const popupRuns = isInnerHover ? matched?.innerRuns : matched?.outerRuns;
-                        return (
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                            <div className="bg-white rounded-xl shadow-lg border border-slate-200 px-5 py-3 text-center">
-                              <p className="text-xs font-semibold text-slate-800 uppercase whitespace-nowrap">{hoveredWagon.label}</p>
-                              <p className="text-2xl font-extrabold text-blue-600 whitespace-nowrap">
-                                {popupRuns ?? 0} Runs
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
+                    <WagonWheelChart zones={wagonWheelZones} hand={battingHand || playerHistory?.player?.batting_hand} />
                   </div>
 
                   <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs">

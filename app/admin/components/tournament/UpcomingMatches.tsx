@@ -17,6 +17,7 @@ interface TournamentDetails {
   // Scoring service's own tournament id — fixtures/schedule calls must key
   // off this, not the core tournamentId prop.
   externalTournamentId?: string;
+  match_type?: string;
   grounds?: Ground[];
 }
 
@@ -283,6 +284,11 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                 {getTournamentLifecycleStatus(tournament.startDate, tournament.endDate)}
               </span>
             </div>
+            {tournament.match_type && (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 shrink-0">
+                {formatMatchFormat(tournament.match_type)}
+              </span>
+            )}
             <div className="hidden lg:block h-8 w-[1px] bg-slate-200 shrink-0" />
             <div className="flex items-center gap-2 text-slate-700 whitespace-nowrap shrink-0">
               <Users className="w-5 h-5 text-slate-400" />
@@ -309,41 +315,30 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
 
       {/* Matches Content */}
       <div className="w-full bg-white rounded-[24px] border border-slate-100 p-4 sm:p-6 shadow-xs">
-        <div className="flex flex-col lg:flex-row justify-between lg:items-center mb-2 gap-4">
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            Matches
-          </h2>
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <h2 className="text-xl font-bold text-slate-900 tracking-tight">Matches</h2>
+          <Link
+            href={`/admin/appealAnalysis/${tournamentId}?name=${encodeURIComponent(tournament?.name || '')}`}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-[#0F1117] hover:bg-slate-800 text-white text-sm font-medium rounded-xl transition-all cursor-pointer shadow-xs whitespace-nowrap"
+          >
+            Appeal Analysis
+          </Link>
+        </div>
 
-          <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 w-full lg:w-auto">
-            <div className="flex gap-2 w-full md:w-auto">
-              {/* <button
-                onClick={handleExport}
-                disabled={exporting}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-xl transition-all disabled:opacity-50"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                {exporting ? 'Exporting...' : 'Export'}
-              </button> */}
-              <Link
-                href={`/admin/appealAnalysis/${tournamentId}?name=${encodeURIComponent(tournament?.name || '')}`}
-                className="inline-flex items-center justify-center gap-2 w-full md:w-auto px-4 py-2 bg-[#0F1117] hover:bg-slate-800 text-white text-sm font-medium rounded-xl transition-all cursor-pointer shadow-xs whitespace-nowrap"
-              >
-                Appeal Analysis
-              </Link>
-            </div>
+        <div className="flex flex-col md:flex-row md:items-center gap-3 mb-2">
+<div className="relative w-full md:w-56 shrink-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Search match ID or teams..."
+              className="w-full pl-10 pr-4 py-2 text-gray-700 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+            />
+          </div>
 
-            <div className="relative w-full md:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Search match ID or teams..."
-                className="w-full pl-10 pr-4 py-2 text-gray-700 bg-slate-50 border border-slate-100 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                value={searchQuery}
-                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
-              />
-            </div>
 
-            <div className="relative w-full md:w-48">
+            <div className="relative w-full md:w-44 shrink-0">
               <input
                 type="date"
                 aria-label="Filter matches by day"
@@ -366,7 +361,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               )}
             </div>
 
-            <div className="flex bg-slate-50 rounded-xl border border-slate-100 p-1 w-full md:w-auto max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex bg-slate-50 rounded-xl border border-slate-100 p-1 w-full md:w-auto md:ml-auto max-w-full shrink-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {filters.map((filter) => (
                 <button
                   key={filter}
@@ -381,7 +376,6 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                 </button>
               ))}
             </div>
-          </div>
         </div>
 
         {/* Fixture / Match Table */}
@@ -391,7 +385,6 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               <tr className="text-left text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
                 <th className="py-3 px-3 font-semibold">Match Details</th>
                 <th className="py-3 px-3 font-semibold">Matchup</th>
-                <th className="py-3 px-3 font-semibold">Match Type</th>
                 {/* <th className="py-3 px-3 font-semibold">Venue</th> */}
                 <th className="py-3 px-3 font-semibold">Date/Time</th>
                 <th className="py-3 px-3 font-semibold">Status</th>
@@ -401,7 +394,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-slate-400 animate-pulse">Loading matches...</td>
+                  <td colSpan={5} className="py-16 text-center text-slate-400 animate-pulse">Loading matches...</td>
                 </tr>
               ) : currentItems.length > 0 ? (
                 currentItems.map((row) => {
@@ -420,13 +413,6 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                           </span>
                           <span className="font-medium text-slate-700 text-xs">{row.team2}</span>
                         </div>
-                      </td>
-                      <td className="py-4 px-3 whitespace-nowrap">
-                        {row.matchType ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-[11px] font-bold">{row.matchType}</span>
-                        ) : (
-                          <span className="text-slate-300 text-xs">—</span>
-                        )}
                       </td>
                       {/* <td className="py-4 px-3">
                         <span className="text-slate-500 text-xs">
@@ -519,7 +505,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                 })
               ) : (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-slate-400 border-2 border-dashed border-slate-50 rounded-3xl">
+                  <td colSpan={5} className="py-16 text-center text-slate-400 border-2 border-dashed border-slate-50 rounded-3xl">
                     No {activeFilter === 'All' ? '' : `${activeFilter.toLowerCase()} `}matches found{dayFilter ? ` on ${new Date(`${dayFilter}T00:00`).toLocaleDateString('en-GB')}` : ''}.
                   </td>
                 </tr>

@@ -13,6 +13,8 @@ interface Ground {
   pitchType?: string;
   straightBoundary?: string;
   sideBoundary?: string;
+  numberOfPitches?: number | null;
+  groundCapacity?: number | null;
   tournaments?: any[];
 }
 
@@ -41,19 +43,26 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
     location: '',
     pitchType: '',
     straightBoundary: '',
-    sideBoundary: ''
+    sideBoundary: '',
+    numberOfPitches: '',
+    groundCapacity: ''
   });
+
+  // Digits only (no minus, dot or letters) and no leading zeros, so 0 and negative values can't be typed.
+  const digitsOnly = (v: string) => v.replace(/\D/g, '').replace(/^0+/, '');
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     const alphaRegex = /^[A-Za-z\s]+$/;
-    const numberRegex = /^\d+$/;
+    const numberRegex = /^[1-9]\d*$/;
 
     //if (!formData.name.trim() || !alphaRegex.test(formData.name)) newErrors.name = "For Valid name letters,spaces is required";
     //if (!formData.location.trim() || !alphaRegex.test(formData.location)) newErrors.location = "Valid location letters, spaces is required";
     if (!formData.pitchType) newErrors.pitchType = "Pitch Type is required";
-    if (!formData.straightBoundary || !numberRegex.test(formData.straightBoundary)) newErrors.straightBoundary = "Numbers only";
-    if (!formData.sideBoundary || !numberRegex.test(formData.sideBoundary)) newErrors.sideBoundary = "Numbers only";
+    if (!formData.straightBoundary || !numberRegex.test(formData.straightBoundary)) newErrors.straightBoundary = "Enter a number greater than 0";
+    if (!formData.sideBoundary || !numberRegex.test(formData.sideBoundary)) newErrors.sideBoundary = "Enter a number greater than 0";
+    if (!formData.numberOfPitches || !numberRegex.test(formData.numberOfPitches)) newErrors.numberOfPitches = "Enter a number greater than 0";
+    if (!formData.groundCapacity || !numberRegex.test(formData.groundCapacity)) newErrors.groundCapacity = "Enter a number greater than 0";
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -90,12 +99,16 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          numberOfPitches: Number(formData.numberOfPitches),
+          groundCapacity: Number(formData.groundCapacity),
+        }),
       });
 
       if (response.ok) {
         setIsModalOpen(false);
-        setFormData({ name: '', location: '', pitchType: '', straightBoundary: '', sideBoundary: '' });
+        setFormData({ name: '', location: '', pitchType: '', straightBoundary: '', sideBoundary: '', numberOfPitches: '', groundCapacity: '' });
         fetchGrounds();
         setShowSuccess(true);
       }
@@ -219,6 +232,14 @@ export default function CricketGround({ selectedGroundId }: CricketGroundProps) 
                   <div>
                     <p className="text-[11px] text-slate-700 uppercase font-bold tracking-wider mb-1">Side Boundary</p>
                     <p className="text-xl font-bold text-slate-900">{g.sideBoundary}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-700 uppercase font-bold tracking-wider mb-1">No. of Pitches</p>
+                    <p className="text-xl font-bold text-slate-900">{g.numberOfPitches ?? "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-700 uppercase font-bold tracking-wider mb-1">Ground Capacity</p>
+                    <p className="text-xl font-bold text-slate-900">{g.groundCapacity ?? "-"}</p>
                   </div>
                 </div>
 
@@ -396,13 +417,26 @@ aria-label="Close modal"
 <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[13px] font-semibold text-slate-500 mb-1.5">Straight Boundary (m)</label>
-                  <input type="text" placeholder="e.g. 70" className={`w-full px-4 py-3 rounded-xl border ${errors.straightBoundary ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-500`} value={formData.straightBoundary} onChange={(e) => setFormData({...formData, straightBoundary: e.target.value})} />
+                  <input type="text" placeholder="e.g. 70" className={`w-full px-4 py-3 rounded-xl border ${errors.straightBoundary ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-500`} value={formData.straightBoundary} onChange={(e) => setFormData({...formData, straightBoundary: digitsOnly(e.target.value)})} />
                   {errors.straightBoundary && <p className="text-red-500 text-xs mt-1">{errors.straightBoundary}</p>}
                 </div>
                 <div>
                   <label className="block text-[13px] font-semibold text-slate-500 mb-1.5">Side Boundary (m)</label>
-                  <input type="text" placeholder="e.g. 65" className={`w-full px-4 py-3 rounded-xl border ${errors.sideBoundary ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-500`} value={formData.sideBoundary} onChange={(e) => setFormData({...formData, sideBoundary: e.target.value})} />
+                  <input type="text" placeholder="e.g. 65" className={`w-full px-4 py-3 rounded-xl border ${errors.sideBoundary ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-500`} value={formData.sideBoundary} onChange={(e) => setFormData({...formData, sideBoundary: digitsOnly(e.target.value)})} />
                   {errors.sideBoundary && <p className="text-red-500 text-xs mt-1">{errors.sideBoundary}</p>}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-500 mb-1.5">Number of Pitches</label>
+                  <input type="text" inputMode="numeric" placeholder="e.g. 3" className={`w-full px-4 py-3 rounded-xl border ${errors.numberOfPitches ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-500`} value={formData.numberOfPitches} onChange={(e) => setFormData({...formData, numberOfPitches: digitsOnly(e.target.value)})} />
+                  {errors.numberOfPitches && <p className="text-red-500 text-xs mt-1">{errors.numberOfPitches}</p>}
+                </div>
+                <div>
+                  <label className="block text-[13px] font-semibold text-slate-500 mb-1.5">Ground Capacity</label>
+                  <input type="text" inputMode="numeric" placeholder="e.g. 5000" className={`w-full px-4 py-3 rounded-xl border ${errors.groundCapacity ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-500`} value={formData.groundCapacity} onChange={(e) => setFormData({...formData, groundCapacity: digitsOnly(e.target.value)})} />
+                  {errors.groundCapacity && <p className="text-red-500 text-xs mt-1">{errors.groundCapacity}</p>}
                 </div>
               </div>
 

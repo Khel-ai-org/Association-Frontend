@@ -20,9 +20,14 @@ interface Ground {
   pitchType: string;
   straightBoundary?: number;
   sideBoundary?: number;
+  numberOfPitches?: number | null;
+  groundCapacity?: number | null;
 }
 
 // --- Modals ---
+
+// Digits only (no minus, dot or letters) and no leading zeros, so 0 and negative values can't be typed.
+const digitsOnly = (v: string) => v.replace(/\D/g, '').replace(/^0+/, '');
 
 const EditGroundModal = ({
   groundId,
@@ -43,13 +48,15 @@ const EditGroundModal = ({
     pitchType: "",
     straightBoundary: "",
     sideBoundary: "",
+    numberOfPitches: "",
+    groundCapacity: "",
   });
 
   // Validation Logic
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
     const alphaRegex = /^[A-Za-z\s]+$/;
-    const numberRegex = /^\d+$/;
+    const numberRegex = /^[1-9]\d*$/;
 
     //if (!formData.groundName.trim() || !alphaRegex.test(formData.groundName)) 
      // newErrors.groundName = "For Valid name letter, spaces is required";
@@ -57,14 +64,23 @@ const EditGroundModal = ({
     //if (!formData.location.trim() || !alphaRegex.test(formData.location)) 
      // newErrors.location = "For Valid location letters, spaces is required";
     
+    if (!formData.groundName.trim())
+      newErrors.groundName = "Ground name is required";
+
     if (!formData.pitchType) 
       newErrors.pitchType = "Pitch Type is required";
     
     if (!formData.straightBoundary || !numberRegex.test(String(formData.straightBoundary))) 
-      newErrors.straightBoundary = "Numbers only";
+      newErrors.straightBoundary = "Enter a number greater than 0";
     
     if (!formData.sideBoundary || !numberRegex.test(String(formData.sideBoundary))) 
-      newErrors.sideBoundary = "Numbers only";
+      newErrors.sideBoundary = "Enter a number greater than 0";
+
+    if (!formData.numberOfPitches || !numberRegex.test(String(formData.numberOfPitches)))
+      newErrors.numberOfPitches = "Enter a number greater than 0";
+
+    if (!formData.groundCapacity || !numberRegex.test(String(formData.groundCapacity)))
+      newErrors.groundCapacity = "Enter a number greater than 0";
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -85,6 +101,8 @@ const EditGroundModal = ({
             pitchType: data.pitchType || "",
             straightBoundary: data.straightBoundary || "",
             sideBoundary: data.sideBoundary || "",
+            numberOfPitches: data.numberOfPitches != null ? String(data.numberOfPitches) : "",
+            groundCapacity: data.groundCapacity != null ? String(data.groundCapacity) : "",
           });
         }
       } catch (err) {
@@ -106,7 +124,16 @@ const EditGroundModal = ({
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formData),
+          // Backend column is `name`; the form field is `groundName`.
+          body: JSON.stringify({
+            name: formData.groundName.trim(),
+            location: formData.location,
+            pitchType: formData.pitchType,
+            straightBoundary: formData.straightBoundary,
+            sideBoundary: formData.sideBoundary,
+            numberOfPitches: Number(formData.numberOfPitches),
+            groundCapacity: Number(formData.groundCapacity),
+          }),
           credentials: "include",
         },
       );
@@ -212,7 +239,7 @@ const EditGroundModal = ({
                 <input
                   className={`w-full text-gray-800 border ${errors.straightBoundary ? 'border-red-500' : 'border-gray-100'} bg-gray-50 rounded-xl p-3 text-sm mt-1 outline-none focus:border-black`}
                   value={formData.straightBoundary}
-                  onChange={(e) => setFormData({ ...formData, straightBoundary: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, straightBoundary: digitsOnly(e.target.value) })}
                 />
                 {errors.straightBoundary && <p className="text-red-500 text-xs mt-1">{errors.straightBoundary}</p>}
               </div>
@@ -221,9 +248,33 @@ const EditGroundModal = ({
                 <input
                   className={`w-full text-gray-800 border ${errors.sideBoundary ? 'border-red-500' : 'border-gray-100'} bg-gray-50 rounded-xl p-3 text-sm mt-1 outline-none focus:border-black`}
                   value={formData.sideBoundary}
-                  onChange={(e) => setFormData({ ...formData, sideBoundary: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, sideBoundary: digitsOnly(e.target.value) })}
                 />
                 {errors.sideBoundary && <p className="text-red-500 text-xs mt-1">{errors.sideBoundary}</p>}
+              </div>
+            </div>
+
+            {/* Pitches & Capacity */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 ml-1">Number of Pitches</label>
+                <input
+                  inputMode="numeric"
+                  className={`w-full text-gray-800 border ${errors.numberOfPitches ? 'border-red-500' : 'border-gray-100'} bg-gray-50 rounded-xl p-3 text-sm mt-1 outline-none focus:border-black`}
+                  value={formData.numberOfPitches}
+                  onChange={(e) => setFormData({ ...formData, numberOfPitches: digitsOnly(e.target.value) })}
+                />
+                {errors.numberOfPitches && <p className="text-red-500 text-xs mt-1">{errors.numberOfPitches}</p>}
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 ml-1">Ground Capacity</label>
+                <input
+                  inputMode="numeric"
+                  className={`w-full text-gray-800 border ${errors.groundCapacity ? 'border-red-500' : 'border-gray-100'} bg-gray-50 rounded-xl p-3 text-sm mt-1 outline-none focus:border-black`}
+                  value={formData.groundCapacity}
+                  onChange={(e) => setFormData({ ...formData, groundCapacity: digitsOnly(e.target.value) })}
+                />
+                {errors.groundCapacity && <p className="text-red-500 text-xs mt-1">{errors.groundCapacity}</p>}
               </div>
             </div>
 

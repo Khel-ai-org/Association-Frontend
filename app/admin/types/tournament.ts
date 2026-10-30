@@ -10,6 +10,8 @@ export interface Ground {
   pitchType?: string;
   straightBoundary?: string;
   sideBoundary?: string;
+  numberOfPitches?: number | null;
+  groundCapacity?: number | null;
 }
 
 export interface TournamentDetail {

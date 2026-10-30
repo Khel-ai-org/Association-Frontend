@@ -201,10 +201,10 @@ export const getOutDetailsString = (outdetails: OutDetails | null | undefined): 
   const { wickettype: type, bowler, fielder } = outdetails;
   switch (type) {
     case "Bowled": return `b ${bowler}`;
-    case "Caught": return `c ${fielder} b ${bowler}`;
+    case "Caught": return fielder ? `c ${fielder} b ${bowler}` : `c & b ${bowler}`;
     case "LBW": return `lbw b ${bowler}`;
-    case "Run Out": return `run out (${fielder})`;
-    case "Stumped": return `st ${fielder} b ${bowler}`;
+    case "Run Out": return fielder ? `run out (${fielder})` : "run out";
+    case "Stumped": return fielder ? `st ${fielder} b ${bowler}` : `st b ${bowler}`;
     default: return bowler ? `${type} b ${bowler}` : type;
   }
 };
