@@ -5,6 +5,7 @@ import { Users, Shield, RefreshCw, UserPlus, Search, Edit3 } from 'lucide-react'
 import StatusModal from '@/app/components/auth/StatusModal'
 import PhoneInput, { parsePhoneNumber, isValidPhoneNumber } from 'react-phone-number-input'
 import 'react-phone-number-input/style.css'
+import CountrySelect from '../setting/CountrySelect'
 
 type ActiveModal = "season" | "guest" | "transfer" | "register" | "edit" | null;
 
@@ -1186,6 +1187,8 @@ const ActivePlayers = () => {
                   <label className="block text-xs font-bold text-gray-900 mb-2">Mobile No.</label>
                   <div className={`w-full px-4 py-3.5 bg-[#FAFBFF] border ${registerErrors.mobile ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl`}>
                     <PhoneInput
+
+                      countrySelectComponent={CountrySelect}
                       international
                       defaultCountry="IN"
                       value={sanitizeToE164(registerForm.mobile)}
@@ -1447,6 +1450,8 @@ const ActivePlayers = () => {
                 <label className="block text-xs font-bold text-gray-900 mb-2">Mobile No.</label>
                 <div className={`w-full px-4 py-3.5 bg-[#FAFBFF] border ${editErrors.phone ? 'border-red-400' : 'border-[#E5F0FF]'} rounded-xl`}>
                   <PhoneInput
+
+                    countrySelectComponent={CountrySelect}
                     international
                     defaultCountry="IN"
                     value={sanitizeToE164(editForm.phone)}

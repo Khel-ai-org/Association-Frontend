@@ -49,6 +49,15 @@ interface UpcomingMatchesProps {
   onSelectMatch?: (id: string) => void;
 }
 
+// Short team name: 1 word -> first 3 letters ("India" -> "IND"), 2 words -> both initials ("Punjab Kings" -> "PK"),
+// 3+ words -> first 3 initials ("Kolkata Knight Riders" -> "KKR").
+const shortTeamName = (name?: string | null) => {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  return words.slice(0, 3).map((w) => w[0]).join('').toUpperCase();
+};
+
 // 't10' -> 'T10', 'test' -> 'Test'
 const formatMatchFormat = (value: unknown) => {
   const text = typeof value === 'string' ? value.trim() : '';
@@ -403,13 +412,13 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                       <td className="py-4 px-3 font-medium text-slate-800">{row.matchLabel}</td>
                       <td className="py-4 px-3">
                         <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-yellow-300 flex items-center justify-center text-[9px] font-bold text-slate-900">
-                            {row.team1.substring(0, 2).toUpperCase()}
+                          <span className="min-w-[28px] h-7 px-1.5 rounded-full bg-yellow-300 flex items-center justify-center text-[9px] font-bold text-slate-900">
+                            {shortTeamName(row.team1)}
                           </span>
                           <span className="font-medium text-slate-700 text-xs">{row.team1}</span>
                           <span className="text-slate-400 text-xs">vs</span>
-                          <span className="w-6 h-6 rounded-full bg-indigo-300 flex items-center justify-center text-[9px] font-bold text-slate-900">
-                            {row.team2.substring(0, 2).toUpperCase()}
+                          <span className="min-w-[28px] h-7 px-1.5 rounded-full bg-indigo-300 flex items-center justify-center text-[9px] font-bold text-slate-900">
+                            {shortTeamName(row.team2)}
                           </span>
                           <span className="font-medium text-slate-700 text-xs">{row.team2}</span>
                         </div>

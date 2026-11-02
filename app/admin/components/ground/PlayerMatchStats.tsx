@@ -10,6 +10,7 @@ import {
   MatchLikeScorecard,
   getOutDetailsString,
 } from './ScorecardView';
+import { toScorecardArray } from '@/lib/scorecardResponse';
 
 
 interface Ball {
@@ -975,8 +976,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
           fetch(`${SCORING_API_BASE}/api/v1/matches/${matchId}/innings/2/balls`, { headers: { "ngrok-skip-browser-warning": "true" } }),
         ]);
         if (scRes.ok) {
-          const scDataArray = await scRes.json();
-          if (Array.isArray(scDataArray) && scDataArray.length > 0) {
+          const scDataArray = toScorecardArray(await scRes.json());
+          if (scDataArray.length > 0) {
             setScorecard(scDataArray[0]);
             setSuperOvers(scDataArray.length > 1 ? scDataArray.slice(1) : []);
           }
@@ -1012,8 +1013,8 @@ export const PlayerMatchStats: React.FC<PlayerMatchStatsProps> = ({ matchId, pla
           headers: { "ngrok-skip-browser-warning": "true" },
         });
         if (!res.ok || cancelled) return;
-        const arr = await res.json();
-        if (!cancelled && Array.isArray(arr) && arr.length > 0) setFilteredScorecard(arr[0]);
+        const arr = toScorecardArray(await res.json());
+        if (!cancelled && arr.length > 0) setFilteredScorecard(arr[0]);
       } catch (err) {
         console.error("Filtered scorecard fetch error:", err);
       }

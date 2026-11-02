@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { LocateFixed,CheckCircle2, PenLine, Loader2, Save, AlertCircle } from 'lucide-react';
 import PhoneInput,{ isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import CountrySelect from './CountrySelect';
 
 // --- Types ---
 
@@ -97,6 +98,7 @@ const PhoneInputField = ({ label, value, onChange, error }: { label: string, val
     <label className="text-xs font-medium text-gray-500">{label}</label>
     <div className={`relative flex flex-col w-full border rounded-lg bg-gray-50 ${error ? 'border-red-500' : 'border-gray-200'} focus-within:border-black transition-all`}>
       <PhoneInput
+        countrySelectComponent={CountrySelect}
         international
         defaultCountry="IN"
         value={value}

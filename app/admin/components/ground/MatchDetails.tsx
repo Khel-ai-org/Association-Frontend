@@ -11,6 +11,7 @@ import { decisionLabel } from '../../utils/appealDecision';
 import { RefereeActionModal } from '../RefreeModals/ActionModals'; // <-- Import the 5-tab referee action modal
 import { ScorecardView } from './ScorecardView';
 import { WagonWheelModal } from './WagonWheelModal';
+import { toScorecardArray, scorecardExtras as readScorecardExtras } from '@/lib/scorecardResponse';
 import { buildWagonWheelDataFromApiResponse, WagonWheelApiResponse, WagonWheelData } from '@/lib/sampleWagonWheel';
 
 interface MatchAnalysisProps {
@@ -172,6 +173,10 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
   const [scorecard, setScorecard] = useState<any>(null);
   // Core match record (match_type, current_inning) — decides between the limited-overs and Test scorecard layouts.
   const [matchMeta, setMatchMeta] = useState<any>(null);
+  // Pitch number / dimension sit beside the scorecards in the scorecard response; the ground record
+  // (capacity, number of pitches, boundaries) comes from the ground this match belongs to.
+  const [scorecardExtras, setScorecardExtras] = useState<{ pitch_no?: unknown; dimension?: unknown }>({});
+  const [matchGround, setMatchGround] = useState<any>(null);
   const [superOvers, setSuperOvers] = useState<any[]>([]);
   const [appeals, setAppeals] = useState<AppealData | null>(null);
   const [inningBalls, setInningBalls] = useState<any[]>([]);
@@ -494,9 +499,12 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
         }
 
         if (sRes.ok) {
-          const scDataArray = await sRes.json();
-          console.log("Fetched Scorecard Data:", scDataArray);
-          if (Array.isArray(scDataArray) && scDataArray.length > 0) {
+          const scJson = await sRes.json();
+          console.log("Fetched Scorecard Data:", scJson);
+          // The response is either an array or an object keyed "0", "1", ... (plus pitch_no / dimension).
+          const scDataArray = toScorecardArray(scJson);
+          setScorecardExtras(readScorecardExtras(scJson));
+          if (scDataArray.length > 0) {
             setScorecard(scDataArray[0]);
             // Element 0 is the main match; any further elements are
             // sequential super-overs (scoring-frontend's scoreboard page
@@ -512,6 +520,33 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
     };
     fetchInitialData();
   }, [matchId, SCORING_API_BASE]);
+
+  // Ground this match is played at: the match record names it (id or name); the ground list has its details.
+  useEffect(() => {
+    if (!matchMeta) return;
+    const gid = matchMeta.ground_id ?? matchMeta.groundId ?? matchMeta.ground?.id;
+    const gname = String(matchMeta.ground_name ?? matchMeta.venue ?? matchMeta.ground?.name ?? '').trim().toLowerCase();
+    if (!gid && !gname) return;
+    (async () => {
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/ground/my-grounds`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        const list: any[] = Array.isArray(json) ? json : json?.data || json?.grounds || [];
+        const found =
+          list.find((g) => gid && String(g.id) === String(gid)) ||
+          list.find((g) => gname && String(g.name ?? g.groundName ?? '').trim().toLowerCase() === gname);
+        console.log("Match ground:", found ?? null);
+        setMatchGround(found ?? null);
+      } catch (err) {
+        console.error("Error fetching match ground:", err);
+      }
+    })();
+  }, [matchMeta]);
 
   useEffect(() => {
     const fetchBalls = async () => {
@@ -1161,7 +1196,7 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-2xl">📈</div>
                   <div>
                     <p className="font-bold text-slate-900">Run Rate</p>
-                    <p className="text-slate-400 text-xs">Current Inning</p>
+                    <p className="text-slate-600 text-sm font-medium">Current Inning</p>
                   </div>
                 </div>
                 <span className="text-xl font-bold text-black">{currentInningsData?.run_rate || '0.0'}</span>
@@ -1176,8 +1211,8 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
                   {l: 'Total Extras', v: currentInningsData?.extras?.total || 0} 
                 ].map((stat, i) => (
                   <div key={i} className="flex-1 p-3 border border-slate-100 rounded-xl text-center">
-                    <p className="text-[10px] text-slate-400 mb-2 truncate">{stat.l}</p>
-                    <div className="text-xs font-bold text-slate-900">{stat.v}</div>
+                    <p className="text-xs font-medium text-slate-600 mb-2 truncate">{stat.l}</p>
+                    <div className="text-sm font-bold text-slate-900">{stat.v}</div>
                   </div>
                 ))}
               </div>
@@ -1187,14 +1222,69 @@ const MatchAnalysis: React.FC<MatchAnalysisProps> = ({ matchId, externalActiveTa
               <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
                 {topBatsmen.length > 0 ? topBatsmen.map((player, i) => (
                   <div key={i} className="min-w-[110px] p-3 border border-slate-100 rounded-xl bg-slate-50/30">
-                    <p className="text-[10px] text-slate-400 font-bold truncate uppercase">{player.name}</p>
+                    <p className="text-xs text-slate-600 font-semibold truncate uppercase">{player.name}</p>
                     <p className="font-bold text-slate-900 mt-1">{player.runs}({player.balls})</p>
                   </div>
                 )) : (
-                    <div className="text-slate-400 text-xs italic">No data available</div>
+                    <div className="text-slate-600 text-sm italic">No data available</div>
                 )}
               </div>
             </div>
+
+            {(() => {
+              const show = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : String(v));
+              // Pitch number and dimension come from the scorecard response; `dimension` is
+              // { straight_boundary: "60m", side_boundary: "120m" } (values already carry the unit).
+              const dim: any = scorecardExtras.dimension;
+              const withUnit = (v: unknown) => (v === null || v === undefined || v === '' ? '—' : /^\d+(\.\d+)?$/.test(String(v).trim()) ? `${v} m` : String(v));
+              const dimObj = dim && typeof dim === 'object' ? dim : null;
+              const straight = dimObj ? (dimObj.straight_boundary ?? dimObj.straight) : null;
+              const side = dimObj ? (dimObj.side_boundary ?? dimObj.side) : null;
+              const dimension =
+                typeof dim === 'string' && dim.trim()
+                  ? dim
+                  : straight != null || side != null
+                  ? `Straight ${withUnit(straight)} · Side ${withUnit(side)}`
+                  : '—';
+              const groundName = matchGround?.name ?? matchMeta?.ground_name ?? matchMeta?.venue ?? scorecard?.ground_name;
+              const umpires = [scorecard?.umpire1, scorecard?.umpire2].filter((u) => u && String(u).trim());
+              return (
+                <>
+                  <div className="lg:col-span-2">
+                    <h3 className="text-slate-900 font-bold mb-4">Ground Info</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-slate-900">
+                      {[
+                        { l: 'Ground', v: show(groundName) },
+                        { l: 'Ground Capacity', v: show(matchGround?.groundCapacity) },
+                        { l: 'No. of Pitches', v: show(matchGround?.numberOfPitches) },
+                        { l: 'Pitch Number', v: show(scorecardExtras.pitch_no) },
+                        { l: 'Dimension', v: dimension },
+                      ].map((item) => (
+                        <div key={item.l} className="p-3 border border-slate-100 rounded-xl">
+                          <p className="text-xs text-slate-600 mb-1.5 font-medium truncate">{item.l}</p>
+                          <p className="text-sm font-semibold text-slate-900 break-words">{item.v}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-slate-900 font-bold mb-4">Match Officials</h3>
+                    <div className="grid grid-cols-1 gap-2 text-slate-900">
+                      {[
+                        { l: umpires.length > 1 ? 'Umpires' : 'Umpire', v: umpires.length ? umpires.join(', ') : '—' },
+                        { l: 'Third Umpire', v: show(scorecard?.third_umpire) },
+                        { l: 'Match Referee', v: show(scorecard?.referee) },
+                      ].map((item) => (
+                        <div key={item.l} className="p-3 border border-slate-100 rounded-xl flex items-center justify-between gap-3">
+                          <p className="text-xs text-slate-600 font-medium">{item.l}</p>
+                          <p className="text-sm font-semibold text-slate-900 text-right break-words">{item.v}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
       </div>

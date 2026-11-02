@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Loader2, CheckCircle2, AlertCircle, Save } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import CountrySelect from './CountrySelect';
 
 // --- Sub-components ---
 
@@ -60,6 +61,7 @@ const PhoneInputField = ({ label, value, onChange, error, disabled = false }: { 
     <label className="text-xs font-medium text-gray-500">{label}</label>
     <div className={`w-full border rounded-xl p-1 transition-all ${error ? 'border-red-500 bg-red-50/30' : 'border-gray-100 focus-within:border-indigo-500'} ${disabled ? 'bg-gray-50/50' : 'bg-gray-50'}`}>
       <PhoneInput
+        countrySelectComponent={CountrySelect}
         international
         defaultCountry="IN"
         value={value}
@@ -256,7 +258,7 @@ export const AssociationPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl h-screen mx-auto bg-white border border-gray-100 rounded-2xl p-6 shadow-xs relative">
+    <div className="max-w-7xl mx-auto bg-white border border-gray-100 rounded-2xl p-6 pb-8 shadow-xs relative">
       
       <div className="flex justify-between items-start mb-6 gap-3">
         <div>

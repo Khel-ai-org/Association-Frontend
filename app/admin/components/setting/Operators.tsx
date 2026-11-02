@@ -16,6 +16,7 @@ export const Operators = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [selectedOperator, setSelectedOperator] = useState<Operator | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Form & Error States
   const [formData, setFormData] = useState({ name: '', email: '' });
@@ -105,9 +106,14 @@ export const Operators = () => {
         setIsDeleteModalOpen(false);
         // Adjust page if current page becomes empty after delete
         if (currentOperators.length === 1 && currentPage > 1) setCurrentPage(currentPage - 1);
+      } else {
+        // e.g. 409 when the operator has created tournaments, grounds or matches
+        const data = await response.json().catch(() => null);
+        setDeleteError(data?.message || "Could not delete this operator.");
       }
     } catch (err) {
       console.error("Delete failed", err);
+      setDeleteError("Could not delete this operator.");
     }
   };
 
@@ -149,7 +155,7 @@ export const Operators = () => {
                   <button onClick={() => openEdit(op)} className="text-gray-400 hover:text-blue-600"><Pencil size={18} /></button>
                 </div>
                 <div className="col-span-1 flex justify-center">
-                  <button onClick={() => { setSelectedOperator(op); setIsDeleteModalOpen(true); }} className="text-gray-400 hover:text-red-600"><Trash2 size={18} /></button>
+                  <button onClick={() => { setSelectedOperator(op); setDeleteError(null); setIsDeleteModalOpen(true); }} className="text-gray-400 hover:text-red-600"><Trash2 size={18} /></button>
                 </div>
               </div>
             ))}
@@ -250,6 +256,7 @@ export const Operators = () => {
               </div>
               <h2 className="text-xl font-bold mb-2 text-black">Remove Operator</h2>
               <p className="text-gray-500 mb-8 text-sm">Are you sure you want to delete this Operator?</p>
+              {deleteError && <p className="text-red-500 text-sm font-medium -mt-4 mb-6">{deleteError}</p>}
               <div className="flex gap-4">
                 <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 border border-gray-200 py-3 rounded-xl font-semibold hover:bg-gray-50 text-gray-900">Cancel</button>
                 <button onClick={handleDelete} className="flex-1 bg-black text-white py-3 rounded-xl font-semibold hover:bg-gray-800">Remove</button>

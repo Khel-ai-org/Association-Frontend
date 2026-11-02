@@ -295,9 +295,11 @@ const EditGroundModal = ({
 const DeleteModal = ({
   onClose,
   onConfirm,
+  error,
 }: {
   onClose: () => void;
   onConfirm: () => void;
+  error?: string | null;
 }) => (
   <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div className="bg-white rounded-[24px] md:rounded-[32px] w-full max-w-sm overflow-hidden shadow-2xl relative">
@@ -327,6 +329,9 @@ const DeleteModal = ({
         <p className="text-gray-500 text-sm">
           Are you sure you want to delete this ground?
         </p>
+        {error && (
+          <p className="text-red-500 text-xs md:text-sm mt-3 font-medium">{error}</p>
+        )}
       </div>
       <div className="bg-gray-50 p-6">
         <button
@@ -348,6 +353,7 @@ export const GroundPage: React.FC = () => {
   const [selectedGround, setSelectedGround] = useState<string | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
@@ -391,9 +397,14 @@ export const GroundPage: React.FC = () => {
       if (res.ok) {
         fetchGrounds();
         setIsDeleteOpen(false);
+      } else {
+        // e.g. 409 when the ground is already used by matches
+        const data = await res.json().catch(() => null);
+        setDeleteError(data?.message || "Could not delete this ground.");
       }
     } catch (err) {
       console.error(err);
+      setDeleteError("Could not delete this ground.");
     }
   };
 
@@ -465,6 +476,7 @@ export const GroundPage: React.FC = () => {
                       <button
                         onClick={() => {
                           setSelectedGround(ground.id);
+                          setDeleteError(null);
                           setIsDeleteOpen(true);
                         }}
                         className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
@@ -553,6 +565,7 @@ export const GroundPage: React.FC = () => {
         <DeleteModal
           onClose={() => setIsDeleteOpen(false)}
           onConfirm={handleDelete}
+          error={deleteError}
         />
       )}
     </div>

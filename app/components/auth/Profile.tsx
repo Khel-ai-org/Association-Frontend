@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Pencil, ChevronDown, Loader2, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
+import CountrySelect from '../../admin/components/setting/CountrySelect';
 import StatusModal from './StatusModal';
 
 // RBAC role, chosen here during profile setup (not at registration). ADMIN
@@ -388,6 +389,8 @@ export default function ProfileForm({ onComplete, onPendingApproval }: ProfileFo
       <label className="text-xs font-medium text-gray-500">Mobile No.</label>
       <div className={`w-full rounded-xl border bg-white transition-all ${errors.mobile ? 'border-red-500 ring-1 ring-red-500/10' : 'border-slate-200'}`}>
         <PhoneInput
+
+          countrySelectComponent={CountrySelect}
           international
           defaultCountry="IN"
           value={formData.mobile}
