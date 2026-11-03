@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock, CalendarDays, X } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock, CalendarDays, X, ExternalLink } from 'lucide-react';
 import { Fixture, Ground } from '../../types/tournament';
 import ScheduleMatchModal from './ScheduleMatchModal';
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
@@ -88,6 +88,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [scheduleFixture, setScheduleFixture] = useState<Fixture | null>(null);
+  const [isEditingSchedule, setIsEditingSchedule] = useState(false);
   // Ticks so a scheduled match's "Starts at ..." flips to "Start Match" on its own.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -409,7 +410,16 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                 currentItems.map((row) => {
                   const rowContent = (
                     <>
-                      <td className="py-4 px-3 font-medium text-slate-800">{row.matchLabel}</td>
+                      <td className="py-4 px-3 font-medium text-slate-800">
+                        {row.linkId ? (
+                          <span className="inline-flex items-center gap-1 group-hover:text-blue-600" title="Open match details">
+                            {row.matchLabel}
+                            <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600" />
+                          </span>
+                        ) : (
+                          row.matchLabel
+                        )}
+                      </td>
                       <td className="py-4 px-3">
                         <div className="flex items-center gap-2">
                           <span className="min-w-[28px] h-7 px-1.5 rounded-full bg-yellow-300 flex items-center justify-center text-[9px] font-bold text-slate-900">
@@ -445,9 +455,10 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                               const isTest = String(row.fixture?.match?.match_type || '').toLowerCase() === 'test';
                               window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/${isTest ? 'testScorer' : 'scorer'}/${row.fixture?.match_id}`;
                             }}
+                            title="Opens the scoring app"
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer underline"
                           >
-                            <CalendarClock className="w-3.5 h-3.5" /> Start Scoring →
+                            <ExternalLink className="w-3.5 h-3.5" /> Start Scoring →
                           </button>
                         ) : row.type === 'Finished' || row.type === 'Abandoned' ? (
                           <button
@@ -457,21 +468,22 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                               const isTest = String(row.fixture?.match?.match_type || '').toLowerCase() === 'test';
                               window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/${isTest ? 'testScoreboard' : 'scoreboard'}/${row.fixture?.match_id}`;
                             }}
+                            title="Opens the scoring app"
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer underline"
                           >
-                            <CalendarClock className="w-3.5 h-3.5" /> View Scoreboard →
+                            <ExternalLink className="w-3.5 h-3.5" /> View Scoreboard →
                           </button>
                         ) : row.type === 'Expired' ? (
                           <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-xs font-semibold">Expired</span>
-                        ) : row.isLinked && row.date && new Date(row.date).getTime() > now ? (
-                          // Scheduled time hasn't arrived yet — can't start the match.
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-xs font-semibold">
-                            Starts at {new Date(row.date).toLocaleDateString('en-GB')}, {new Date(row.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
                         ) : row.isLinked ? (
-                          // Scheduled (ground/date set, match record exists) but toss hasn't
-                          // been recorded yet — send them to scoring-frontend's matches page
-                          // with a signal to open that match's Toss modal directly.
+                          <div className="flex flex-col items-start gap-1.5">
+                          {/* Scheduled time hasn't arrived yet — no Start Match, just the start time. */}
+                          {row.date && new Date(row.date).getTime() > now ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-700 text-xs font-semibold">
+                              Starts at {new Date(row.date).toLocaleDateString('en-GB')}, {new Date(row.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          ) : (
+                          // Scheduled but toss not recorded yet — open scoring-frontend's Toss modal for this match.
                           <button
                             onClick={(e) => {
                               e.preventDefault();
@@ -480,15 +492,32 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                                 window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard/tournament/${tournament.externalTournamentId}?openToss=${row.fixture?.match_id}`;
                               }
                             }}
+                            title="Opens the scoring app"
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer underline"
                           >
-                            <CalendarClock className="w-3.5 h-3.5" /> Start Match →
+                            <ExternalLink className="w-3.5 h-3.5" /> Start Match →
                           </button>
+                          )}
+                            {!/cancel|no result|abort/i.test(row.type) && (
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setIsEditingSchedule(true);
+                                setScheduleFixture(row.fixture || null);
+                              }}
+                              className="inline-flex items-center gap-1 text-slate-600 hover:text-slate-900 text-xs font-semibold whitespace-nowrap cursor-pointer underline"
+                            >
+                              <CalendarDays className="w-3.5 h-3.5" /> Edit Schedule
+                            </button>
+                            )}
+                          </div>
                         ) : (
                           <button
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
+                              setIsEditingSchedule(false);
                               setScheduleFixture(row.fixture || null);
                             }}
                             className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold whitespace-nowrap cursor-pointer"
@@ -505,7 +534,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                       key={row.key}
                       onClick={() => row.linkId && router.push(`/admin/ground/matchdetail/${row.linkId}?status=${encodeURIComponent(row.statusLabel)}&tid=${encodeURIComponent(tournamentId ?? '')}`)}
                       className={`border-b border-slate-50 transition-colors ${
-                        row.linkId ? 'hover:bg-slate-50/70 cursor-pointer' : ''
+                        row.linkId ? 'group hover:bg-slate-50/70 cursor-pointer' : ''
                       } ${selectedMatchId === row.linkId ? 'bg-blue-50/50' : ''}`}
                     >
                       {rowContent}
@@ -565,6 +594,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
         isOpen={!!scheduleFixture}
         onClose={() => setScheduleFixture(null)}
         fixture={scheduleFixture}
+        isEdit={isEditingSchedule}
         tournamentId={tournamentId || ''}
         tournamentExternalId={tournament?.externalTournamentId || ''}
         grounds={tournament?.grounds || []}

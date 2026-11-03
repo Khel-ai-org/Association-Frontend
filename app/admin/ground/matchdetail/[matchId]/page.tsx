@@ -65,11 +65,31 @@ export default function MatchDetailsPage({ params }: PageProps) {
   // along the status it already knew (the fixture's live-match status).
   const initialStatus = searchParams.get('status') || undefined;
   // Set by the tournament's Matches list so the breadcrumb can link back to it.
-  const tournamentId = searchParams.get('tid') || '';
+  // Remembered per match so the Tournament > Matches trail survives navigation
+  // that drops the query (e.g. returning from a player's stats page).
+  const tidKey = `matchTid:${matchId}`;
+  const tidParam = searchParams.get('tid') || '';
+  let tournamentId = tidParam;
+  try {
+    if (tidParam) sessionStorage.setItem(tidKey, tidParam);
+    else tournamentId = sessionStorage.getItem(tidKey) || '';
+  } catch {}
   const goBack = useGoBack(tournamentId ? `/admin/tournament/${tournamentId}/matches` : '/admin/dashboard');
 
   // Track active tab state at the parent page level
-  const [activeTab, setActiveTab] = useState<'details' | 'referee' | 'scorecard'>('details');
+  // The tab lives in the URL (?tab=) so coming back from a player's stats page
+  // lands on the same tab instead of resetting to Details.
+  type DetailTab = 'details' | 'referee' | 'scorecard';
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTabState] = useState<DetailTab>(
+    tabParam === 'referee' || tabParam === 'scorecard' ? tabParam : 'details'
+  );
+  const setActiveTab = (tab: DetailTab) => {
+    setActiveTabState(tab);
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', tab);
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}?${params.toString()}`);
+  };
 
   return (
     <div className="min-h-screen bg-[#F8F9FB] p-4 md:p-6">

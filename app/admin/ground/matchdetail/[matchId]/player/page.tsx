@@ -15,6 +15,17 @@ export default function PlayerStatsPage({ params }: PageProps) {
   const resolvedParams = React.use(params);
   const matchId = resolvedParams.matchId;
   const playerName = searchParams.get('name') || '';
+  // Breadcrumb goes to the match's Scorecard tab (where the player was picked from),
+  // keeping the status/tid the match page was opened with.
+  const matchQuery = new URLSearchParams({ tab: 'scorecard' });
+  const status = searchParams.get('status');
+  let tid = searchParams.get('tid');
+  try {
+    if (tid) sessionStorage.setItem(`matchTid:${matchId}`, tid);
+    else tid = sessionStorage.getItem(`matchTid:${matchId}`);
+  } catch {}
+  if (status) matchQuery.set('status', status);
+  if (tid) matchQuery.set('tid', tid);
   
 
   return (
@@ -27,11 +38,30 @@ export default function PlayerStatsPage({ params }: PageProps) {
         >
           <ArrowLeft className="w-5 h-5 mr-1" />
         </button>
+        {tid ? (
+          <>
+            <button onClick={() => router.push('/admin/tournament')} className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0">
+              Tournament
+            </button>
+            <span>{'>'}</span>
+            <button onClick={() => router.push(`/admin/tournament/${tid}/matches`)} className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0">
+              Matches
+            </button>
+            <span>{'>'}</span>
+          </>
+        ) : (
+          <>
+            <button onClick={() => router.push('/admin/dashboard')} className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0">
+              Dashboard
+            </button>
+            <span>{'>'}</span>
+          </>
+        )}
         <button
-          onClick={() => router.push(`/admin/ground/matchdetail/${matchId}`)}
+          onClick={() => router.push(`/admin/ground/matchdetail/${matchId}?${matchQuery.toString()}`)}
           className="text-slate-800 hover:underline cursor-pointer border-none bg-transparent p-0"
         >
-          Match Details
+          Scorecard
         </button>
         <span>{'>'}</span>
         <span className="text-slate-900 font-bold">Stats</span>

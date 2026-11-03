@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Check } from 'lucide-react';
 
 // The scorecard endpoint (`/api/v1/matches/:matchId/scorecard`, already fetched
@@ -274,10 +275,25 @@ const getPlayerBadges = (p: PlayerFlags): string[] => {
   return badges;
 };
 
-const PlayerLink: React.FC<{ matchId: string; name: string; player?: PlayerFlags }> = ({ matchId, name, player }) => (
+// Player stats link — forwards the match page's status/tid so the stats page can
+// link back to this same match (scorecard tab) with its breadcrumb intact.
+const usePlayerHref = (matchId: string, name: string) => {
+  const searchParams = useSearchParams();
+  const forwarded = new URLSearchParams();
+  const status = searchParams.get('status');
+  const tid = searchParams.get('tid');
+  if (status) forwarded.set('status', status);
+  if (tid) forwarded.set('tid', tid);
+  const extra = forwarded.toString();
+  return `/admin/ground/matchdetail/${matchId}/player?name=${encodeURIComponent(name)}${extra ? `&${extra}` : ''}`;
+};
+
+const PlayerLink: React.FC<{ matchId: string; name: string; player?: PlayerFlags }> = ({ matchId, name, player }) => {
+  const href = usePlayerHref(matchId, name);
+  return (
   <span className="inline-flex items-center gap-1.5 flex-wrap">
     <Link
-      href={`/admin/ground/matchdetail/${matchId}/player?name=${encodeURIComponent(name)}`}
+      href={href}
       className="font-semibold text-blue-600 hover:underline"
     >
       {name}
@@ -286,7 +302,8 @@ const PlayerLink: React.FC<{ matchId: string; name: string; player?: PlayerFlags
       <span key={b} className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-bold text-slate-700">{b}</span>
     ))}
   </span>
-);
+  );
+};
 
 const BattingTable: React.FC<{ batsmen: Batsman[]; matchId: string }> = ({ batsmen, matchId }) => (
   <div className="overflow-x-auto">
@@ -468,17 +485,20 @@ const TestBadges: React.FC<{ p: any }> = ({ p }) => (
   </>
 );
 
-const TestPlayerName: React.FC<{ matchId: string; p: any }> = ({ matchId, p }) => (
+const TestPlayerName: React.FC<{ matchId: string; p: any }> = ({ matchId, p }) => {
+  const href = usePlayerHref(matchId, p.name);
+  return (
   <>
     <Link
-      href={`/admin/ground/matchdetail/${matchId}/player?name=${encodeURIComponent(p.name)}`}
+      href={href}
       className="text-blue-600 hover:underline"
     >
       {p.name}
     </Link>
     <TestBadges p={p} />
   </>
-);
+  );
+};
 
 // Match progression timeline: Toss -> 1st..4th innings -> Match Ended (same steps as scoring-frontend's Test scoreboard).
 const TestTimeline: React.FC<{ scorecard: MatchLikeScorecard; match?: any; currentInning: number; completed: boolean }> = ({ scorecard, match, currentInning, completed }) => {

@@ -21,6 +21,9 @@ interface ScheduleMatchModalProps {
   tournamentEndDate?: string;
   // All fixtures of the tournament — used to warn about clashing schedules.
   allFixtures?: Fixture[];
+  // Re-scheduling an already scheduled match: prefills the current slot and
+  // skips creating the core admin-match record again.
+  isEdit?: boolean;
 }
 
 export default function ScheduleMatchModal({
@@ -34,6 +37,7 @@ export default function ScheduleMatchModal({
   tournamentStartDate,
   tournamentEndDate,
   allFixtures = [],
+  isEdit = false,
 }: ScheduleMatchModalProps) {
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
@@ -66,6 +70,7 @@ export default function ScheduleMatchModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [wasEdit, setWasEdit] = useState(false);
   // Non-empty = a schedule clash is blocking submission; user must change the slot or cancel.
   const [conflicts, setConflicts] = useState<string[]>([]);
 
@@ -76,6 +81,19 @@ export default function ScheduleMatchModal({
       setSelectedGroundId('');
       setGroundDropdownOpen(false);
       setConflicts([]);
+      if (isEdit && fixture) {
+        const current = fixture.scheduled_date ? new Date(fixture.scheduled_date) : null;
+        if (current && !isNaN(current.getTime())) {
+          const pad = (n: number) => String(n).padStart(2, '0');
+          setScheduleDate(`${current.getFullYear()}-${pad(current.getMonth() + 1)}-${pad(current.getDate())}`);
+          setScheduleTime(`${pad(current.getHours())}:${pad(current.getMinutes())}`);
+          const h = current.getHours();
+          setClockHour(h % 12 === 0 ? 12 : h % 12);
+          setClockAmPm(h < 12 ? 'AM' : 'PM');
+        }
+        const ground = grounds.find((g) => g.id === fixture.venue || g.name === fixture.venue);
+        if (ground) setSelectedGroundId(ground.id);
+      }
     }
   }, [isOpen, fixture]);
 
@@ -84,8 +102,8 @@ export default function ScheduleMatchModal({
       isOpen={showSuccess}
       onClose={() => setShowSuccess(false)}
       type="success"
-      title="Match Scheduled"
-      message="The Match Has been Scheduled for the Tournament"
+      title={wasEdit ? 'Schedule Updated' : 'Match Scheduled'}
+      message={wasEdit ? 'The match schedule has been updated' : 'The Match Has been Scheduled for the Tournament'}
     />
   );
 
@@ -197,21 +215,24 @@ export default function ScheduleMatchModal({
 
       // Create/link the core-API admin match record so the existing
       // /matches/tournament/:id-backed list keeps working unmodified.
-      await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/matches`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `${fixture.home_team?.name || 'TBD'} vs ${fixture.away_team?.name || 'TBD'}`,
-          date: scheduledIso,
-          tournament_id: tournamentId,
-          ground_id: selectedGroundId,
-          scoring_match_id: fixture.id,
-        }),
-      });
+      if (!isEdit) {
+        await fetch(`${process.env.NEXT_PUBLIC_Backend_URL}/matches`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: `${fixture.home_team?.name || 'TBD'} vs ${fixture.away_team?.name || 'TBD'}`,
+            date: scheduledIso,
+            tournament_id: tournamentId,
+            ground_id: selectedGroundId,
+            scoring_match_id: fixture.id,
+          }),
+        });
+      }
 
       onScheduled();
       resetAndClose();
+      setWasEdit(isEdit);
       setShowSuccess(true);
     } catch (err) {
       console.error('Error scheduling match:', err);
@@ -238,7 +259,7 @@ export default function ScheduleMatchModal({
             <div className="w-16 h-16 bg-[#F4F7FE] rounded-full flex items-center justify-center mb-4">
               <CalendarDays className="w-7 h-7 text-[#5D5FEF]" />
             </div>
-            <h2 className="text-2xl font-bold text-slate-900">Schedule Match</h2>
+            <h2 className="text-2xl font-bold text-slate-900">{isEdit ? 'Edit Schedule' : 'Schedule Match'}</h2>
           </div>
 
           <div className="space-y-4">
@@ -415,7 +436,7 @@ export default function ScheduleMatchModal({
                 disabled={submitting}
                 className="w-full bg-[#0F1117] text-white py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all disabled:opacity-50"
               >
-                {submitting ? 'Scheduling...' : 'Done'}
+                {submitting ? (isEdit ? 'Saving...' : 'Scheduling...') : isEdit ? 'Save' : 'Done'}
               </button>
             )}
           </div>
