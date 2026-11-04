@@ -125,18 +125,25 @@ const umpireReportStats = (u: any) => {
   const td = u?.total_decisions ?? {};
   const sg = u?.signals ?? {};
   const status = sg.appeal_status ?? {};
-  const accuracy = Math.max(0, Math.min(100, num(u?.accuracy)));
   const retained = num(status.retained);
   const overturned = num(status.overturned);
   const umpiresCall = num(status.umpires_call);
+  // An umpire's decision stands (is correct) when review retained it or left it as Umpire's Call;
+  // accuracy is that share of all the decisions the umpire gave. Falls back to the API's own
+  // accuracy only when no decision count came back.
+  const totalDecisions = num(td.count);
+  const correct = retained + umpiresCall;
+  const accuracy = totalDecisions > 0
+    ? Math.max(0, Math.min(100, (correct / totalDecisions) * 100))
+    : Math.max(0, Math.min(100, num(u?.accuracy)));
   const undisputed = num(sg.undisputed);
   const totalSignals = num(sg.total) || retained + overturned + umpiresCall + undisputed;
   return {
     accuracy,
     totalSignals,
     signalSum: retained + overturned + umpiresCall + undisputed,
-    correct: Math.round((accuracy / 100) * num(td.appeals_count)),
-    totalDecisions: num(td.count),
+    correct,
+    totalDecisions,
     appealsFaced: num(td.appeals_count),
     undisputed: num(td.undisputed_decisions),
     signals: [
@@ -406,7 +413,7 @@ export default function AppealAnalysisPage() {
             <div><h2>${esc(u.name)}</h2><p>${esc(u.role || "Umpire")}</p></div></div>
           <div class="who">
             <div class="ring"><svg viewBox="0 0 60 60" width="56" height="56" style="transform:rotate(-90deg)"><circle cx="30" cy="30" r="26" fill="none" stroke="#f1f5f9" stroke-width="6"/><circle cx="30" cy="30" r="26" fill="none" stroke="#16a34a" stroke-width="6" stroke-linecap="round" stroke-dasharray="${(r.accuracy / 100) * circ} ${circ}"/></svg><b>${Math.round(r.accuracy)}%</b></div>
-            <div><h5>Decision Accuracy</h5><p>${r.correct} correct out of ${r.appealsFaced}<br>appeals faced</p></div>
+            <div><h5>Decision Accuracy</h5><p>${r.correct} correct out of ${r.totalDecisions}<br>total decisions</p></div>
           </div>
         </div>
         <div class="grid4">
@@ -1099,7 +1106,7 @@ export default function AppealAnalysisPage() {
                           </div>
                           <div className="hidden sm:block">
                             <p className="text-sm font-bold text-slate-900">Decision Accuracy</p>
-                            <p className="text-xs text-slate-500 max-w-[130px]">{r.correct} correct out of {r.appealsFaced} appeals faced</p>
+                            <p className="text-xs text-slate-500 max-w-[130px]">{r.correct} correct out of {r.totalDecisions} total decisions</p>
                           </div>
                         </div>
                       </div>
