@@ -3,6 +3,10 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation"; 
 import Navbar from "../admin/components/layout/topnavbar";
 import { Loader2 } from "lucide-react";
+import { installScoringAuth } from "@/lib/scoringAuth";
+
+// Must run at import time: child pages call the scoring API on mount, before any effect here.
+installScoringAuth();
 
 export default function AdminDashboardLayout({
   children,

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock, CalendarDays, X, ExternalLink } from 'lucide-react';
 import { Fixture, Ground } from '../../types/tournament';
 import ScheduleMatchModal from './ScheduleMatchModal';
+import TournamentWinner from './TournamentWinner';
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
 
 interface TournamentDetails {
@@ -220,6 +221,11 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
           statusLabel = 'Abandoned';
           badgeColor = 'bg-gray-700';
           type = 'Abandoned';
+        } else if (['scheduled', 'upcoming', 'not_started', 'yet_to_start', 'pending', 'toss'].includes(normalized.replace(/[\s-]+/g, '_'))) {
+          // Scheduled but not live yet — keeps its own "Scheduled" badge as before;
+          // `type` stays 'Upcoming' only so the Expired check below can apply.
+          statusLabel = formatMatchType(normalized);
+          badgeColor = 'bg-slate-500';
         } else if (typeof liveStatus === 'string' && liveStatus) {
           // Any other real, already-known status (Cancelled, No Result,
           // etc.) — not "never happened", so it must NOT fall into the
@@ -230,17 +236,21 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
           type = statusLabel;
         }
       }
-      // Still sitting as "Upcoming" (no real status was ever recorded) but
-      // either its own scheduled date has passed, or the whole tournament
-      // has already ended — surface that as its own state instead of
-      // silently calling it "Upcoming" forever.
-      const tournamentEnded = !!tournament?.endDate && new Date(tournament.endDate) < new Date();
-      // Compare against the end of the scheduled (local) day — the match must
-      // still be startable after its scheduled time today.
-      const scheduledDay = fixture.scheduled_date ? new Date(fixture.scheduled_date) : null;
-      if (scheduledDay) scheduledDay.setHours(23, 59, 59, 999);
-      const matchDatePassed = !!scheduledDay && scheduledDay < new Date();
-      if (type === 'Upcoming' && (matchDatePassed || tournamentEnded)) {
+      // Still sitting as "Upcoming" (never went live) but the whole tournament
+      // has already ended — surface that as its own state instead of silently
+      // calling it "Upcoming" forever. A passed scheduled date alone does not expire it.
+      // The tournament runs through the whole last day — it only ends at 11:59 PM
+      // (local) on its end date, not at the start of it.
+      let tournamentEnded = false;
+      if (tournament?.endDate) {
+        const [y, m, d] = tournament.endDate.slice(0, 10).split('-').map(Number);
+        const endOfLastDay = new Date(y, (m || 1) - 1, d || 1, 23, 59, 59, 999);
+        tournamentEnded = !Number.isNaN(endOfLastDay.getTime()) && endOfLastDay < new Date();
+      }
+      // Any match that never went live / finished (Upcoming, Scheduled or any other
+      // not-started status) expires with the tournament; only real end states stay.
+      const neverStarted = !['Live', 'Finished', 'Abandoned'].includes(type) && !/cancel|no result|abort/i.test(type);
+      if (neverStarted && tournamentEnded) {
         statusLabel = 'Expired';
         badgeColor = 'bg-amber-600';
         type = 'Expired';
@@ -320,6 +330,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               <span className="text-md font-bold text-green-600">{calculateProgress()}% Complete</span>
             </div>
           </div>
+          <TournamentWinner externalTournamentId={tournament.externalTournamentId} variant="header" />
         </div>
       )}
 
