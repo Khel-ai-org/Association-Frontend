@@ -10,6 +10,7 @@ import CreateTournamentModal from './CreateTournamentModal';
 import EditTournamentModal from './EditTournamentModal';
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
 import MatchTypeFilter from './MatchTypeFilter';
+import TournamentWinner from './TournamentWinner';
 
 interface Tournament {
   id: string;
@@ -22,6 +23,8 @@ interface Tournament {
   startDate: string;
   endDate: string;
   createdAt: string;
+  // Scoring service's own tournament id; used to look up the winning team
+  externalTournamentId?: string;
 }
 
 export default function ActiveTournaments() {
@@ -244,6 +247,8 @@ export default function ActiveTournaments() {
                       <CalendarDays className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">{formatTournamentDateRange(t.startDate, t.endDate)}</span>
                     </div>
+                    {/* shown whenever the final has been decided, even if the tournament's end date hasn't passed yet */}
+                    {lifecycleStatus !== 'UPCOMING' && <TournamentWinner externalTournamentId={t.externalTournamentId} coreTournamentId={t.id} />}
 
                     <div className="pt-2">
                       <div className="flex items-center justify-between text-[10px]  text-slate-700 mb-1">

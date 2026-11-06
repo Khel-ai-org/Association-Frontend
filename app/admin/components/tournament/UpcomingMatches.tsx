@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Search, ChevronLeft, ChevronRight, Users, MapPin, FileSpreadsheet, CalendarClock, CalendarDays, X, ExternalLink } from 'lucide-react';
 import { Fixture, Ground } from '../../types/tournament';
 import ScheduleMatchModal from './ScheduleMatchModal';
+import TournamentWinner from './TournamentWinner';
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
 
 interface TournamentDetails {
@@ -329,6 +330,7 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
               <span className="text-md font-bold text-green-600">{calculateProgress()}% Complete</span>
             </div>
           </div>
+          <TournamentWinner externalTournamentId={tournament.externalTournamentId} variant="header" />
         </div>
       )}
 
