@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { PITCH_TYPES } from "../../utils/pitchTypes";
 import {
   Pencil,
   Trash2,
@@ -216,7 +217,7 @@ const EditGroundModal = ({
               
               {isDropdownOpen && (
                 <div className="absolute left-0 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl z-[60] py-1 h-40 overflow-y-auto">
-                  {["Black Soil ( Balanced )", "Hard Soil", "Green Grass", "Dusty", "Red Soil"].map((type) => (
+                  {PITCH_TYPES.map((type) => (
                     <div
                       key={type}
                       className="px-4 py-3 hover:bg-gray-50 cursor-pointer text-sm text-gray-700 transition-colors"

@@ -57,6 +57,17 @@ interface SuccessInfo {
   message: string;
 }
 
+const PLAYERS_PAGE_SIZE = 7;
+const MIN_PLAYER_AGE = 10;
+
+// Latest allowed date of birth ("YYYY-MM-DD", local): a player must be at least MIN_PLAYER_AGE years old today.
+const latestAllowedDob = () => {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - MIN_PLAYER_AGE);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const MAX_PAGE_BUTTONS = 5;
+
 const initialRegisterForm = {
   firstName: '',
   lastName: '',
@@ -102,6 +113,9 @@ const sanitizeToE164 = (phone: string | undefined) => {
 const ActivePlayers = () => {
   const router = useRouter();
   const [currentPage, setCurrentPage] = useState(1);
+  // Real page count when the API reports one; otherwise inferred from whether this page came back full.
+  const [totalPagesFromApi, setTotalPagesFromApi] = useState<number | null>(null);
+  const [lastPageSize, setLastPageSize] = useState(0);
   const [searchQuery, setSearchQueryRaw] = useState('');
   const setSearchQuery = (value: string) => {
     setSearchQueryRaw(value);
@@ -204,7 +218,7 @@ const ActivePlayers = () => {
 
   const fetchPlayers = async () => {
     try {
-      const params = new URLSearchParams({ page: String(currentPage), limit: '7' });
+      const params = new URLSearchParams({ page: String(currentPage), limit: String(PLAYERS_PAGE_SIZE) });
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       const res = await fetch(`${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/kca/players?${params.toString()}`,
       {
@@ -216,11 +230,30 @@ const ActivePlayers = () => {
       const resolvedList = data?.data || data?.items || data;
       if (Array.isArray(resolvedList)) {
         setPlayersData(resolvedList);
+        setLastPageSize(resolvedList.length);
+        const reported = Number(
+          data?.pagination?.pages ?? data?.pagination?.totalPages ?? data?.totalPages ?? data?.meta?.totalPages
+        );
+        const total = Number(data?.pagination?.total ?? data?.total ?? data?.meta?.total);
+        setTotalPagesFromApi(
+          reported > 0 ? reported : total > 0 ? Math.ceil(total / PLAYERS_PAGE_SIZE) : null
+        );
       }
     } catch (error) {
       console.error("Failed to fetch players", error);
     }
   };
+
+  // Only real pages are shown, at most MAX_PAGE_BUTTONS at a time (a window around the current page).
+  const totalPages = Math.max(
+    1,
+    totalPagesFromApi ?? (lastPageSize >= PLAYERS_PAGE_SIZE ? currentPage + 1 : currentPage)
+  );
+  const windowStart = Math.max(1, Math.min(currentPage - Math.floor(MAX_PAGE_BUTTONS / 2), totalPages - MAX_PAGE_BUTTONS + 1));
+  const pageNumbers = Array.from(
+    { length: Math.min(MAX_PAGE_BUTTONS, totalPages) },
+    (_, i) => windowStart + i
+  );
 
   const fetchAllPlayersForModal = async () => {
     try {
@@ -452,6 +485,7 @@ const ActivePlayers = () => {
       newErrors.email = 'Valid email required';
     }
     if (!registerForm.dob) newErrors.dob = 'Required';
+    else if (registerForm.dob > latestAllowedDob()) newErrors.dob = `Player must be at least ${MIN_PLAYER_AGE} years old`;
     if (!registerForm.mobile || !isValidPhoneNumber(registerForm.mobile)) newErrors.mobile = 'Invalid mobile number';
     if (!registerForm.seasonId) newErrors.seasonId = 'Select a season';
     if (!registerForm.homeDistrictId) newErrors.homeDistrictId = 'Required';
@@ -757,16 +791,18 @@ const ActivePlayers = () => {
           </table>
         </div>
 
-        {/* Pagination Section */}
+        {/* Pagination Section — hidden when there are no players (kept on later pages so an empty page can still go back) */}
+        {(playersData.length > 0 || currentPage > 1) && (
         <div className="flex items-center justify-center gap-2 pt-8 pb-2">
           <button
+            disabled={currentPage <= 1}
             onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-            className="px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-400 hover:bg-gray-50 transition-colors"
+            className="px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             ‹ Back
           </button>
 
-          {[1, 2, 3, 4, 5].map((num) => (
+          {pageNumbers.map((num) => (
             <button
               key={num}
               onClick={() => setCurrentPage(num)}
@@ -781,12 +817,14 @@ const ActivePlayers = () => {
           ))}
 
           <button
-            onClick={() => setCurrentPage(prev => prev + 1)}
-            className="px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+            disabled={currentPage >= totalPages}
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            className="px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next ›
           </button>
         </div>
+        )}
 
       </div>
 
@@ -1176,6 +1214,7 @@ const ActivePlayers = () => {
                   <label className="block text-xs font-bold text-gray-900 mb-2">Date of Birth</label>
                   <input
                     type="date"
+                    max={latestAllowedDob()}
                     value={registerForm.dob}
                     onChange={(e) => setRegisterForm({ ...registerForm, dob: e.target.value })}
                     onClick={(e) => e.currentTarget.showPicker?.()}
@@ -1225,7 +1264,7 @@ const ActivePlayers = () => {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                   </div>
                   {registerBattingHandDropdownOpen && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                       {battingHandOptions.map((opt) => (
                         <div
                           key={opt}
@@ -1251,7 +1290,7 @@ const ActivePlayers = () => {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                   </div>
                   {registerBowlingTypeDropdownOpen && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                       {bowlingTypeOptions.map((opt) => (
                         <div
                           key={opt}
@@ -1278,7 +1317,7 @@ const ActivePlayers = () => {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </div>
                 {registerRoleDropdownOpen && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                     {roleOptions.map((opt) => (
                       <div
                         key={opt}
@@ -1487,7 +1526,7 @@ const ActivePlayers = () => {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                   </div>
                   {editBattingHandDropdownOpen && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                       {battingHandOptions.map((opt) => (
                         <div
                           key={opt}
@@ -1513,7 +1552,7 @@ const ActivePlayers = () => {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                   </div>
                   {editBowlingTypeDropdownOpen && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    <div className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                       {bowlingTypeOptions.map((opt) => (
                         <div
                           key={opt}
@@ -1540,7 +1579,7 @@ const ActivePlayers = () => {
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#83878D" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </div>
                 {editRoleDropdownOpen && (
-                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-10 w-full bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                     {roleOptions.map((opt) => (
                       <div
                         key={opt}

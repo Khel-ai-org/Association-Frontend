@@ -383,7 +383,7 @@ export default function ScheduleMatchModal({
                     <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${groundDropdownOpen ? 'rotate-180' : ''}`} />
                   </div>
                   {groundDropdownOpen && (
-                    <div className="absolute left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
+                    <div className="absolute left-0 w-full bottom-full mb-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
                       {grounds.map((g) => (
                         <div
                           key={g.id}

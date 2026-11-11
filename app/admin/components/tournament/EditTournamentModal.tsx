@@ -431,7 +431,7 @@ export default function EditTournamentModal({ isOpen, onClose, onUpdated, tourna
                 )}
 
                 {isMatchTypeDropdownOpen && !fixturesExist && (
-                  <div className="absolute left-0 w-full mt-2 bg-white border border-slate-100 rounded-xl shadow-xl z-50 p-2.5 space-y-0.5">
+                  <div className="absolute left-0 bottom-full w-full mb-2 bg-white border border-slate-100 rounded-xl shadow-xl z-50 p-2.5 space-y-0.5">
                     {MATCH_TYPES.map((t) => (
                       <div
                         key={t}
