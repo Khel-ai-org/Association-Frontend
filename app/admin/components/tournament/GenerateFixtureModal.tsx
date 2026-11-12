@@ -34,7 +34,9 @@ export default function GenerateFixtureModal({
   // Raw text so the field can be edited freely; clamped to 2-10 on blur.
   const [groupCountInput, setGroupCountInput] = useState('2');
   const [groupAssignments, setGroupAssignments] = useState<Record<string, string[]>>({});
-  const [playoffTeams, setPlayoffTeams] = useState('2');
+  // Empty until the user picks one — no default.
+  const [playoffTeams, setPlayoffTeams] = useState('');
+  const [qualifyDropdownOpen, setQualifyDropdownOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -75,6 +77,54 @@ export default function GenerateFixtureModal({
 
   const assignedTeamIds = new Set(Object.values(groupAssignments).flat());
 
+  // Upper bound for teams that can qualify for the playoffs: all the teams. In group mode the
+  // count is per group, so it can't exceed the smallest group that has teams assigned.
+  const groupSizes = groupNames.map((g) => groupAssignments[g]?.length || 0).filter((n) => n > 0);
+  const maxQualify = Math.max(1, isGroupMode && groupSizes.length > 0 ? Math.min(...groupSizes) : teams.length);
+  // 0 = nothing chosen yet (or the earlier choice no longer fits, e.g. after groups changed).
+  const chosenQualify = Number(playoffTeams);
+  // For now only 2 or 4 can qualify, and only those that fit (all teams in a league, the smallest group in group mode).
+  const qualifyOptions = [2, 4].filter((n) => n <= maxQualify);
+  const qualifyValue = qualifyOptions.includes(chosenQualify) ? chosenQualify : 0;
+  // At most half the teams (rounded for odd counts), and always within 2-10.
+  const maxGroups = Math.max(2, Math.min(10, Math.round(teams.length / 2)));
+
+  const renderQualifyDropdown = (suffix: string, openUp: boolean) => (
+    <div className="relative">
+      <div
+        onClick={() => setQualifyDropdownOpen((o) => !o)}
+        className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm cursor-pointer flex justify-between items-center outline-none transition-all"
+      >
+        <span className={qualifyValue ? 'text-gray-700' : 'text-gray-400'}>
+          {qualifyValue ? `${qualifyValue} ${qualifyValue === 1 ? 'Team' : 'Teams'}${suffix}` : 'Select teams'}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${qualifyDropdownOpen ? 'rotate-180' : ''}`} />
+      </div>
+      {qualifyDropdownOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setQualifyDropdownOpen(false)} />
+          <div className={`absolute left-0 w-full ${openUp ? 'bottom-full mb-1' : 'mt-1'} bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto`}>
+            {qualifyOptions.length === 0 && (
+              <div className="px-4 py-2.5 text-sm text-gray-400">Not enough teams{suffix ? ' in a group' : ''}</div>
+            )}
+            {qualifyOptions.map((n) => (
+              <div
+                key={n}
+                onClick={() => {
+                  setPlayoffTeams(String(n));
+                  setQualifyDropdownOpen(false);
+                }}
+                className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-slate-50 ${qualifyValue === n ? 'text-[#5D5FEF] font-semibold bg-indigo-50/50' : 'text-gray-700'}`}
+              >
+                {n} {n === 1 ? 'Team' : 'Teams'}{suffix}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   const availableForGroup = (group: string) =>
     teams.filter((t) => !assignedTeamIds.has(t.id) || groupAssignments[group]?.includes(t.id));
 
@@ -100,10 +150,19 @@ export default function GenerateFixtureModal({
       setError('Number of groups must be between 2 and 10.');
       return;
     }
+    if (isGroupMode && Number(groupCountInput) > maxGroups) {
+      setError(`Number of groups can't be more than ${maxGroups} for ${teams.length} teams.`);
+      return;
+    }
 
     const team_ids = isGroupMode ? Array.from(assignedTeamIds) : teams.map((t) => t.id);
     if (isGroupMode && team_ids.length === 0) {
       setError('Assign at least one team to a group.');
+      return;
+    }
+
+    if (!qualifyValue) {
+      setError('Select how many teams qualify for the playoffs.');
       return;
     }
 
@@ -126,7 +185,7 @@ export default function GenerateFixtureModal({
             // reference app) — derived silently from the tournament itself.
             //start_date: startDate ? startDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
             venues: null,
-            no_of_teams_qualify_playoffs: parseInt(playoffTeams, 10),
+            no_of_teams_qualify_playoffs: qualifyValue,
           }),
         }
       );
@@ -192,10 +251,10 @@ export default function GenerateFixtureModal({
                       const digits = e.target.value.replace(/\D/g, '').slice(0, 2);
                       setGroupCountInput(digits);
                       const n = Number(digits);
-                      if (n >= 2 && n <= 10) setGroupCount(n);
+                      if (n >= 2 && n <= Math.min(10, maxGroups)) setGroupCount(n);
                     }}
                     onBlur={() => {
-                      const n = Math.max(2, Math.min(10, Number(groupCountInput) || 2));
+                      const n = Math.max(2, Math.min(Math.max(2, maxGroups), Number(groupCountInput) || 2));
                       setGroupCount(n);
                       setGroupCountInput(String(n));
                     }}
@@ -204,18 +263,14 @@ export default function GenerateFixtureModal({
                   {groupCountInput !== '' && Number(groupCountInput) < 2 && (
                     <p className="text-red-500 text-xs mt-1">Minimum 2 groups required</p>
                   )}
+                  {Number(groupCountInput) > maxGroups && (
+                    <p className="text-red-500 text-xs mt-1">Maximum {maxGroups} groups for {teams.length} teams</p>
+                  )}
                 </div>
               ) : (
                 <div>
                   <label className="block text-sm font-semibold text-slate-500 mb-1.5">Teams Qualifying for Playoffs</label>
-                  <select
-                    value={playoffTeams}
-                    onChange={(e) => setPlayoffTeams(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none text-sm text-gray-700 bg-white"
-                  >
-                    <option value="2">2 Teams</option>
-                    <option value="4">4 Teams</option>
-                  </select>
+                  {renderQualifyDropdown('', false)}
                 </div>
               )}
             </div>
@@ -284,14 +339,7 @@ export default function GenerateFixtureModal({
             {isGroupMode && (
               <div>
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">Teams Qualifying for Playoffs</label>
-                <select
-                  value={playoffTeams}
-                  onChange={(e) => setPlayoffTeams(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none text-sm text-gray-700 bg-white"
-                >
-                  <option value="2">2 Teams each Group</option>
-                  <option value="4">4 Teams each Group</option>
-                </select>
+                {renderQualifyDropdown(' each Group', true)}
               </div>
             )}
 

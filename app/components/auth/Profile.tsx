@@ -18,6 +18,9 @@ export enum UserRole {
   UMPIRE = "umpire",
   SCORER = "scorer",
   VIDEO_ANALYST = "video_analyst",
+  COACH = "coach",
+  // No PLAYER here: players are created automatically from their registered
+  // player email at login and never reach this profile step.
 }
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -27,6 +30,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   [UserRole.UMPIRE]: "Umpire",
   [UserRole.SCORER]: "Scorer",
   [UserRole.VIDEO_ANALYST]: "Video Analyst",
+  [UserRole.COACH]: "Coach",
 };
 
 interface ProfileFormProps {

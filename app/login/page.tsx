@@ -39,6 +39,7 @@ import LoginForm from "../components/auth/LoginForm";
 import ProfileForm from "../components/auth/Profile";
 import OTPVerification from "../components/auth/OTPVerification";
 import PendingApproval from "../components/auth/PendingApproval";
+import { goToTakneek, isTakneekRole } from "@/lib/takneek";
 
 type AuthStep = "login" | "otp" | "profile" | "pending";
 
@@ -57,8 +58,14 @@ function isApproved(user: any): boolean {
 // app's session cookie against the same backend) instead of /admin/dashboard.
 // That's a different app/origin, so a hard navigation is used rather than
 // Next's client-side router.
+// Coaches and players go to the Takneek dashboard (see lib/takneek.ts).
 function goToDestination(router: ReturnType<typeof useRouter>, role: string | null) {
-  if (role === "scorer") {
+  if (isTakneekRole(role)) {
+    goToTakneek().catch((err) => {
+      console.error(err);
+      alert("Could not open the Takneek dashboard. Please try again.");
+    });
+  } else if (role === "scorer") {
     window.location.href = `${process.env.NEXT_PUBLIC_SCORING_FRONTEND_URL}/pages/dashboard`;
   } else {
     router.push("/admin/dashboard");
@@ -69,10 +76,14 @@ export default function LoginPage() {
   const [step, setStep] = useState<AuthStep>("login");
   const [userEmail, setUserEmail] = useState("");
   const [pendingRole, setPendingRole] = useState<string | null>(null);
+  // Role known at login. A player's role is set by the backend from their
+  // registered player email, so they skip the profile step after verifying.
+  const [loginRole, setLoginRole] = useState<string | null>(null);
   const router = useRouter();
 
   const handleLoginSuccess = (user: any, email: string, isGoogle: boolean) => {
     setUserEmail(email);
+    setLoginRole(user.role ?? null);
 
     // Profile setup is complete once a role has been chosen (not before —
     // `name` alone doesn't tell us whether role + association linking happened).
@@ -147,7 +158,7 @@ export default function LoginPage() {
       {step === "otp" && (
         <OTPVerification
           email={userEmail}
-          onSuccess={() => setStep("profile")}
+          onSuccess={() => (loginRole === "player" ? goToDestination(router, "player") : setStep("profile"))}
           onBack={() => setStep("login")}
         />
       )}

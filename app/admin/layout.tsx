@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Navbar from "../admin/components/layout/topnavbar";
 import { Loader2 } from "lucide-react";
 import { installScoringAuth } from "@/lib/scoringAuth";
+import { goToTakneek, isTakneekRole } from "@/lib/takneek";
 
 // Must run at import time: child pages call the scoring API on mount, before any effect here.
 installScoringAuth();
@@ -40,7 +41,11 @@ export default function AdminDashboardLayout({
                 ? !!userData.isApprovedByAssociation
                 : false;
 
-            if (approved) {
+            if (approved && isTakneekRole(userData.role)) {
+              // Coaches and players use the Takneek dashboard, not /admin.
+              await goToTakneek();
+              return;
+            } else if (approved) {
               setIsAuthorized(true);
             } else {
               router.push("/login");

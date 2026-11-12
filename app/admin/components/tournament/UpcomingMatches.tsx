@@ -523,6 +523,11 @@ const UpcomingMatches: React.FC<UpcomingMatchesProps> = ({
                             </button>
                             )}
                           </div>
+                        ) : !row.fixture?.home_team || !row.fixture?.away_team ? (
+                          // A team is still TBD (e.g. a playoff slot waiting on results) — can't be scheduled yet.
+                          <span className="inline-flex items-center px-3 py-1.5 rounded-lg bg-slate-100 text-slate-500 text-xs font-semibold whitespace-nowrap" title="Teams for this match are not decided yet">
+                            Teams TBD
+                          </span>
                         ) : (
                           <button
                             onClick={(e) => {
