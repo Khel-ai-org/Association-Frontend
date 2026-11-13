@@ -140,6 +140,8 @@ export default function LiveMatches() {
           // own sake but don't belong here; they're dropped same as
           // Completed/Finished were.
           .filter((m) => m.status !== 'Expired')
+          // An Upcoming match whose teams aren't decided yet (TBD) isn't shown here.
+          .filter((m) => m.status === 'Live' || (m.teamA !== 'TBD' && m.teamB !== 'TBD'))
           .sort((a, b) => {
             if (!a.scheduledDate) return 1;
             if (!b.scheduledDate) return -1;
@@ -173,7 +175,7 @@ export default function LiveMatches() {
 
   const uniqueTournamentIds = Array.from(new Set(dashboardMatches.map((m) => m.tournamentId)));
   const viewAllHref = uniqueTournamentIds.length === 1
-    ? `/admin/tournament/${uniqueTournamentIds[0]}`
+    ? `/admin/tournament/${uniqueTournamentIds[0]}/matches`
     : `/admin/tournament`;
 
   if (loading) return <div className="p-10 text-center animate-pulse">Loading matches...</div>;

@@ -665,7 +665,6 @@ const ActivePlayers = () => {
                 className="w-full pl-9 pr-4 py-2 bg-[#FAFBFF] border border-gray-100 rounded-xl text-sm outline-none focus:border-[#4B70C3] text-gray-700"
               />
             </div>
-            <span className="text-sm font-semibold text-[#4B70C3] cursor-pointer hover:underline whitespace-nowrap">View all</span>
           </div>
         </div>
 
