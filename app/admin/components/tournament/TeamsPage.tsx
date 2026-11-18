@@ -512,7 +512,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
                 </tr>
               ) : (
                 standings.map((row, i) => (
-                  <tr key={row.teamId}>
+                  <tr key={`${row.teamId}-${i}`}>
                     <td className="py-3 px-4 text-slate-500">{i + 1}</td>
                     <td className="py-3 px-4">
                       <span className="font-bold text-slate-900 mr-2">{row.code}</span>

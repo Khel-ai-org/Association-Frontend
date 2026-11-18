@@ -83,8 +83,8 @@ export default function GenerateFixtureModal({
   const maxQualify = Math.max(1, isGroupMode && groupSizes.length > 0 ? Math.min(...groupSizes) : teams.length);
   // 0 = nothing chosen yet (or the earlier choice no longer fits, e.g. after groups changed).
   const chosenQualify = Number(playoffTeams);
-  // For now only 2 or 4 can qualify, and only those that fit (all teams in a league, the smallest group in group mode).
-  const qualifyOptions = [2, 4].filter((n) => n <= maxQualify);
+  // Any number from 1 up to the team count (league) or the smallest group's size (group mode).
+  const qualifyOptions = Array.from({ length: teams.length > 0 ? maxQualify : 0 }, (_, i) => i + 1);
   const qualifyValue = qualifyOptions.includes(chosenQualify) ? chosenQualify : 0;
   // At most half the teams (rounded for odd counts), and always within 2-10.
   const maxGroups = Math.max(2, Math.min(10, Math.round(teams.length / 2)));
