@@ -49,12 +49,19 @@ export default function TournamentWinner({
   externalTournamentId,
   coreTournamentId,
   variant = 'card',
+  onResolved,
 }: {
   externalTournamentId?: string | null;
   coreTournamentId?: string | null;
   variant?: 'header' | 'card';
+  // Lets the parent know whether a winner has been declared (e.g. to hide the edit button).
+  onResolved?: (hasWinner: boolean) => void;
 }) {
   const winner = useTournamentWinner(externalTournamentId, coreTournamentId);
+  useEffect(() => {
+    onResolved?.(!!winner);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [winner]);
   if (!winner) return null;
 
   if (variant === 'header') {

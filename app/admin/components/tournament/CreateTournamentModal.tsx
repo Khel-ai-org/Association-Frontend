@@ -20,7 +20,16 @@ const MATCH_TYPES = ['T10', 'T20', 'ODI', 'TEST', 'CUSTOM'] as const;
 type MatchType = typeof MATCH_TYPES[number];
 const MATCH_TYPE_OVERS: Partial<Record<MatchType, number>> = { T10: 10, T20: 20, ODI: 50 };
 
+// Sent to the scoring API as the tournament `type`: group/league teams play each
+// other once (single) or twice, home and away (double), before the knockouts.
+const TOURNAMENT_TYPES = [
+  { value: 'round_robin_knockout_single', label: 'Single Round Robin', hint: 'Teams play each other once' },
+  { value: 'round_robin_knockout_double', label: 'Double Round Robin', hint: 'Teams play each other twice' },
+] as const;
+type TournamentType = typeof TOURNAMENT_TYPES[number]['value'];
+
 const initialFormData = {
+  tournamentType: '' as TournamentType | '',
   name: '',
   location: '',
   groundIds: [] as string[],
@@ -44,6 +53,8 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
   const groundDropdownRef = useRef<HTMLDivElement>(null);
   const [isMatchTypeDropdownOpen, setIsMatchTypeDropdownOpen] = useState(false);
   const matchTypeDropdownRef = useRef<HTMLDivElement>(null);
+  const [isTournamentTypeDropdownOpen, setIsTournamentTypeDropdownOpen] = useState(false);
+  const tournamentTypeDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -52,6 +63,9 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
       }
       if (matchTypeDropdownRef.current && !matchTypeDropdownRef.current.contains(e.target as Node)) {
         setIsMatchTypeDropdownOpen(false);
+      }
+      if (tournamentTypeDropdownRef.current && !tournamentTypeDropdownRef.current.contains(e.target as Node)) {
+        setIsTournamentTypeDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -116,6 +130,9 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
     if (!formData.teamCount || isNaN(Number(formData.teamCount)) || Number(formData.teamCount) <= 0) {
       newErrors.teamCount = 'Must be a valid number greater than 0';
     }
+    if (!formData.tournamentType) {
+      newErrors.tournamentType = 'Please select a tournament type';
+    }
     if (!formData.matchType) {
       newErrors.matchType = 'Please select a match type';
     } else if (formData.matchType === 'TEST') {
@@ -156,6 +173,7 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
           // `match_type`/`test_days` — snake_case, matching Tournament.ts's
           // own column names (unlike its other, camelCase columns).
           match_type: formData.matchType,
+          tournament_type: formData.tournamentType,
           test_days: formData.matchType === 'TEST' ? parseInt(formData.testDays, 10) : null,
           oversPerMatch: formData.matchType === 'TEST' ? 0 : parseInt(formData.oversPerMatch, 10),
           startDate: formData.startDate,
@@ -330,6 +348,41 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
                   onChange={(e) => setFormData({ ...formData, teamCount: e.target.value.replace(/\D/g, '') })}
                 />
                 {errors.teamCount && <p className="text-red-500 text-xs mt-1">{errors.teamCount}</p>}
+              </div>
+
+              <div className="relative" ref={tournamentTypeDropdownRef}>
+                <label className="block text-sm font-semibold text-slate-500 mb-1.5">Tournament Type</label>
+                <div
+                  onClick={() => setIsTournamentTypeDropdownOpen((prev) => !prev)}
+                  className={`w-full px-4 py-3 rounded-xl border ${errors.tournamentType ? 'border-red-500' : 'border-slate-200'} bg-white text-sm cursor-pointer flex justify-between items-center outline-none transition-all`}
+                >
+                  <span className={formData.tournamentType ? 'text-gray-700' : 'text-gray-400'}>
+                    {TOURNAMENT_TYPES.find((t) => t.value === formData.tournamentType)?.label ?? 'Select Tournament Type'}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${isTournamentTypeDropdownOpen ? 'rotate-180' : ''}`} />
+                </div>
+                {errors.tournamentType && <p className="text-red-500 text-xs mt-1">{errors.tournamentType}</p>}
+
+                {isTournamentTypeDropdownOpen && (
+                  <div className="absolute left-0 top-full w-full mt-2 bg-white border border-slate-100 rounded-xl shadow-xl z-50 p-2.5 space-y-0.5">
+                    {TOURNAMENT_TYPES.map((t) => {
+                      const selected = formData.tournamentType === t.value;
+                      return (
+                        <div
+                          key={t.value}
+                          onClick={() => {
+                            setFormData({ ...formData, tournamentType: t.value });
+                            setIsTournamentTypeDropdownOpen(false);
+                          }}
+                          className="px-2.5 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"
+                        >
+                          <span className={`block text-sm ${selected ? 'text-blue-600 font-semibold' : 'text-slate-700'}`}>{t.label}</span>
+                          <span className="block text-xs text-slate-400">{t.hint}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="relative" ref={matchTypeDropdownRef}>

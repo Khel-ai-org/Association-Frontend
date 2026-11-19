@@ -32,6 +32,8 @@ export default function ActiveTournaments() {
   const [loading, setLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editTournamentId, setEditTournamentId] = useState<string | null>(null);
+  // Tournaments whose winner is already declared can't be edited any more.
+  const [winnerDeclared, setWinnerDeclared] = useState<Record<string, boolean>>({});
 
   // Pagination & Search States
   const [currentPage, setCurrentPage] = useState(1);
@@ -216,7 +218,7 @@ export default function ActiveTournaments() {
                     <h3 className="text-md font-semibold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors truncate">
                       {t.name}
                     </h3>
-                    {lifecycleStatus !== 'COMPLETED' && (
+                    {lifecycleStatus !== 'COMPLETED' && !winnerDeclared[t.id] && (
                       <button
                         onClick={(e) => {
                           e.preventDefault();
@@ -248,7 +250,7 @@ export default function ActiveTournaments() {
                       <span className="truncate">{formatTournamentDateRange(t.startDate, t.endDate)}</span>
                     </div>
                     {/* shown whenever the final has been decided, even if the tournament's end date hasn't passed yet */}
-                    {lifecycleStatus !== 'UPCOMING' && <TournamentWinner externalTournamentId={t.externalTournamentId} coreTournamentId={t.id} />}
+                    {lifecycleStatus !== 'UPCOMING' && <TournamentWinner externalTournamentId={t.externalTournamentId} coreTournamentId={t.id} onResolved={(has) => setWinnerDeclared((prev) => (!!prev[t.id] === has ? prev : { ...prev, [t.id]: has }))} />}
 
                     <div className="pt-2">
                       <div className="flex items-center justify-between text-[10px]  text-slate-700 mb-1">

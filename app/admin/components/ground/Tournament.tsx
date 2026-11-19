@@ -7,6 +7,7 @@ import { Search, ChevronLeft, ChevronRight, Users, MapPin, CalendarDays } from '
 import stadiumImage from '../../../../public/stadium.png'; // Ensure this path is correct
 import { getTournamentLifecycleStatus, TOURNAMENT_STATUS_BADGE, formatTournamentDateRange } from '../../utils/tournamentStatus';
 import MatchTypeFilter from '../tournament/MatchTypeFilter';
+import TournamentWinner from '../tournament/TournamentWinner';
 
 interface Tournament {
   id: string;
@@ -19,6 +20,7 @@ interface Tournament {
   category?: string;
   match_type?: string;
   matchType?: string;
+  externalTournamentId?: string | null;
 }
 
 interface TournamentListProps {
@@ -205,6 +207,8 @@ const TournamentList: React.FC<TournamentListProps> = ({ groundId }) => {
                         <CalendarDays className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">{formatTournamentDateRange(t.startDate, t.endDate)}</span>
                       </div>
+                      {/* shown whenever the final has been decided, even if the end date hasn't passed yet */}
+                      {lifecycleStatus !== 'UPCOMING' && <TournamentWinner externalTournamentId={t.externalTournamentId} coreTournamentId={t.id} />}
 
                       <div className="pt-2">
                         <div className="flex items-center justify-between text-[10px] text-slate-700 mb-1">
