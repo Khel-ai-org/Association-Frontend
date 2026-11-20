@@ -63,6 +63,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [isGroupMode, setIsGroupMode] = useState(true);
+  const isBilateral = tournament?.tournament_type === 'bilateral_series';
   const [isAddTeamsOpen, setIsAddTeamsOpen] = useState(false);
   const [isGenerateFixtureOpen, setIsGenerateFixtureOpen] = useState(false);
   const [fixturesExist, setFixturesExist] = useState(false);
@@ -285,6 +286,13 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
         </div>
 
         <div className="flex w-full sm:w-auto bg-white rounded-xl border border-slate-200 p-1">
+          {/* A bilateral series has no groups or league — it's the only option. */}
+          {isBilateral ? (
+          <span className="flex-1 sm:flex-none px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap bg-[#0F1117] text-white text-center">
+            Bilateral Series
+          </span>
+          ) : (
+          <>
           <button
             onClick={() => setIsGroupMode(true)}
             className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg whitespace-nowrap transition-all ${
@@ -301,6 +309,8 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
           >
             League Tournament
           </button>
+          </>
+          )}
         </div>
       </div>
 
@@ -633,6 +643,7 @@ export default function TeamsPage({ tournamentId }: TeamsPageProps) {
         teams={teams}
         grounds={tournament?.grounds || []}
         isGroupMode={isGroupMode}
+        isBilateral={isBilateral}
         startDate={tournament?.startDate}
         onGenerated={() => {
           setFixturesExist(true);

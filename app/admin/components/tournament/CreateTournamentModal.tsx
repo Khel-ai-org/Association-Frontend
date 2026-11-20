@@ -25,6 +25,7 @@ const MATCH_TYPE_OVERS: Partial<Record<MatchType, number>> = { T10: 10, T20: 20,
 const TOURNAMENT_TYPES = [
   { value: 'round_robin_knockout_single', label: 'Single Round Robin', hint: 'Teams play each other once' },
   { value: 'round_robin_knockout_double', label: 'Double Round Robin', hint: 'Teams play each other twice' },
+  { value: 'bilateral_series', label: 'Bilateral Series', hint: '2 teams play a series of matches' },
 ] as const;
 type TournamentType = typeof TOURNAMENT_TYPES[number]['value'];
 
@@ -343,11 +344,16 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
                   inputMode="numeric"
                   pattern="[0-9]*"
                   placeholder="Enter no. of teams"
-                  className={`w-full px-4 py-3 rounded-xl border ${errors.teamCount ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm text-gray-700`}
+                  // A bilateral series is always 2 teams — fixed, not editable.
+                  readOnly={formData.tournamentType === 'bilateral_series'}
+                  className={`w-full px-4 py-3 rounded-xl border ${errors.teamCount ? 'border-red-500' : 'border-slate-200'} focus:border-blue-500 outline-none text-sm ${formData.tournamentType === 'bilateral_series' ? 'bg-slate-50 text-gray-500 cursor-not-allowed' : 'text-gray-700'}`}
                   value={formData.teamCount}
                   onChange={(e) => setFormData({ ...formData, teamCount: e.target.value.replace(/\D/g, '') })}
                 />
                 {errors.teamCount && <p className="text-red-500 text-xs mt-1">{errors.teamCount}</p>}
+                {formData.tournamentType === 'bilateral_series' && !errors.teamCount && (
+                  <p className="text-slate-400 text-xs mt-1">Fixed at 2 for a bilateral series</p>
+                )}
               </div>
 
               <div className="relative" ref={tournamentTypeDropdownRef}>
@@ -371,7 +377,15 @@ export default function CreateTournamentModal({ isOpen, onClose, onCreated }: Cr
                         <div
                           key={t.value}
                           onClick={() => {
-                            setFormData({ ...formData, tournamentType: t.value });
+                            const isBilateral = t.value === 'bilateral_series';
+                            const wasBilateral = formData.tournamentType === 'bilateral_series';
+                            setFormData({
+                              ...formData,
+                              tournamentType: t.value,
+                              // Bilateral = exactly 2 teams; switching away frees the field again.
+                              teamCount: isBilateral ? '2' : wasBilateral ? '' : formData.teamCount,
+                            });
+                            if (isBilateral) setErrors((prev) => ({ ...prev, teamCount: '' }));
                             setIsTournamentTypeDropdownOpen(false);
                           }}
                           className="px-2.5 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"

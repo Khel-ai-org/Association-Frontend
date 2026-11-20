@@ -14,6 +14,8 @@ interface GenerateFixtureModalProps {
   teams: Team[];
   grounds: Ground[];
   isGroupMode: boolean;
+  // Bilateral series: pick the 2 teams + number of matches; no groups/playoffs.
+  isBilateral?: boolean;
   startDate?: string;
   onGenerated: () => void;
 }
@@ -27,9 +29,14 @@ export default function GenerateFixtureModal({
   teams,
   grounds,
   isGroupMode,
+  isBilateral = false,
   startDate,
   onGenerated,
 }: GenerateFixtureModalProps) {
+  // Bilateral series — the two teams (empty until picked) and how many matches they play.
+  const [seriesTeams, setSeriesTeams] = useState<[string, string]>(['', '']);
+  const [openSeriesSlot, setOpenSeriesSlot] = useState<0 | 1 | null>(null);
+  const [numberOfMatches, setNumberOfMatches] = useState('');
   const [groupCount, setGroupCount] = useState(2);
   // Raw text so the field can be edited freely; clamped to 2-10 on blur.
   const [groupCountInput, setGroupCountInput] = useState('2');
@@ -136,6 +143,75 @@ export default function GenerateFixtureModal({
     });
   };
 
+  const renderSeriesTeamPicker = (slot: 0 | 1) => {
+    const selectedId = seriesTeams[slot];
+    const otherId = seriesTeams[slot === 0 ? 1 : 0];
+    const options = teams.filter((t) => t.id !== otherId);
+    return (
+      <div className="relative">
+        <label className="block text-sm font-semibold text-slate-500 mb-1.5">Team {slot + 1}</label>
+        <div
+          onClick={() => setOpenSeriesSlot((s) => (s === slot ? null : slot))}
+          className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm cursor-pointer flex justify-between items-center outline-none transition-all"
+        >
+          <span className={selectedId ? 'text-gray-700' : 'text-gray-400'}>
+            {teams.find((t) => t.id === selectedId)?.name ?? 'Select team'}
+          </span>
+          <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${openSeriesSlot === slot ? 'rotate-180' : ''}`} />
+        </div>
+        {openSeriesSlot === slot && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setOpenSeriesSlot(null)} />
+            <div className="absolute left-0 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-20 max-h-48 overflow-y-auto">
+              {options.length === 0 && <div className="px-4 py-2.5 text-sm text-gray-400">No teams available</div>}
+              {options.map((t) => (
+                <div
+                  key={t.id}
+                  onClick={() => {
+                    setSeriesTeams((prev) => (slot === 0 ? [t.id, prev[1]] : [prev[0], t.id]));
+                    setOpenSeriesSlot(null);
+                  }}
+                  className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-slate-50 ${selectedId === t.id ? 'text-[#5D5FEF] font-semibold bg-indigo-50/50' : 'text-gray-700'}`}
+                >
+                  {t.name}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const postFixtures = async (body: Record<string, unknown>) => {
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentExternalId}/fixtures`,
+        {
+          method: 'POST',
+          headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (response.ok) {
+        onGenerated();
+        resetAndClose();
+        setShowSuccess(true);
+      } else {
+        const errorData = await response.json().catch(() => null);
+        setError(errorData?.message || 'Failed to generate fixtures');
+      }
+    } catch (err) {
+      console.error('Error generating fixtures:', err);
+      setError('Network error. Failed to generate fixtures');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (teams.length === 0) {
       setError('Add teams before generating fixtures.');
@@ -143,6 +219,26 @@ export default function GenerateFixtureModal({
     }
     if (!tournamentExternalId) {
       setError('This tournament is missing its scoring-service id — cannot generate fixtures yet.');
+      return;
+    }
+
+    if (isBilateral) {
+      const [teamA, teamB] = seriesTeams;
+      if (!teamA || !teamB) {
+        setError('Select both teams for the series.');
+        return;
+      }
+      const matches = Number(numberOfMatches);
+      if (!Number.isInteger(matches) || matches < 1) {
+        setError('Enter the number of matches (at least 1).');
+        return;
+      }
+      await postFixtures({
+        team_ids: [teamA, teamB],
+        algorithm: 'bilateral_series',
+        number_of_matches: matches,
+        venues: null,
+      });
       return;
     }
 
@@ -170,40 +266,15 @@ export default function GenerateFixtureModal({
       ? Object.fromEntries(groupNames.map((g) => [g, groupAssignments[g] || []]))
       : null;
 
-    setSubmitting(true);
-    setError('');
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SCORING_API_URL}/api/v1/tournaments/${tournamentExternalId}/fixtures`,
-        {
-          method: 'POST',
-          headers: { 'ngrok-skip-browser-warning': 'true', 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            team_ids,
-            group_configuration,
-            // No visible Date/Venue fields in this modal (matching the
-            // reference app) — derived silently from the tournament itself.
-            //start_date: startDate ? startDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
-            venues: null,
-            no_of_teams_qualify_playoffs: qualifyValue,
-          }),
-        }
-      );
-
-      if (response.ok) {
-        onGenerated();
-        resetAndClose();
-        setShowSuccess(true);
-      } else {
-        const errorData = await response.json().catch(() => null);
-        setError(errorData?.message || 'Failed to generate fixtures');
-      }
-    } catch (err) {
-      console.error('Error generating fixtures:', err);
-      setError('Network error. Failed to generate fixtures');
-    } finally {
-      setSubmitting(false);
-    }
+    await postFixtures({
+      team_ids,
+      group_configuration,
+      // No visible Date/Venue fields in this modal (matching the
+      // reference app) — derived silently from the tournament itself.
+      //start_date: startDate ? startDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      venues: null,
+      no_of_teams_qualify_playoffs: qualifyValue,
+    });
   };
 
   return (
@@ -223,11 +294,35 @@ export default function GenerateFixtureModal({
             <div className="w-16 h-16 bg-[#F4F7FE] rounded-full flex items-center justify-center mb-4">
               <Trophy className="w-7 h-7 text-[#5D5FEF]" />
             </div>
-            <h2 className="text-2xl font-bold text-slate-900">Generate Tournament Fixtures</h2>
-            <p className="text-slate-500 text-sm mt-1 text-center">Configure your tournament structure and generate fixtures</p>
+            <h2 className="text-2xl font-bold text-slate-900">{isBilateral ? 'Generate Bilateral Series' : 'Generate Tournament Fixtures'}</h2>
+            <p className="text-slate-500 text-sm mt-1 text-center">
+              {isBilateral ? 'Select the two teams and how many matches they play' : 'Configure your tournament structure and generate fixtures'}
+            </p>
           </div>
 
           <div className="space-y-4">
+            {isBilateral && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {renderSeriesTeamPicker(0)}
+                  {renderSeriesTeamPicker(1)}
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-500 mb-1.5">No. of Matches</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="Enter no. of matches"
+                    value={numberOfMatches}
+                    onChange={(e) => setNumberOfMatches(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 outline-none text-sm text-gray-700"
+                  />
+                </div>
+              </>
+            )}
+
+            {!isBilateral && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">No. of Total Teams</label>
@@ -274,8 +369,9 @@ export default function GenerateFixtureModal({
                 </div>
               )}
             </div>
+            )}
 
-            {isGroupMode && (
+            {!isBilateral && isGroupMode && (
               <div>
                 <label className="block text-sm font-semibold text-slate-500 mb-2">Select Teams in Each Group</label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -336,7 +432,7 @@ export default function GenerateFixtureModal({
               </div>
             )}
 
-            {isGroupMode && (
+            {!isBilateral && isGroupMode && (
               <div>
                 <label className="block text-sm font-semibold text-slate-500 mb-1.5">Teams Qualifying for Playoffs</label>
                 {renderQualifyDropdown(' each Group', true)}

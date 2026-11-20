@@ -28,6 +28,8 @@ export interface TournamentDetail {
   // columns here are camelCase; these two aren't).
   match_type?: string;
   test_days?: number | null;
+  // Scoring type picked on create: round_robin_knockout_single / _double / bilateral_series (null for older ones).
+  tournament_type?: string | null;
   startDate: string;
   endDate: string;
   grounds?: Ground[];
